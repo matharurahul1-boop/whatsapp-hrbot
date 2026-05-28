@@ -1,0 +1,100 @@
+{
+  "name": "HRBot — Employee Onboarding",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "onboarding",
+        "responseMode": "lastNode"
+      },
+      "name": "Onboarding Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "id": "onboard-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const secret = $input.first().headers['x-n8n-secret'];\nif (secret !== $env.N8N_WEBHOOK_SECRET) throw new Error('Unauthorized');\nreturn $input.all();"
+      },
+      "name": "Validate Secret",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "id": "validate"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/onboarding_sessions?id=eq.{{ $json.body.session_id }}&select=id,status,employee:users!onboarding_sessions_employee_id_fkey(id,full_name,wa_number,department,employee_id),org:organizations!onboarding_sessions_organization_id_fkey(name)",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_ROLE }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE }}" }
+          ]
+        }
+      },
+      "name": "Fetch Session",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [680, 300],
+      "id": "fetch-session"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/onboarding_steps?organization_id=eq.{{ $json.body.org_id }}&is_active=eq.true&select=id,title,description,step_order,step_type&order=step_order",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_ROLE }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE }}" }
+          ]
+        }
+      },
+      "name": "Fetch Steps",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [680, 480],
+      "id": "fetch-steps"
+    },
+    {
+      "parameters": {
+        "jsCode": "const session = $('Fetch Session').first().json[0];\nconst steps   = $('Fetch Steps').all().map(s => s.json);\nconst event   = $('Validate Secret').first().json.body.event;\n\nif (!session || !session.employee?.wa_number) return [];\n\nconst emp  = session.employee;\nconst org  = session.org?.name ?? 'your company';\nconst name = emp.full_name.split(' ')[0];\n\nconst messages = [];\n\nif (event === 'onboarding_started') {\n  let stepsText = steps.slice(0, 5).map((s, i) => `  ${i + 1}. ${s.title}`).join('\\n');\n  messages.push({ json: {\n    to: emp.wa_number,\n    message: `🎉 *Welcome to ${org}, ${name}!*\\n\\nI'm HRBot — your AI HR assistant. I'll guide you through your onboarding.\\n\\n📋 *Your onboarding checklist:*\\n${stepsText}${steps.length > 5 ? `\\n  ...and ${steps.length - 5} more` : ''}\\n\\nLet's get started! Reply with anything to begin. 👋`\n  }});\n} else if (event === 'step_completed') {\n  const stepName    = $('Validate Secret').first().json.body.step_name;\n  const nextStep    = $('Validate Secret').first().json.body.next_step;\n  const totalSteps  = $('Validate Secret').first().json.body.total_steps;\n  const doneCount   = $('Validate Secret').first().json.body.done_count;\n  const pct = Math.round(doneCount / totalSteps * 100);\n  messages.push({ json: {\n    to: emp.wa_number,\n    message: `✅ *Step completed:* ${stepName}\\n\\n📊 Progress: ${doneCount}/${totalSteps} (${pct}%)\\n\\n${nextStep ? `*Next:* ${nextStep}` : '🎊 All steps complete! Welcome aboard!'}`\n  }});\n} else if (event === 'onboarding_complete') {\n  messages.push({ json: {\n    to: emp.wa_number,\n    message: `🎊 *Onboarding Complete!*\\n\\nWelcome aboard, ${name}!\\n🆔 Employee ID: *${emp.employee_id ?? 'Pending'}*\\n🏢 Department: *${emp.department ?? 'TBD'}*\\n\\nYou can now use HRBot for:\\n• ✅ Tasks management\\n• 📅 Leave applications\\n• ⏰ Attendance tracking\\n\\nType *help* anytime to see what I can do! 🤖`\n  }});\n}\n\nreturn messages;"
+      },
+      "name": "Build Welcome Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [920, 380],
+      "id": "build-message"
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.facebook.com/v20.0/{{ $env.WHATSAPP_PHONE_NUMBER_ID }}/messages",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.WHATSAPP_ACCESS_TOKEN }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"messaging_product\": \"whatsapp\", \"recipient_type\": \"individual\", \"to\": \"{{ $json.to }}\", \"type\": \"text\", \"text\": { \"preview_url\": false, \"body\": \"{{ $json.message }}\" } }"
+      },
+      "name": "Send Welcome WA",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1160, 380],
+      "id": "send-wa"
+    }
+  ],
+  "connections": {
+    "Onboarding Webhook": { "main": [[{ "node": "Validate Secret",       "type": "main", "index": 0 }]] },
+    "Validate Secret":    { "main": [[{ "node": "Fetch Session",          "type": "main", "index": 0 }, { "node": "Fetch Steps", "type": "main", "index": 0 }]] },
+    "Fetch Session":      { "main": [[{ "node": "Build Welcome Message",  "type": "main", "index": 0 }]] },
+    "Fetch Steps":        { "main": [[{ "node": "Build Welcome Message",  "type": "main", "index": 0 }]] },
+    "Build Welcome Message": { "main": [[{ "node": "Send Welcome WA",     "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1", "saveDataErrorExecution": "all" }
+}

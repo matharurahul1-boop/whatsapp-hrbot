@@ -1,0 +1,99 @@
+{
+  "name": "WA Inbound Router",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "wa-inbound",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "WA Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "OK"
+      },
+      "name": "Immediate 200 Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [460, 180]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json;\nconst entry = body.entry?.[0];\nconst change = entry?.changes?.[0];\nconst msg = change?.value?.messages?.[0];\nconst contact = change?.value?.contacts?.[0];\nconst phoneNumberId = change?.value?.metadata?.phone_number_id;\n\nif (!msg) return [];\n\nreturn [{\n  json: {\n    wa_message_id: msg.id,\n    from_number: msg.from,\n    contact_name: contact?.profile?.name || '',\n    phone_number_id: phoneNumberId,\n    message_type: msg.type,\n    text: msg.text?.body || msg.button?.payload || msg.interactive?.button_reply?.title || msg.interactive?.list_reply?.title || '',\n    media_id: msg.image?.id || msg.document?.id || msg.audio?.id || null,\n    timestamp: msg.timestamp\n  }\n}];"
+      },
+      "name": "Parse WA Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.NEXT_APP_URL }}/api/agent",
+        "authentication": "predefinedCredentialType",
+        "method": "POST",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "message", "value": "={{ $json.text }}" },
+            { "name": "wa_number", "value": "={{ $json.from_number }}" },
+            { "name": "org_id", "value": "={{ $json.org_id }}" }
+          ]
+        },
+        "options": { "timeout": 30000 }
+      },
+      "name": "Call AI Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.facebook.com/v20.0/{{ $env.WHATSAPP_PHONE_NUMBER_ID }}/messages",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.WHATSAPP_ACCESS_TOKEN }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "messaging_product", "value": "whatsapp" },
+            { "name": "recipient_type", "value": "individual" },
+            { "name": "to", "value": "={{ $('Parse WA Message').item.json.from_number }}" },
+            { "name": "type", "value": "text" },
+            { "name": "text", "value": "={ \"body\": \"{{ $json.message }}\" }" }
+          ]
+        }
+      },
+      "name": "Send WA Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 300]
+    }
+  ],
+  "connections": {
+    "WA Webhook Trigger": {
+      "main": [
+        [
+          { "node": "Immediate 200 Response", "type": "main", "index": 0 },
+          { "node": "Parse WA Message", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Parse WA Message": {
+      "main": [[ { "node": "Call AI Agent", "type": "main", "index": 0 } ]]
+    },
+    "Call AI Agent": {
+      "main": [[ { "node": "Send WA Reply", "type": "main", "index": 0 } ]]
+    }
+  }
+}

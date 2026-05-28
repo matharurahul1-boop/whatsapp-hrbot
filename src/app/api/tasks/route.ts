@@ -1,0 +1,92 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
+import { writeAuditLog } from '@/lib/utils/audit';
+import { z } from 'zod';
+
+const CreateTaskSchema = z.object({
+  title:       z.string().min(1).max(200),
+  description: z.string().max(2000).optional(),
+  assignee_id: z.string().uuid().optional(),
+  deadline:    z.string().datetime().optional(),
+  priority:    z.enum(['low','medium','high','urgent']).default('medium'),
+  status:      z.enum(['todo','in_progress','done','cancelled']).default('todo'),
+});
+
+// GET /api/tasks — list tasks for authenticated user's org
+export async function GET(req: NextRequest) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const db = createAdminClient();
+  const { data: profile } = await db.from('users').select('organization_id, role').eq('id', user.id).single();
+  if (!profile) return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
+
+  const { searchParams } = req.nextUrl;
+  const status   = searchParams.get('status');
+  const priority = searchParams.get('priority');
+  const assignee = searchParams.get('assignee_id');
+  const page     = parseInt(searchParams.get('page') ?? '1');
+  const limit    = Math.min(parseInt(searchParams.get('limit') ?? '50'), 100);
+  const offset   = (page - 1) * limit;
+
+  let query = db
+    .from('tasks')
+    .select(`
+      *,
+      assignee:users!tasks_assignee_id_fkey(id, full_name, avatar_url),
+      creator:users!tasks_created_by_fkey(id, full_name),
+      comments:task_comments(count)
+    `, { count: 'exact' })
+    .eq('organization_id', profile.organization_id)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (status)   query = query.eq('status', status);
+  if (priority) query = query.eq('priority', priority);
+
+  // Employees only see their own + assigned tasks
+  if (profile.role === 'employee') {
+    if (assignee) {
+      query = query.eq('assignee_id', user.id);
+    } else {
+      query = query.or(`assignee_id.eq.${user.id},created_by.eq.${user.id}`);
+    }
+  } else if (assignee) {
+    query = query.eq('assignee_id', assignee);
+  }
+
+  const { data, error, count } = await query;
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  return NextResponse.json({ data, total: count, page, limit });
+}
+
+// POST /api/tasks — create task
+export async function POST(req: NextRequest) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const body = await req.json();
+  const parsed = CreateTaskSchema.safeParse(body);
+  if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 422 });
+
+  const db = createAdminClient();
+  const { data: profile } = await db.from('users').select('organization_id, role').eq('id', user.id).single();
+  if (!profile) return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
+
+  const { data: task, error } = await db.from('tasks').insert({
+    ...parsed.data,
+    organization_id: profile.organization_id,
+    created_by: user.id,
+  }).select().single();
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  await writeAuditLog({ org_id: profile.organization_id, actor_id: user.id, action: 'CREATE', table_name: 'tasks', record_id: task.id, new_data: task });
+
+  return NextResponse.json({ data: task }, { status: 201 });
+}

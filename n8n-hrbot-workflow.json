@@ -1,0 +1,457 @@
+{
+  "name": "HRBot WhatsApp AI Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp-webhook",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "node-001",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "f01", "name": "phone",     "value": "={{ $json.body.entry[0].changes[0].value.messages[0].from }}", "type": "string" },
+            { "id": "f02", "name": "text",      "value": "={{ $json.body.entry[0].changes[0].value.messages[0].text.body }}", "type": "string" },
+            { "id": "f03", "name": "messageId", "value": "={{ $json.body.entry[0].changes[0].value.messages[0].id }}", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-002",
+      "name": "Extract Message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/users?wa_number=eq.{{ $json.phone }}&select=id,full_name,role,organization_id&limit=1",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_KEY }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-003",
+      "name": "Lookup User",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "f04", "name": "phone",  "value": "={{ $('Extract Message').item.json.phone }}", "type": "string" },
+            { "id": "f05", "name": "text",   "value": "={{ $('Extract Message').item.json.text }}",  "type": "string" },
+            { "id": "f06", "name": "userId", "value": "={{ $json[0].id }}",              "type": "string" },
+            { "id": "f07", "name": "userName","value": "={{ $json[0].full_name }}",       "type": "string" },
+            { "id": "f08", "name": "userRole","value": "={{ $json[0].role }}",            "type": "string" },
+            { "id": "f09", "name": "orgId",  "value": "={{ $json[0].organization_id }}", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-004",
+      "name": "Merge Context",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-api-key",          "value": "={{ $env.ANTHROPIC_API_KEY }}" },
+            { "name": "anthropic-version",  "value": "2023-06-01" },
+            { "name": "content-type",       "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={ \"model\":\"claude-3-haiku-20240307\",\"max_tokens\":100,\"system\":\"Classify into ONE intent: attendance_checkin | attendance_checkout | list_tasks | apply_leave | leave_balance | help | general_chat. Reply ONLY valid JSON: {\\\"intent\\\":\\\"<name>\\\"}\",\"messages\":[{\"role\":\"user\",\"content\":\"{{ $json.text }}\"}] }",
+        "options": {}
+      },
+      "id": "node-005",
+      "name": "AI Classify Intent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "f10", "name": "phone",    "value": "={{ $('Merge Context').item.json.phone }}",    "type": "string" },
+            { "id": "f11", "name": "text",     "value": "={{ $('Merge Context').item.json.text }}",     "type": "string" },
+            { "id": "f12", "name": "userId",   "value": "={{ $('Merge Context').item.json.userId }}",   "type": "string" },
+            { "id": "f13", "name": "userName", "value": "={{ $('Merge Context').item.json.userName }}", "type": "string" },
+            { "id": "f14", "name": "userRole", "value": "={{ $('Merge Context').item.json.userRole }}", "type": "string" },
+            { "id": "f15", "name": "orgId",    "value": "={{ $('Merge Context').item.json.orgId }}",    "type": "string" },
+            { "id": "f16", "name": "intent",   "value": "={{ JSON.parse($json.content[0].text).intent }}", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-006",
+      "name": "Set Intent",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1100, 300]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "rules": [
+            { "outputKey": "checkin",       "conditions": { "options": { "caseSensitive": false }, "conditions": [{ "leftValue": "={{ $json.intent }}", "rightValue": "attendance_checkin",  "operator": { "type": "string", "operation": "equals" } }] } },
+            { "outputKey": "checkout",      "conditions": { "options": { "caseSensitive": false }, "conditions": [{ "leftValue": "={{ $json.intent }}", "rightValue": "attendance_checkout", "operator": { "type": "string", "operation": "equals" } }] } },
+            { "outputKey": "tasks",         "conditions": { "options": { "caseSensitive": false }, "conditions": [{ "leftValue": "={{ $json.intent }}", "rightValue": "list_tasks",          "operator": { "type": "string", "operation": "equals" } }] } },
+            { "outputKey": "apply_leave",   "conditions": { "options": { "caseSensitive": false }, "conditions": [{ "leftValue": "={{ $json.intent }}", "rightValue": "apply_leave",         "operator": { "type": "string", "operation": "equals" } }] } },
+            { "outputKey": "leave_balance", "conditions": { "options": { "caseSensitive": false }, "conditions": [{ "leftValue": "={{ $json.intent }}", "rightValue": "leave_balance",       "operator": { "type": "string", "operation": "equals" } }] } },
+            { "outputKey": "help",          "conditions": { "options": { "caseSensitive": false }, "conditions": [{ "leftValue": "={{ $json.intent }}", "rightValue": "help",                "operator": { "type": "string", "operation": "equals" } }] } }
+          ]
+        },
+        "fallbackOutput": "none",
+        "options": {}
+      },
+      "id": "node-007",
+      "name": "Intent Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [1320, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/attendance_records",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Prefer",        "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={ \"organization_id\":\"{{ $json.orgId }}\",\"employee_id\":\"{{ $json.userId }}\",\"date\":\"{{ new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Kolkata'}) }}\",\"check_in_time\":\"{{ new Date().toISOString() }}\",\"status\":\"present\" }",
+        "options": {}
+      },
+      "id": "node-008",
+      "name": "Check In",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 60]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "r01", "name": "phone",     "value": "={{ $('Set Intent').item.json.phone }}",    "type": "string" },
+            { "id": "r02", "name": "replyText", "value": "=✅ Checked in at *{{ new Date().toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour:'2-digit',minute:'2-digit'}) }}*. Have a great day!", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-009",
+      "name": "Reply CheckIn",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1780, 60]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/attendance_records?employee_id=eq.{{ $json.userId }}&date=eq.{{ new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Kolkata'}) }}&check_out_time=is.null",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Prefer",        "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={ \"check_out_time\":\"{{ new Date().toISOString() }}\" }",
+        "options": {}
+      },
+      "id": "node-010",
+      "name": "Check Out",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 180]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "r03", "name": "phone",     "value": "={{ $('Set Intent').item.json.phone }}",    "type": "string" },
+            { "id": "r04", "name": "replyText", "value": "=👋 Checked out at *{{ new Date().toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour:'2-digit',minute:'2-digit'}) }}*. See you tomorrow!", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-011",
+      "name": "Reply CheckOut",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1780, 180]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/tasks?assignee_id=eq.{{ $json.userId }}&status=in.(todo,in_progress)&select=title,status,priority,deadline&order=deadline.asc.nullslast&limit=8",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_KEY }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-012",
+      "name": "Get Tasks",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "r05", "name": "phone",     "value": "={{ $('Set Intent').item.json.phone }}", "type": "string" },
+            { "id": "r06", "name": "replyText", "value": "=📋 *Your Tasks*\n\n{{ $json.map((t,i)=>`${i+1}. ${t.status==='in_progress'?'🔄':'⏳'} *${t.title}*${t.deadline?' | '+new Date(t.deadline).toLocaleDateString('en-IN'):''}`).join('\\n') }}\n\nWhat else can I help you with?", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-013",
+      "name": "Reply Tasks",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1780, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/leave_requests",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_KEY }}" },
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "Prefer",        "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={ \"organization_id\":\"{{ $json.orgId }}\",\"employee_id\":\"{{ $json.userId }}\",\"leave_type_id\":null,\"start_date\":\"{{ new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Kolkata'}) }}\",\"end_date\":\"{{ new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Kolkata'}) }}\",\"duration_days\":1,\"status\":\"pending\",\"reason\":\"{{ $json.text }}\" }",
+        "options": {}
+      },
+      "id": "node-014",
+      "name": "Apply Leave",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 420]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "r07", "name": "phone",     "value": "={{ $('Set Intent').item.json.phone }}", "type": "string" },
+            { "id": "r08", "name": "replyText", "value": "📅 Leave request submitted! Status: ⏳ Pending approval.\n\nWhat else can I help you with?", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-015",
+      "name": "Reply Leave Applied",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1780, 420]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/leave_balances?employee_id=eq.{{ $json.userId }}&year=eq.{{ new Date().getFullYear() }}&select=entitled_days,used_days,leave_types(name)",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_KEY }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-016",
+      "name": "Get Leave Balance",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 540]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "r09", "name": "phone",     "value": "={{ $('Set Intent').item.json.phone }}", "type": "string" },
+            { "id": "r10", "name": "replyText", "value": "=📊 *Leave Balance {{ new Date().getFullYear() }}*\n\n{{ $json.map(b=>`• *${b.leave_types?.name}*: ${b.entitled_days - b.used_days}/${b.entitled_days} days`).join('\\n') }}\n\nWhat else can I help you with?", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-017",
+      "name": "Reply Leave Balance",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1780, 540]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "r11", "name": "phone",     "value": "={{ $('Set Intent').item.json.phone }}", "type": "string" },
+            { "id": "r12", "name": "replyText", "value": "🤖 *HRBot Commands*\n\n⏰ *checkin* — Mark arrival\n⏰ *checkout* — Mark departure\n📋 *my tasks* — View tasks\n📅 *apply leave* — Request leave\n📊 *leave balance* — Check days left\n❓ *help* — Show this menu\n\nPowered by Claude AI 🧠", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-018",
+      "name": "Reply Help",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1560, 660]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-api-key",         "value": "={{ $env.ANTHROPIC_API_KEY }}" },
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type",      "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={ \"model\":\"claude-3-5-sonnet-20241022\",\"max_tokens\":300,\"system\":\"You are HRBot, a friendly WhatsApp HR assistant. Reply in max 3 short sentences. Use *bold* for key info. End with: What else can I help you with?\",\"messages\":[{\"role\":\"user\",\"content\":\"{{ $json.text }}\"}] }",
+        "options": {}
+      },
+      "id": "node-019",
+      "name": "General Chat AI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 780]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "r13", "name": "phone",     "value": "={{ $('Set Intent').item.json.phone }}", "type": "string" },
+            { "id": "r14", "name": "replyText", "value": "={{ $json.content[0].text }}", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-020",
+      "name": "Reply General Chat",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1780, 780]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v20.0/{{ $env.WHATSAPP_PHONE_NUMBER_ID }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.WHATSAPP_ACCESS_TOKEN }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={ \"messaging_product\":\"whatsapp\",\"to\":\"{{ $json.phone }}\",\"type\":\"text\",\"text\":{\"body\":\"{{ $json.replyText }}\"} }",
+        "options": {}
+      },
+      "id": "node-021",
+      "name": "Send WhatsApp Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2000, 420]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\":\"ok\" }",
+        "options": {}
+      },
+      "id": "node-022",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2220, 420]
+    }
+  ],
+  "connections": {
+    "Webhook":           { "main": [[{ "node": "Extract Message",   "type": "main", "index": 0 }]] },
+    "Extract Message":   { "main": [[{ "node": "Lookup User",       "type": "main", "index": 0 }]] },
+    "Lookup User":       { "main": [[{ "node": "Merge Context",     "type": "main", "index": 0 }]] },
+    "Merge Context":     { "main": [[{ "node": "AI Classify Intent","type": "main", "index": 0 }]] },
+    "AI Classify Intent":{ "main": [[{ "node": "Set Intent",        "type": "main", "index": 0 }]] },
+    "Set Intent":        { "main": [[{ "node": "Intent Router",     "type": "main", "index": 0 }]] },
+    "Intent Router": {
+      "main": [
+        [{ "node": "Check In",        "type": "main", "index": 0 }],
+        [{ "node": "Check Out",       "type": "main", "index": 0 }],
+        [{ "node": "Get Tasks",       "type": "main", "index": 0 }],
+        [{ "node": "Apply Leave",     "type": "main", "index": 0 }],
+        [{ "node": "Get Leave Balance","type": "main","index": 0 }],
+        [{ "node": "Reply Help",      "type": "main", "index": 0 }],
+        [{ "node": "General Chat AI", "type": "main", "index": 0 }]
+      ]
+    },
+    "Check In":          { "main": [[{ "node": "Reply CheckIn",      "type": "main", "index": 0 }]] },
+    "Check Out":         { "main": [[{ "node": "Reply CheckOut",     "type": "main", "index": 0 }]] },
+    "Get Tasks":         { "main": [[{ "node": "Reply Tasks",        "type": "main", "index": 0 }]] },
+    "Apply Leave":       { "main": [[{ "node": "Reply Leave Applied","type": "main", "index": 0 }]] },
+    "Get Leave Balance": { "main": [[{ "node": "Reply Leave Balance","type": "main", "index": 0 }]] },
+    "Reply Help":        { "main": [[{ "node": "Send WhatsApp Reply","type": "main", "index": 0 }]] },
+    "General Chat AI":   { "main": [[{ "node": "Reply General Chat", "type": "main", "index": 0 }]] },
+    "Reply CheckIn":     { "main": [[{ "node": "Send WhatsApp Reply","type": "main", "index": 0 }]] },
+    "Reply CheckOut":    { "main": [[{ "node": "Send WhatsApp Reply","type": "main", "index": 0 }]] },
+    "Reply Tasks":       { "main": [[{ "node": "Send WhatsApp Reply","type": "main", "index": 0 }]] },
+    "Reply Leave Applied":{ "main": [[{ "node": "Send WhatsApp Reply","type": "main","index": 0 }]] },
+    "Reply Leave Balance":{ "main": [[{ "node": "Send WhatsApp Reply","type": "main","index": 0 }]] },
+    "Reply General Chat":{ "main": [[{ "node": "Send WhatsApp Reply","type": "main", "index": 0 }]] },
+    "Send WhatsApp Reply":{ "main": [[{ "node": "Respond to Webhook","type": "main", "index": 0 }]] }
+  },
+  "pinData": {},
+  "settings": { "executionOrder": "v1" },
+  "staticData": null,
+  "tags": ["hrbot", "whatsapp", "ai"],
+  "triggerCount": 0,
+  "versionId": "1"
+}

@@ -1,0 +1,101 @@
+{
+  "name": "HRBot — Leave Notifications",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "leave-notification",
+        "responseMode": "lastNode",
+        "options": { "rawBody": true }
+      },
+      "name": "Leave Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "id": "leave-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate secret\nconst secret = $input.first().headers['x-n8n-secret'];\nif (secret !== $env.N8N_WEBHOOK_SECRET) {\n  throw new Error('Unauthorized');\n}\nreturn $input.all();"
+      },
+      "name": "Validate Secret",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "id": "validate-secret"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/leave_requests?id=eq.{{ $json.body.leave_request_id }}&select=id,start_date,end_date,duration_days,reason,status,employee:users!leave_requests_employee_id_fkey(id,full_name,wa_number,manager_id),leave_type:leave_types(name,color)",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_ROLE }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE }}" }
+          ]
+        }
+      },
+      "name": "Fetch Leave Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [680, 300],
+      "id": "fetch-leave"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/users?id=eq.{{ $json[0].employee.manager_id }}&select=id,full_name,wa_number",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_ROLE }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE }}" }
+          ]
+        }
+      },
+      "name": "Fetch Manager",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 300],
+      "id": "fetch-manager"
+    },
+    {
+      "parameters": {
+        "jsCode": "const req     = $('Fetch Leave Request').first().json[0];\nconst manager = $('Fetch Manager').first().json[0];\nconst event   = $('Validate Secret').first().json.body.event;\n\nif (!req || !manager?.wa_number) return [];\n\nconst emp  = req.employee;\nconst lt   = req.leave_type;\nconst from = new Date(req.start_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });\nconst to   = new Date(req.end_date).toLocaleDateString('en-IN',   { day: 'numeric', month: 'short' });\n\nlet managerMsg = '';\nlet employeeMsg = '';\n\nif (event === 'leave_applied') {\n  managerMsg  = `📅 *Leave Request*\\n\\n👤 *${emp.full_name}* has applied for leave.\\n🏷 ${lt.name}\\n📆 ${from} → ${to} (${req.duration_days} day${req.duration_days > 1 ? 's' : ''})\\n${req.reason ? `📝 Reason: ${req.reason}` : ''}\\n\\nReply *approve ${emp.full_name.split(' ')[0].toLowerCase()} leave* to approve or *reject ${emp.full_name.split(' ')[0].toLowerCase()} leave* to reject.`;\n  employeeMsg = `📅 Your *${lt.name}* leave request has been submitted!\\n📆 ${from} → ${to}\\n⏳ Status: *Pending approval*\\n\\nYour manager will review it shortly.`;\n} else if (event === 'leave_approved') {\n  employeeMsg = `✅ Your *${lt.name}* leave has been *approved*!\\n📆 ${from} → ${to}\\nEnjoy your time off! 🌴`;\n} else if (event === 'leave_rejected') {\n  employeeMsg = `❌ Your *${lt.name}* leave request was *rejected*.\\n📆 ${from} → ${to}\\n${req.remarks ? `📝 Remarks: ${req.remarks}` : ''}\\n\\nContact your manager for more information.`;\n}\n\nconst messages = [];\nif (managerMsg && manager.wa_number)  messages.push({ json: { to: manager.wa_number, message: managerMsg } });\nif (employeeMsg && emp.wa_number)      messages.push({ json: { to: emp.wa_number,     message: employeeMsg } });\n\nreturn messages;"
+      },
+      "name": "Build Messages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300],
+      "id": "build-messages"
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.facebook.com/v20.0/{{ $env.WHATSAPP_PHONE_NUMBER_ID }}/messages",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.WHATSAPP_ACCESS_TOKEN }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"messaging_product\": \"whatsapp\", \"recipient_type\": \"individual\", \"to\": \"{{ $json.to }}\", \"type\": \"text\", \"text\": { \"preview_url\": false, \"body\": \"{{ $json.message }}\" } }"
+      },
+      "name": "Send WA Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1340, 300],
+      "id": "send-wa"
+    }
+  ],
+  "connections": {
+    "Leave Webhook":      { "main": [[{ "node": "Validate Secret",    "type": "main", "index": 0 }]] },
+    "Validate Secret":    { "main": [[{ "node": "Fetch Leave Request", "type": "main", "index": 0 }]] },
+    "Fetch Leave Request":{ "main": [[{ "node": "Fetch Manager",       "type": "main", "index": 0 }]] },
+    "Fetch Manager":      { "main": [[{ "node": "Build Messages",      "type": "main", "index": 0 }]] },
+    "Build Messages":     { "main": [[{ "node": "Send WA Message",     "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1", "saveDataErrorExecution": "all" }
+}

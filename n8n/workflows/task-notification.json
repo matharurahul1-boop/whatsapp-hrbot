@@ -1,0 +1,82 @@
+{
+  "name": "HRBot — Task Notifications",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "task-notification",
+        "responseMode": "lastNode"
+      },
+      "name": "Task Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "id": "task-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const secret = $input.first().headers['x-n8n-secret'];\nif (secret !== $env.N8N_WEBHOOK_SECRET) throw new Error('Unauthorized');\nreturn $input.all();"
+      },
+      "name": "Validate Secret",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "id": "validate"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/tasks?id=eq.{{ $json.body.task_id }}&select=id,title,description,priority,deadline,assignee:users!tasks_assignee_id_fkey(id,full_name,wa_number),creator:users!tasks_created_by_fkey(full_name)",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_ROLE }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE }}" }
+          ]
+        }
+      },
+      "name": "Fetch Task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [680, 300],
+      "id": "fetch-task"
+    },
+    {
+      "parameters": {
+        "jsCode": "const task  = $('Fetch Task').first().json[0];\nconst event = $('Validate Secret').first().json.body.event;\nif (!task || !task.assignee?.wa_number) return [];\n\nconst due     = task.deadline ? new Date(task.deadline).toLocaleDateString('en-IN', { day:'numeric', month:'short' }) : 'No deadline';\nconst prio    = (task.priority || 'medium').toUpperCase();\nconst creator = task.creator?.full_name ?? 'Admin';\n\nlet message = '';\n\nif (event === 'task_assigned') {\n  message = `📋 *New Task Assigned*\\n\\nHi ${task.assignee.full_name.split(' ')[0]}!\\n\\n*${task.title}*\\n${task.description ? task.description + '\\n' : ''}\\n🚨 Priority: ${prio}\\n🗓 Due: ${due}\\n👤 Assigned by: ${creator}\\n\\nReply *my tasks* to view all your tasks.`;\n} else if (event === 'task_completed') {\n  message = `✅ Task marked as complete: *${task.title}*\\n\\nGreat work, ${task.assignee.full_name.split(' ')[0]}! 🎉`;\n} else if (event === 'task_overdue') {\n  message = `⚠️ *Overdue Task*\\n\\n📋 *${task.title}* was due *${due}*.\\n\\nPlease update the status or contact your manager.`;\n}\n\nif (!message) return [];\nreturn [{ json: { to: task.assignee.wa_number, message } }];"
+      },
+      "name": "Build Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "id": "build-message"
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.facebook.com/v20.0/{{ $env.WHATSAPP_PHONE_NUMBER_ID }}/messages",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.WHATSAPP_ACCESS_TOKEN }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"messaging_product\": \"whatsapp\", \"recipient_type\": \"individual\", \"to\": \"{{ $json.to }}\", \"type\": \"text\", \"text\": { \"preview_url\": false, \"body\": \"{{ $json.message }}\" } }"
+      },
+      "name": "Send WA Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1120, 300],
+      "id": "send-wa"
+    }
+  ],
+  "connections": {
+    "Task Webhook":    { "main": [[{ "node": "Validate Secret", "type": "main", "index": 0 }]] },
+    "Validate Secret": { "main": [[{ "node": "Fetch Task",       "type": "main", "index": 0 }]] },
+    "Fetch Task":      { "main": [[{ "node": "Build Message",    "type": "main", "index": 0 }]] },
+    "Build Message":   { "main": [[{ "node": "Send WA Message",  "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1", "saveDataErrorExecution": "all" }
+}

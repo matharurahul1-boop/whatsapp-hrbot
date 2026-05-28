@@ -1,0 +1,137 @@
+{
+  "name": "HRBot — Daily Reminders",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "cronExpression", "expression": "0 9 * * 1-5" }] }
+      },
+      "name": "Every Weekday 9AM IST",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "id": "cron-trigger"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/organizations?select=id,name,wa_phone_number_id,wa_access_token",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_ROLE }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE }}" }
+          ]
+        }
+      },
+      "name": "Fetch All Orgs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [460, 300],
+      "id": "fetch-orgs"
+    },
+    {
+      "parameters": { "batchSize": 1 },
+      "name": "Split Orgs",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [680, 300],
+      "id": "split-orgs"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/tasks?organization_id=eq.{{ $json.id }}&status=not.in.(done,cancelled)&deleted_at=is.null&select=id,title,deadline,assignee:users!tasks_assignee_id_fkey(full_name,wa_number)&limit=50",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_ROLE }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE }}" }
+          ]
+        }
+      },
+      "name": "Fetch Due Tasks",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 180],
+      "id": "fetch-tasks"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/users?organization_id=eq.{{ $('Split Orgs').item.json.id }}&is_active=eq.true&deleted_at=is.null&select=id,full_name,wa_number&limit=200",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_ROLE }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE }}" }
+          ]
+        }
+      },
+      "name": "Fetch Employees",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 380],
+      "id": "fetch-employees"
+    },
+    {
+      "parameters": {
+        "jsCode": "const tasks      = $('Fetch Due Tasks').all();\nconst employees  = $('Fetch Employees').all();\nconst tomorrow   = new Date(Date.now() + 24*3600*1000).toISOString().split('T')[0];\nconst today      = new Date().toISOString().split('T')[0];\nconst messages   = [];\n\n// Task reminders for assignees\nfor (const t of tasks) {\n  const task = t.json;\n  if (!task.assignee?.wa_number) continue;\n  const due = task.deadline?.split('T')[0];\n  if (due === today || due === tomorrow) {\n    const when = due === today ? 'today' : 'tomorrow';\n    messages.push({\n      json: {\n        to: task.assignee.wa_number,\n        message: `⏰ *Task Reminder*\\n\\n📋 *${task.title}*\\n🗓 Due *${when}*\\n\\nPlease update the task status. Reply with \\\"my tasks\\\" to view all open tasks.`\n      }\n    });\n  }\n}\n\n// Morning check-in nudge for all active employees\nfor (const e of employees) {\n  const emp = e.json;\n  if (!emp.wa_number) continue;\n  messages.push({\n    json: {\n      to: emp.wa_number,\n      message: `🌅 Good morning, *${emp.full_name?.split(' ')[0] || 'there'}*!\\n\\nDon't forget to check in for today. Reply *checkin* to mark your attendance.`\n    }\n  });\n}\n\nreturn messages;"
+      },
+      "name": "Build Messages",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1140, 300],
+      "id": "build-messages"
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.facebook.com/v20.0/{{ $env.WHATSAPP_PHONE_NUMBER_ID }}/messages",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.WHATSAPP_ACCESS_TOKEN }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"messaging_product\": \"whatsapp\", \"recipient_type\": \"individual\", \"to\": \"{{ $json.to }}\", \"type\": \"text\", \"text\": { \"preview_url\": false, \"body\": \"{{ $json.message }}\" } }"
+      },
+      "name": "Send WA Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1360, 300],
+      "id": "send-message"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/n8n_workflow_logs",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_ROLE }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE }}" },
+            { "name": "Content-Type",  "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"workflow_name\": \"daily-reminders\", \"status\": \"success\", \"payload\": { \"sent\": {{ $node['Build Messages'].data.length }}, \"timestamp\": \"{{ new Date().toISOString() }}\" } }"
+      },
+      "name": "Log Result",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1580, 300],
+      "id": "log-result"
+    }
+  ],
+  "connections": {
+    "Every Weekday 9AM IST": { "main": [[{ "node": "Fetch All Orgs",   "type": "main", "index": 0 }]] },
+    "Fetch All Orgs":         { "main": [[{ "node": "Split Orgs",       "type": "main", "index": 0 }]] },
+    "Split Orgs":             { "main": [[{ "node": "Fetch Due Tasks",  "type": "main", "index": 0 }, { "node": "Fetch Employees", "type": "main", "index": 0 }]] },
+    "Fetch Due Tasks":        { "main": [[{ "node": "Build Messages",   "type": "main", "index": 0 }]] },
+    "Fetch Employees":        { "main": [[{ "node": "Build Messages",   "type": "main", "index": 0 }]] },
+    "Build Messages":         { "main": [[{ "node": "Send WA Message",  "type": "main", "index": 0 }]] },
+    "Send WA Message":        { "main": [[{ "node": "Log Result",       "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1", "saveDataErrorExecution": "all", "saveDataSuccessExecution": "last" }
+}

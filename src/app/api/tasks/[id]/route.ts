@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { createAdminClient } from '@/lib/supabase/admin';
-import { writeAuditLog } from '@/lib/utils/audit';
+import { createClient }       from '@/lib/supabase/server';
+import { createAdminClient }  from '@/lib/supabase/admin';
+import { writeAuditLog }      from '@/lib/utils/audit';
+import { notifyTaskAssigned } from '@/lib/whatsapp/task-notify';
 import { z } from 'zod';
 
 const UpdateTaskSchema = z.object({
@@ -75,6 +76,21 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   await writeAuditLog({ org_id: profile.organization_id, actor_id: user.id, action: 'UPDATE', table_name: 'tasks', record_id: id, old_data: task, new_data: updated });
+
+  // WhatsApp notification — only when the assignee changed to someone else
+  const newAssigneeId = parsed.data.assignee_id;
+  if (newAssigneeId && newAssigneeId !== task.assignee_id && newAssigneeId !== user.id) {
+    const { data: creator } = await db.from('users').select('full_name').eq('id', user.id).single();
+    notifyTaskAssigned({
+      orgId:       profile.organization_id,
+      taskId:      id,
+      taskTitle:   updated.title,
+      priority:    updated.priority,
+      deadline:    updated.deadline ?? null,
+      assigneeId:  newAssigneeId,
+      creatorName: creator?.full_name ?? 'your manager',
+    }).catch(() => {});
+  }
 
   return NextResponse.json({ data: updated });
 }

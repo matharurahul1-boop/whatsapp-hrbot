@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { createAdminClient } from '@/lib/supabase/admin';
-import { writeAuditLog } from '@/lib/utils/audit';
+import { createClient }       from '@/lib/supabase/server';
+import { createAdminClient }  from '@/lib/supabase/admin';
+import { writeAuditLog }      from '@/lib/utils/audit';
+import { notifyTaskAssigned } from '@/lib/whatsapp/task-notify';
 import { z } from 'zod';
 
 const CreateTaskSchema = z.object({
@@ -87,6 +88,21 @@ export async function POST(req: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   await writeAuditLog({ org_id: profile.organization_id, actor_id: user.id, action: 'CREATE', table_name: 'tasks', record_id: task.id, new_data: task });
+
+  // WhatsApp notification — only when assigned to someone else
+  const assigneeId = parsed.data.assignee_id;
+  if (assigneeId && assigneeId !== user.id) {
+    const { data: creator } = await db.from('users').select('full_name').eq('id', user.id).single();
+    notifyTaskAssigned({
+      orgId:       profile.organization_id,
+      taskId:      task.id,
+      taskTitle:   task.title,
+      priority:    task.priority,
+      deadline:    task.deadline ?? null,
+      assigneeId,
+      creatorName: creator?.full_name ?? 'your manager',
+    }).catch(() => {}); // already swallows errors but being explicit
+  }
 
   return NextResponse.json({ data: task }, { status: 201 });
 }

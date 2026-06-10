@@ -37,10 +37,16 @@ const ROLE_LABELS: Record<string, string> = {
   employee:    'Employee',
 };
 
-export default function EmployeeGrid({ employees, canEdit }: EmployeeGridProps) {
-  const [search, setSearch]     = useState('');
-  const [dept,   setDept]       = useState('');
-  const [selected, setSelected] = useState<Employee | null>(null);
+export default function EmployeeGrid({ employees: initialEmployees, canEdit }: EmployeeGridProps) {
+  const [search,     setSearch]     = useState('');
+  const [dept,       setDept]       = useState('');
+  const [employees,  setEmployees]  = useState(initialEmployees);
+  const [selected,   setSelected]   = useState<Employee | null>(null);
+
+  function handleUpdated(id: string, patch: Partial<Employee>) {
+    setEmployees(prev => prev.map(e => e.id === id ? { ...e, ...patch } : e));
+    setSelected(prev => prev?.id === id ? { ...prev, ...patch } : prev);
+  }
 
   const departments = useMemo(
     () => [...new Set(employees.map(e => e.department).filter(Boolean) as string[])].sort(),
@@ -157,6 +163,7 @@ export default function EmployeeGrid({ employees, canEdit }: EmployeeGridProps) 
         employee={selected}
         onClose={() => setSelected(null)}
         canEdit={canEdit}
+        onUpdated={patch => selected && handleUpdated(selected.id, patch)}
       />
     </>
   );

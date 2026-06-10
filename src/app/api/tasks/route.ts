@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient }       from '@/lib/supabase/server';
 import { createAdminClient }  from '@/lib/supabase/admin';
 import { writeAuditLog }      from '@/lib/utils/audit';
-import { notifyTaskAssigned } from '@/lib/whatsapp/task-notify';
+import { notifyTaskAssigned } from '@/lib/whatsapp/notify';
 import { z } from 'zod';
 
 const CreateTaskSchema = z.object({

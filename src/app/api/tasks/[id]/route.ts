@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient }       from '@/lib/supabase/server';
 import { createAdminClient }  from '@/lib/supabase/admin';
 import { writeAuditLog }      from '@/lib/utils/audit';
-import { notifyTaskAssigned } from '@/lib/whatsapp/task-notify';
+import { notifyTaskAssigned, notifyTaskCompleted } from '@/lib/whatsapp/notify';
 import { z } from 'zod';
 
 const UpdateTaskSchema = z.object({
@@ -77,18 +77,35 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   await writeAuditLog({ org_id: profile.organization_id, actor_id: user.id, action: 'UPDATE', table_name: 'tasks', record_id: id, old_data: task, new_data: updated });
 
-  // WhatsApp notification — only when the assignee changed to someone else
+  const { data: actor } = await db.from('users').select('full_name').eq('id', user.id).single();
+  const actorName = actor?.full_name ?? 'your manager';
+
+  // Notify on assignee change
   const newAssigneeId = parsed.data.assignee_id;
   if (newAssigneeId && newAssigneeId !== task.assignee_id && newAssigneeId !== user.id) {
-    const { data: creator } = await db.from('users').select('full_name').eq('id', user.id).single();
     notifyTaskAssigned({
       orgId:       profile.organization_id,
-      taskId:      id,
       taskTitle:   updated.title,
       priority:    updated.priority,
       deadline:    updated.deadline ?? null,
       assigneeId:  newAssigneeId,
-      creatorName: creator?.full_name ?? 'your manager',
+      creatorName: actorName,
+    }).catch(() => {});
+  }
+
+  // Notify creator when task is marked completed (and they're not the one completing it)
+  const justCompleted =
+    parsed.data.status === 'done' &&
+    task.status !== 'done' &&
+    updated.created_by &&
+    updated.created_by !== user.id;
+
+  if (justCompleted) {
+    notifyTaskCompleted({
+      orgId:           profile.organization_id,
+      taskTitle:       updated.title,
+      completedByName: actorName,
+      creatorId:       updated.created_by,
     }).catch(() => {});
   }
 

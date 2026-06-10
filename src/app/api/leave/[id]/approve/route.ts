@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { createAdminClient } from '@/lib/supabase/admin';
-import { writeAuditLog } from '@/lib/utils/audit';
+import { createClient }        from '@/lib/supabase/server';
+import { createAdminClient }   from '@/lib/supabase/admin';
+import { writeAuditLog }       from '@/lib/utils/audit';
+import { notifyLeaveDecision } from '@/lib/whatsapp/notify';
 import { z } from 'zod';
 
 const ActionSchema = z.object({
@@ -32,7 +33,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const { data: request, error: fetchErr } = await db
     .from('leave_requests')
-    .select('*, employee:users!leave_requests_employee_id_fkey(id,full_name,manager_id)')
+    .select('*, leave_type:leave_types(name), employee:users!leave_requests_employee_id_fkey(id,full_name,manager_id)')
     .eq('id', id)
     .eq('organization_id', profile.organization_id)
     .single();
@@ -79,6 +80,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     old_data: request,
     new_data: updated,
   });
+
+  // WhatsApp notification → employee
+  const { data: reviewer } = await db.from('users').select('full_name').eq('id', user.id).single();
+  notifyLeaveDecision({
+    orgId:         profile.organization_id,
+    employeeId:    request.employee_id,
+    action:        parsed.data.action,
+    leaveTypeName: (request.leave_type as any)?.name ?? 'Leave',
+    startDate:     request.start_date,
+    endDate:       request.end_date,
+    reviewerName:  reviewer?.full_name ?? 'your manager',
+    remarks:       parsed.data.remarks,
+  }).catch(() => {});
 
   return NextResponse.json({ data: updated });
 }

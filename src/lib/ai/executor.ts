@@ -5,6 +5,12 @@ import { formatDate, calcBusinessDays } from '@/lib/utils/date';
 import { generateEmployeeId }  from '@/lib/utils/employee-id';
 import { n8n }                 from '@/lib/n8n/trigger';
 import { REPLIES, NOTIFICATIONS } from './prompts/responses';
+import {
+  notifyTaskAssigned,
+  notifyTaskCompleted,
+  notifyLeaveDecision,
+  notifyWelcome,
+} from '@/lib/whatsapp/notify';
 import type { ToolInput, ToolResult, AgentIntent, SlotValues } from './types';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -368,20 +374,20 @@ Rules:
     return { success: true, reply: lines.join('\n') };
   },
 
-  async COMPLETE_TASK({ slots, org_id, user_id }): Promise<ToolResult> {
+  async COMPLETE_TASK({ slots, org_id, user_id, user_name }): Promise<ToolResult> {
     const db   = createAdminClient();
     const lang = (slots._lang as 'en' | 'hi') ?? 'en';
 
     const { data: tasks } = await db
       .from('tasks')
-      .select('id, title')
+      .select('id, title, created_by')
       .eq('organization_id', org_id)
       .eq('assignee_id', user_id)
       .ilike('title', `%${slots.title}%`)
       .neq('status', 'completed')
       .limit(1);
 
-    const task = tasks?.[0];
+    const task = tasks?.[0] as any;
     if (!task) return { success: false, reply: REPLIES.taskNotFound(slots.title!, lang) };
 
     await db
@@ -394,6 +400,16 @@ Rules:
       action: 'COMPLETE_TASK', table_name: 'tasks',
       record_id: task.id, new_data: { status: 'completed' }, source: 'whatsapp',
     });
+
+    // Notify creator if different from the person completing
+    if (task.created_by && task.created_by !== user_id) {
+      notifyTaskCompleted({
+        orgId:           org_id,
+        taskTitle:       task.title,
+        completedByName: user_name ?? 'your team member',
+        creatorId:       task.created_by,
+      }).catch(() => {});
+    }
 
     return { success: true, reply: REPLIES.taskCompleted(task.title, lang) };
   },
@@ -420,8 +436,21 @@ Rules:
 
     if (!found) return { success: false, reply: REPLIES.notFound(slots.assignee!, lang) };
 
+    // Fetch updated task details for the notification
+    const { data: fullTask } = await db.from('tasks').select('priority, deadline').eq('id', task.id).single() as any;
     await db.from('tasks').update({ assignee_id: found.id }).eq('id', task.id);
     n8n.notifyTaskAssigned(org_id, task.id, found.id).catch(() => {});
+
+    // Fetch assigner name
+    const { data: assigner } = await db.from('users').select('full_name').eq('id', user_id).single();
+    notifyTaskAssigned({
+      orgId:       org_id,
+      taskTitle:   task.title,
+      priority:    (fullTask as any)?.priority ?? 'medium',
+      deadline:    (fullTask as any)?.deadline ?? null,
+      assigneeId:  found.id,
+      creatorName: assigner?.full_name ?? 'your manager',
+    }).catch(() => {});
 
     return {
       success: true,
@@ -809,6 +838,17 @@ Rules:
 
     n8n.notifyLeaveDecision(org_id, request.id, 'approved').catch(() => {});
 
+    const { data: approver } = await db.from('users').select('full_name').eq('id', user_id).single();
+    notifyLeaveDecision({
+      orgId:         org_id,
+      employeeId:    employee.id,
+      action:        'approved',
+      leaveTypeName: (request.leave_types as any)?.name ?? 'Leave',
+      startDate:     request.start_date,
+      endDate:       request.end_date,
+      reviewerName:  approver?.full_name ?? 'your manager',
+    }).catch(() => {});
+
     return {
       success: true,
       reply: REPLIES.leaveApproved(employee.full_name, (request.leave_types as any)?.name, request.start_date, request.end_date, lang),
@@ -859,6 +899,18 @@ Rules:
       status: 'rejected', reviewed_by: user_id, reviewed_at: new Date().toISOString(),
       remarks: reason,
     }).eq('id', request.id);
+
+    const { data: rejecter } = await db.from('users').select('full_name').eq('id', user_id).single();
+    notifyLeaveDecision({
+      orgId:         org_id,
+      employeeId:    employee.id,
+      action:        'rejected',
+      leaveTypeName: (request.leave_types as any)?.name ?? 'Leave',
+      startDate:     request.start_date,
+      endDate:       request.end_date,
+      reviewerName:  rejecter?.full_name ?? 'your manager',
+      remarks:       reason,
+    }).catch(() => {});
 
     return {
       success: true,

@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createClient }    from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { notifyWelcome }   from '@/lib/whatsapp/notify';
 import { z } from 'zod';
 
 const JoinSchema = z.object({
   orgId:    z.string().uuid(),
   role:     z.enum(['employee', 'manager', 'hr']).default('employee'),
   fullName: z.string().min(2).max(100),
+  waNumber: z.string().optional(),  // optional: notify via WA if provided
 });
 
 // POST /api/auth/join — join an existing org (called after signUp)
@@ -20,7 +22,7 @@ export async function POST(req: NextRequest) {
     const parsed = JoinSchema.safeParse(body);
     if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 422 });
 
-    const { orgId, role, fullName } = parsed.data;
+    const { orgId, role, fullName, waNumber } = parsed.data;
 
     const db = createAdminClient();
 
@@ -53,6 +55,7 @@ export async function POST(req: NextRequest) {
       role:            role,
       is_active:       true,
       joined_at:       new Date().toISOString(),
+      ...(waNumber ? { wa_number: waNumber.replace(/\D/g, '') } : {}),
     });
 
     if (userErr) throw new Error(`Failed to create profile: ${userErr.message}`);
@@ -77,6 +80,17 @@ export async function POST(req: NextRequest) {
           year:            currentYear,
         }))
       );
+    }
+
+    // Send WhatsApp welcome message if number was provided
+    if (waNumber) {
+      const { data: orgInfo } = await db.from('organizations').select('name').eq('id', orgId).single();
+      notifyWelcome({
+        orgId,
+        waNumber:     waNumber.replace(/\D/g, ''),
+        employeeName: fullName.trim(),
+        companyName:  orgInfo?.name ?? 'your company',
+      }).catch(() => {});
     }
 
     return NextResponse.json({ ok: true, orgId, role });

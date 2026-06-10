@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { createAdminClient } from '@/lib/supabase/admin';
-import { writeAuditLog } from '@/lib/utils/audit';
+import { createClient }         from '@/lib/supabase/server';
+import { createAdminClient }    from '@/lib/supabase/admin';
+import { writeAuditLog }        from '@/lib/utils/audit';
+import { notifyLeaveSubmitted } from '@/lib/whatsapp/notify';
 import { z } from 'zod';
 
 const ApplyLeaveSchema = z.object({
@@ -69,7 +70,7 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 422 });
 
   const db = createAdminClient();
-  const { data: profile } = await db.from('users').select('organization_id, role, manager_id').eq('id', user.id).single();
+  const { data: profile } = await db.from('users').select('organization_id, role, manager_id, full_name').eq('id', user.id).single();
   if (!profile) return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
 
   // Calculate duration
@@ -129,6 +130,19 @@ export async function POST(req: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   await writeAuditLog({ org_id: profile.organization_id, actor_id: user.id, action: 'CREATE', table_name: 'leave_requests', record_id: request.id, new_data: request });
+
+  // Fetch leave type name for the notification
+  const { data: lt } = await db.from('leave_types').select('name').eq('id', parsed.data.leave_type_id).single();
+  notifyLeaveSubmitted({
+    orgId:         profile.organization_id,
+    managerId:     (profile as any).manager_id ?? null,
+    employeeName:  (profile as any).full_name ?? 'An employee',
+    leaveTypeName: lt?.name ?? 'Leave',
+    startDate:     parsed.data.start_date,
+    endDate:       parsed.data.end_date,
+    durationDays,
+    reason:        parsed.data.reason,
+  }).catch(() => {});
 
   return NextResponse.json({ data: request }, { status: 201 });
 }

@@ -35,7 +35,11 @@ export async function PATCH(req: NextRequest) {
 
   const body   = await req.json();
   const parsed = Schema.safeParse(body);
-  if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 422 });
+  if (!parsed.success) {
+    const firstError = parsed.error.errors[0];
+    const msg = firstError ? `${firstError.path.join('.') || 'field'}: ${firstError.message}` : 'Invalid request data';
+    return NextResponse.json({ error: msg }, { status: 422 });
+  }
 
   const { data, error } = await db
     .from('organizations')

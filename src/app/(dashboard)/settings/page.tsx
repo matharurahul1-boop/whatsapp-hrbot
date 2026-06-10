@@ -170,7 +170,10 @@ export default function SettingsPage() {
       });
       if (!orgRes.ok) {
         const orgErr = await orgRes.json().catch(() => ({}));
-        setError(orgErr.error ?? 'Failed to save organisation settings');
+        const errMsg = typeof orgErr.error === 'string'
+          ? orgErr.error
+          : 'Failed to save organisation settings';
+        setError(errMsg);
         setSaving(false);
         return;
       }

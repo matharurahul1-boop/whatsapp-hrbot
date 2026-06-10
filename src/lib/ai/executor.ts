@@ -68,12 +68,12 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
         .limit(6),
       db.from('attendance_records')
         .select('check_in_time, check_out_time, status')
-        .eq('user_id', user_id)
+        .eq('employee_id', user_id)
         .eq('date', today)
         .maybeSingle(),
       db.from('leave_requests')
         .select('id, status, start_date')
-        .eq('user_id', user_id)
+        .eq('employee_id', user_id)
         .eq('status', 'pending')
         .limit(1),
     ]);
@@ -468,7 +468,7 @@ Rules:
       .is('deleted_at', null)
       .limit(1);
 
-    if (user_role === 'employee') query = query.eq('assigned_to', user_id);
+    if (user_role === 'employee') query = query.eq('assignee_id', user_id);
 
     const { data: tasks } = await query;
     const task = (tasks as any[])?.[0];
@@ -657,7 +657,7 @@ Rules:
     const { data: balance } = await db
       .from('leave_balances')
       .select('remaining_days')
-      .eq('user_id', user_id)
+      .eq('employee_id', user_id)
       .eq('leave_type_id', leaveType.id)
       .eq('year', year)
       .maybeSingle();
@@ -674,10 +674,10 @@ Rules:
     const { data: request, error } = await db
       .from('leave_requests')
       .insert({
-        organization_id: org_id, user_id,
+        organization_id: org_id, employee_id: user_id,
         leave_type_id:   leaveType.id,
         start_date:      startDate, end_date: endDate,
-        total_days:      totalDays, reason,
+        duration_days:   totalDays, reason,
         status:          leaveType.requires_approval ? 'pending' : 'approved',
         source:          'whatsapp',
       })
@@ -706,8 +706,8 @@ Rules:
 
     const { data: balances } = await db
       .from('leave_balances')
-      .select('total_days, remaining_days, used_days, leave_types(name)')
-      .eq('user_id', user_id)
+      .select('entitled_days, remaining_days, used_days, leave_types(name)')
+      .eq('employee_id', user_id)
       .eq('year', year);
 
     if (!balances?.length) {
@@ -724,10 +724,10 @@ Rules:
     lines.push('');
 
     (balances as any[]).forEach((b) => {
-      const used = b.used_days ?? (b.total_days - b.remaining_days);
+      const used = b.used_days ?? (b.entitled_days - b.remaining_days);
       const bar  = '█'.repeat(Math.min(used, 10)) + '░'.repeat(Math.max(0, 10 - Math.min(used, 10)));
       lines.push(`*${b.leave_types?.name ?? 'Leave'}*`);
-      lines.push(`  ${b.remaining_days} remaining of ${b.total_days} days`);
+      lines.push(`  ${b.remaining_days} remaining of ${b.entitled_days} days`);
       lines.push(`  \`${bar}\` ${used} used`);
       lines.push('');
     });
@@ -741,13 +741,13 @@ Rules:
 
     let query = db
       .from('leave_requests')
-      .select(`id, start_date, end_date, total_days, status, reason,
-        leave_types(name), users!leave_requests_user_id_fkey(full_name)`)
+      .select(`id, start_date, end_date, duration_days, status, reason,
+        leave_types(name), users!leave_requests_employee_id_fkey(full_name)`)
       .eq('organization_id', org_id)
       .order('created_at', { ascending: false })
       .limit(6);
 
-    if (user_role === 'employee') query = query.eq('user_id', user_id);
+    if (user_role === 'employee') query = query.eq('employee_id', user_id);
 
     const { data: requests } = await query;
 
@@ -764,7 +764,7 @@ Rules:
     (requests as any[]).forEach((r, i) => {
       const empName = user_role !== 'employee' ? ` — ${(r.users as any)?.full_name ?? ''}` : '';
       lines.push(`${i + 1}. ${statusEmoji[r.status] ?? ''} *${(r.leave_types as any)?.name}*${empName}`);
-      lines.push(`   ${formatDate(r.start_date)} → ${formatDate(r.end_date)} _(${r.total_days}d)_`);
+      lines.push(`   ${formatDate(r.start_date)} → ${formatDate(r.end_date)} _(${r.duration_days}d)_`);
       if (r.reason) lines.push(`   💬 ${r.reason}`);
     });
 
@@ -788,9 +788,9 @@ Rules:
 
     const { data: request } = await db
       .from('leave_requests')
-      .select('id, leave_type_id, start_date, end_date, total_days, leave_types(name)')
+      .select('id, leave_type_id, start_date, end_date, duration_days, leave_types(name)')
       .eq('organization_id', org_id)
-      .eq('user_id', employee.id)
+      .eq('employee_id', employee.id)
       .eq('status', 'pending')
       .order('created_at', { ascending: false })
       .limit(1)
@@ -804,7 +804,7 @@ Rules:
     }
 
     await db.from('leave_requests').update({
-      status: 'approved', approved_by: user_id, approved_at: new Date().toISOString(),
+      status: 'approved', reviewed_by: user_id, reviewed_at: new Date().toISOString(),
     }).eq('id', request.id);
 
     n8n.notifyLeaveDecision(org_id, request.id, 'approved').catch(() => {});
@@ -840,7 +840,7 @@ Rules:
       .from('leave_requests')
       .select('id, leave_types(name), start_date, end_date')
       .eq('organization_id', org_id)
-      .eq('user_id', employee.id)
+      .eq('employee_id', employee.id)
       .eq('status', 'pending')
       .order('created_at', { ascending: false })
       .limit(1)
@@ -856,8 +856,8 @@ Rules:
     const reason = (slots.reason === 'SKIP' || !slots.reason) ? null : slots.reason;
 
     await db.from('leave_requests').update({
-      status: 'rejected', rejected_by: user_id, rejected_at: new Date().toISOString(),
-      rejection_reason: reason,
+      status: 'rejected', reviewed_by: user_id, reviewed_at: new Date().toISOString(),
+      remarks: reason,
     }).eq('id', request.id);
 
     return {
@@ -878,7 +878,7 @@ Rules:
       .from('leave_requests')
       .select('id, leave_types(name), start_date, end_date')
       .eq('organization_id', org_id)
-      .eq('user_id', user_id)
+      .eq('employee_id', user_id)
       .eq('start_date', slots.start_date!)
       .in('status', ['pending', 'approved'])
       .maybeSingle();
@@ -915,7 +915,7 @@ Rules:
     const { data: existing } = await db
       .from('attendance_records')
       .select('check_in_time')
-      .eq('user_id', user_id).eq('date', today)
+      .eq('employee_id', user_id).eq('date', today)
       .maybeSingle();
 
     if (existing?.check_in_time) {
@@ -925,7 +925,10 @@ Rules:
 
     const { data: record, error } = await db
       .from('attendance_records')
-      .upsert({ organization_id: org_id, user_id, date: today, check_in_time: now, status: 'present', source: 'whatsapp' })
+      .upsert(
+        { organization_id: org_id, employee_id: user_id, date: today, check_in_time: now, status: 'present', source: 'whatsapp' },
+        { onConflict: 'employee_id,date' }
+      )
       .select().single();
 
     if (error) throw error;
@@ -950,7 +953,7 @@ Rules:
     const { data: record } = await db
       .from('attendance_records')
       .select('id, check_in_time')
-      .eq('user_id', user_id).eq('date', today)
+      .eq('employee_id', user_id).eq('date', today)
       .not('check_in_time', 'is', null)
       .is('check_out_time', null)
       .maybeSingle();
@@ -980,7 +983,7 @@ Rules:
     const { data: records } = await db
       .from('attendance_records')
       .select('date, status, check_in_time, check_out_time, total_hours')
-      .eq('user_id', user_id).eq('organization_id', org_id)
+      .eq('employee_id', user_id).eq('organization_id', org_id)
       .gte('date', since)
       .order('date', { ascending: false });
 
@@ -1030,10 +1033,10 @@ Rules:
 
     const [empRes, presentRes] = await Promise.all([
       db.from('users').select('id, full_name, department').eq('organization_id', org_id).eq('is_active', true).neq('role', 'super_admin'),
-      db.from('attendance_records').select('user_id').eq('organization_id', org_id).eq('date', today).eq('status', 'present'),
+      db.from('attendance_records').select('employee_id').eq('organization_id', org_id).eq('date', today).eq('status', 'present'),
     ]);
 
-    const presentIds = new Set((presentRes.data ?? []).map((r: any) => r.user_id));
+    const presentIds = new Set((presentRes.data ?? []).map((r: any) => r.employee_id));
     const absent     = (empRes.data ?? []).filter((e: any) => !presentIds.has(e.id));
     const present    = (empRes.data ?? []).filter((e: any) => presentIds.has(e.id));
 

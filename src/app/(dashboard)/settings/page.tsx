@@ -156,17 +156,24 @@ export default function SettingsPage() {
     if (err) { setError(err.message); setSaving(false); return; }
 
     if (isAdmin && orgId) {
-      await supabase
-        .from('organizations')
-        .update({
-          name:                orgName,
-          wa_phone_number_id:  waPhoneId,
-          wa_access_token:     waToken,
+      const orgRes = await fetch('/api/organizations/settings', {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name:                  orgName,
+          wa_phone_number_id:    waPhoneId,
+          wa_access_token:       waToken || undefined,
           wa_message_template:   waMsgTemplate.trim() || null,
           wa_template_lang:      waTemplateLang.trim() || 'en',
           wa_template_variables: parseInt(waTemplateVars) || 2,
-        })
-        .eq('id', orgId);
+        }),
+      });
+      if (!orgRes.ok) {
+        const orgErr = await orgRes.json().catch(() => ({}));
+        setError(orgErr.error ?? 'Failed to save organisation settings');
+        setSaving(false);
+        return;
+      }
     }
 
     setSaving(false);

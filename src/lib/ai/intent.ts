@@ -165,14 +165,14 @@ function fallbackClassification(message: string): ClassifiedIntent {
   const isListLeaves    = /\b(list|show|history|view)\b.*\b(leave|requests)\b|\b(leave)\b.*\b(history|list|requests)\b/i.test(lower);
   const isApplyLeave    = /\b(apply|take|request|need|want|book)\b.*\b(leave|chutti|holiday|छुट्टी)\b/i.test(lower);
 
-  // ── TASK ───────────────────────────────────────────────────────────────────
-  const isCompleteTask = /\b(complete|done|finish|mark.*(done|complete)|completed|khatam)\b.*\b(task|todo|kaam)\b|\b(task|todo)\b.*\b(complete|done|finish|khatam)\b/i.test(lower);
-  const isAssignTask   = /\b(assign|give|transfer)\b.*\b(task|todo|kaam)\b|\b(task)\b.*\b(assign|give|transfer)\b/i.test(lower);
-  const isDeleteTask   = /\b(delete|remove)\b.*\b(task|todo|kaam)\b/i.test(lower);
+  // ── TASK (task OR tasks — handle both singular and plural) ────────────────
+  const isCompleteTask = /\b(complete|done|finish|mark.*(done|complete)|completed|khatam)\b.*\btasks?\b|\btasks?\b.*\b(complete|done|finish|khatam)\b/i.test(lower);
+  const isAssignTask   = /\b(assign|give|transfer)\b.*\btasks?\b|\btask\b.*\b(assign|give|transfer)\b/i.test(lower);
+  const isDeleteTask   = /\b(delete|remove)\b.*\btasks?\b/i.test(lower);
   const isUpdateTask   = /\b(update|change|modify|edit|set)\b.*\b(task|deadline|priority|status|assignee|due date)\b/i.test(lower);
-  const isTaskDetails  = /\b(details|info|about|show|view)\b.*\b(task|todo)\b.*\b(details|info)\b|\b(task details|task info)\b/i.test(lower);
-  const isListTasks    = /\b(list|show|view|my|pending|all)\b.*\b(task|todo|kaam)\b|\b(task|todo)\b.*\b(list|show|pending|all)\b/i.test(lower);
-  const isCreateTask   = /\b(create|add|make|new|bana|banao|please create|can you create|i need)\b.*\b(task|todo|kaam|work)\b|\b(task|todo)\b.*\b(create|add|make|new)\b/i.test(lower);
+  const isTaskDetails  = /\btask\s+(details|info)\b|\b(details|info)\b.*\btask\b/i.test(lower);
+  const isListTasks    = /\b(list|show|view|pending|all)\b.*\btasks?\b|\btasks?\b.*\b(list|show|pending|all)\b|\bmy\s+(pending\s+)?tasks?\b/i.test(lower);
+  const isCreateTask   = /\b(create|add|make|new|bana|banao)\b.*\btasks?\b|\btasks?\b.*\b(create|add|make|new)\b/i.test(lower);
   const isReminder     = /\b(remind|reminder|yaad dilao|alert me)\b/i.test(lower);
 
   // ── GENERAL ────────────────────────────────────────────────────────────────
@@ -227,9 +227,9 @@ function fallbackClassification(message: string): ClassifiedIntent {
     extracted_slots.deadline = `${today.getFullYear()}-${mon}-${mMatch[1].padStart(2,'0')}`;
   }
 
-  // Extract task title (text after "task" trigger word, before "by"/"on"/"due")
+  // Extract task title (text after "task"/"todo" trigger, before "by"/"on"/"due")
   if (intent === 'CREATE_TASK' || intent === 'SET_REMINDER') {
-    const tMatch = message.match(/(?:task|todo|reminder)(?:\s+(?:to|for|called|named|titled|:))?\s+(.+?)(?:\s+(?:by|on|due|before|at)\s+|$)/i);
+    const tMatch = message.match(/(?:tasks?|todos?|reminder)(?:\s+(?:to|for|called|named|titled|:))?\s+(.+?)(?:\s+(?:by|on|due|before|at)\s+|$)/i);
     if (tMatch?.[1]?.trim()) extracted_slots.title = tMatch[1].trim();
   }
 

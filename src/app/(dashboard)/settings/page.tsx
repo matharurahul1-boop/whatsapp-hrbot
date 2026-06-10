@@ -290,10 +290,14 @@ export default function SettingsPage() {
             <Field label="WhatsApp Access Token">
               <div className="relative">
                 <input
-                  type={showToken ? 'text' : 'password'}
+                  type="text"
+                  autoComplete="off"
+                  data-lpignore="true"
+                  data-1p-ignore
                   value={waToken}
                   onChange={e => setWaToken(e.target.value)}
                   placeholder="EAAHBaq2..."
+                  style={showToken ? undefined : { WebkitTextSecurity: 'disc' } as React.CSSProperties}
                   className="w-full rounded-lg border border-surface-300 bg-surface-0 pl-3 pr-20 py-2.5 text-sm text-surface-950 placeholder:text-surface-500 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500 font-mono"
                 />
                 <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">

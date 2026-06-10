@@ -3,6 +3,7 @@ import { createClient }       from '@/lib/supabase/server';
 import { createAdminClient }  from '@/lib/supabase/admin';
 import { writeAuditLog }      from '@/lib/utils/audit';
 import { notifyTaskAssigned } from '@/lib/whatsapp/notify';
+import { isEmployee, isManager, isHrOrAbove } from '@/lib/rbac';
 import { z } from 'zod';
 
 const CreateTaskSchema = z.object({
@@ -79,6 +80,36 @@ export async function POST(req: NextRequest) {
   const { data: profile } = await db.from('users').select('organization_id, role').eq('id', user.id).single();
   if (!profile) return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
 
+  // ── RBAC: assignee restrictions ──────────────────────────────────────────────
+  const requestedAssignee = parsed.data.assignee_id;
+  if (requestedAssignee && requestedAssignee !== user.id) {
+    if (isEmployee(profile.role)) {
+      // Employees can only create tasks for themselves
+      return NextResponse.json(
+        { error: 'Employees can only assign tasks to themselves' },
+        { status: 403 },
+      );
+    }
+    if (isManager(profile.role)) {
+      // Managers can only assign to their direct reports
+      const { data: reportCheck } = await db
+        .from('users')
+        .select('id')
+        .eq('id', requestedAssignee)
+        .eq('manager_id', user.id)
+        .eq('organization_id', profile.organization_id)
+        .eq('is_active', true)
+        .maybeSingle();
+      if (!reportCheck) {
+        return NextResponse.json(
+          { error: 'Managers can only assign tasks to their direct reports' },
+          { status: 403 },
+        );
+      }
+    }
+    // HR+ can assign to anyone in the org — no extra check
+  }
+
   const { data: task, error } = await db.from('tasks').insert({
     ...parsed.data,
     organization_id: profile.organization_id,
@@ -89,13 +120,12 @@ export async function POST(req: NextRequest) {
 
   await writeAuditLog({ org_id: profile.organization_id, actor_id: user.id, action: 'CREATE', table_name: 'tasks', record_id: task.id, new_data: task });
 
-  // WhatsApp notification — only when assigned to someone else
+  // ── WhatsApp notification — only when assigned to someone else ───────────────
   const assigneeId = parsed.data.assignee_id;
   if (assigneeId && assigneeId !== user.id) {
     const { data: creator } = await db.from('users').select('full_name').eq('id', user.id).single();
     notifyTaskAssigned({
       orgId:       profile.organization_id,
-      taskId:      task.id,
       taskTitle:   task.title,
       priority:    task.priority,
       deadline:    task.deadline ?? null,

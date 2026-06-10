@@ -3,6 +3,7 @@ import { createClient }       from '@/lib/supabase/server';
 import { createAdminClient }  from '@/lib/supabase/admin';
 import { writeAuditLog }      from '@/lib/utils/audit';
 import { notifyTaskAssigned, notifyTaskCompleted } from '@/lib/whatsapp/notify';
+import { isEmployee, isManager, MANAGER_TASK_FIELDS } from '@/lib/rbac';
 import { z } from 'zod';
 
 const UpdateTaskSchema = z.object({
@@ -61,10 +62,37 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (!profile || !task) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   if (task.organization_id !== profile.organization_id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  // Employees can only update tasks assigned to them or created by them
-  if (profile.role === 'employee' && task.assignee_id !== user.id && task.created_by !== user.id) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  // ── RBAC: who can touch this task? ───────────────────────────────────────────
+  if (isEmployee(profile.role)) {
+    // Employees: only their own assigned or created tasks
+    if (task.assignee_id !== user.id && task.created_by !== user.id) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+    // Employees: can only change status or description — nothing structural
+    const attempted = Object.keys(parsed.data);
+    const forbidden = attempted.filter(f => MANAGER_TASK_FIELDS.has(f));
+    if (forbidden.length > 0) {
+      return NextResponse.json(
+        { error: `Employees can only update task status. Cannot change: ${forbidden.join(', ')}` },
+        { status: 403 },
+      );
+    }
   }
+
+  if (isManager(profile.role)) {
+    // Managers: tasks in their team (assigned to direct reports, or created by them)
+    const { data: isTeamTask } = await db
+      .from('users')
+      .select('id')
+      .eq('id', task.assignee_id ?? '')
+      .eq('manager_id', user.id)
+      .maybeSingle();
+    const isOwnCreated = task.created_by === user.id;
+    if (!isTeamTask && !isOwnCreated) {
+      return NextResponse.json({ error: 'Managers can only update tasks in their team' }, { status: 403 });
+    }
+  }
+  // HR+ can update any task in the org — no extra check
 
   const { data: updated, error } = await db
     .from('tasks')

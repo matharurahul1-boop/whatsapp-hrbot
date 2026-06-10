@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient }         from '@/lib/supabase/server';
 import { createAdminClient }    from '@/lib/supabase/admin';
 import { writeAuditLog }        from '@/lib/utils/audit';
-import { notifyLeaveSubmitted } from '@/lib/whatsapp/notify';
+import { notifyLeaveSubmitted, notifyLeaveCancelled } from '@/lib/whatsapp/notify';
+import { isHrOrAbove } from '@/lib/rbac';
 import { z } from 'zod';
 
 const ApplyLeaveSchema = z.object({
@@ -10,6 +11,8 @@ const ApplyLeaveSchema = z.object({
   start_date:    z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   end_date:      z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   reason:        z.string().max(500).optional(),
+  // HR+ can apply on behalf of another employee
+  employee_id:   z.string().uuid().optional(),
 });
 
 // GET /api/leave — list leave requests
@@ -73,6 +76,25 @@ export async function POST(req: NextRequest) {
   const { data: profile } = await db.from('users').select('organization_id, role, manager_id, full_name').eq('id', user.id).single();
   if (!profile) return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
 
+  // ── RBAC: HR+ can apply on behalf of another employee ────────────────────────
+  let targetEmployeeId = user.id;
+  let targetProfile: typeof profile = profile;
+
+  if (parsed.data.employee_id && parsed.data.employee_id !== user.id) {
+    if (!isHrOrAbove(profile.role)) {
+      return NextResponse.json({ error: 'Only HR and above can apply leave on behalf of others' }, { status: 403 });
+    }
+    const { data: emp } = await db
+      .from('users')
+      .select('id, organization_id, role, manager_id, full_name')
+      .eq('id', parsed.data.employee_id)
+      .eq('organization_id', profile.organization_id)
+      .single();
+    if (!emp) return NextResponse.json({ error: 'Employee not found' }, { status: 404 });
+    targetEmployeeId = emp.id;
+    targetProfile    = emp as typeof profile;
+  }
+
   // Calculate duration
   const start = new Date(parsed.data.start_date);
   const end   = new Date(parsed.data.end_date);
@@ -81,13 +103,13 @@ export async function POST(req: NextRequest) {
 
   // Check balance (skip for admin/hr — they manage the system)
   const year = start.getFullYear();
-  const isAdmin = ['super_admin', 'admin', 'hr'].includes(profile.role);
+  const actorIsAdmin = isHrOrAbove(profile.role);
 
-  if (!isAdmin) {
+  if (!actorIsAdmin) {
     const { data: balance } = await db
       .from('leave_balances')
       .select('remaining_days')
-      .eq('employee_id', user.id)
+      .eq('employee_id', targetEmployeeId)
       .eq('leave_type_id', parsed.data.leave_type_id)
       .eq('year', year)
       .single();
@@ -109,34 +131,40 @@ export async function POST(req: NextRequest) {
   const { data: overlap } = await db
     .from('leave_requests')
     .select('id')
-    .eq('employee_id', user.id)
+    .eq('employee_id', targetEmployeeId)
     .in('status', ['pending','approved'])
     .lte('start_date', parsed.data.end_date)
     .gte('end_date', parsed.data.start_date)
     .limit(1);
 
   if (overlap && overlap.length > 0) {
-    return NextResponse.json({ error: 'You already have a leave request overlapping those dates' }, { status: 409 });
+    return NextResponse.json({ error: 'This employee already has a leave request overlapping those dates' }, { status: 409 });
   }
 
+  // Destructure out employee_id (HR override field) before inserting
+  const { employee_id: _ignore, ...leaveFields } = parsed.data;
+
   const { data: request, error } = await db.from('leave_requests').insert({
-    ...parsed.data,
+    ...leaveFields,
     organization_id: profile.organization_id,
-    employee_id: user.id,
-    duration_days: durationDays,
-    status: 'pending',
+    employee_id:     targetEmployeeId,
+    duration_days:   durationDays,
+    status:          'pending',
   }).select().single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  await writeAuditLog({ org_id: profile.organization_id, actor_id: user.id, action: 'CREATE', table_name: 'leave_requests', record_id: request.id, new_data: request });
+  await writeAuditLog({
+    org_id: profile.organization_id, actor_id: user.id,
+    action: 'CREATE', table_name: 'leave_requests', record_id: request.id, new_data: request,
+  });
 
   // Fetch leave type name for the notification
   const { data: lt } = await db.from('leave_types').select('name').eq('id', parsed.data.leave_type_id).single();
   notifyLeaveSubmitted({
     orgId:         profile.organization_id,
-    managerId:     (profile as any).manager_id ?? null,
-    employeeName:  (profile as any).full_name ?? 'An employee',
+    managerId:     (targetProfile as any).manager_id ?? null,
+    employeeName:  (targetProfile as any).full_name ?? 'An employee',
     leaveTypeName: lt?.name ?? 'Leave',
     startDate:     parsed.data.start_date,
     endDate:       parsed.data.end_date,
@@ -145,4 +173,66 @@ export async function POST(req: NextRequest) {
   }).catch(() => {});
 
   return NextResponse.json({ data: request }, { status: 201 });
+}
+
+// ── DELETE /api/leave?id=<uuid> — cancel a leave request ─────────────────────
+// Employee: can cancel their own pending/approved leave
+// HR+: can cancel any employee's leave
+export async function DELETE(req: NextRequest) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const leaveId = req.nextUrl.searchParams.get('id');
+  if (!leaveId) return NextResponse.json({ error: 'Leave request ID required (?id=)' }, { status: 422 });
+
+  const db = createAdminClient();
+  const { data: profile } = await db
+    .from('users')
+    .select('organization_id, role, full_name, manager_id')
+    .eq('id', user.id).single();
+  if (!profile) return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
+
+  const { data: request } = await db
+    .from('leave_requests')
+    .select('id, employee_id, status, start_date, leave_type_id')
+    .eq('id', leaveId)
+    .eq('organization_id', profile.organization_id)
+    .single();
+
+  if (!request) return NextResponse.json({ error: 'Leave request not found' }, { status: 404 });
+
+  // RBAC: employee cancels own; HR+ cancels anyone's
+  if (request.employee_id !== user.id && !isHrOrAbove(profile.role)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
+  if (!['pending', 'approved'].includes(request.status)) {
+    return NextResponse.json({ error: `Cannot cancel a ${request.status} leave request` }, { status: 409 });
+  }
+
+  await db
+    .from('leave_requests')
+    .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+    .eq('id', leaveId);
+
+  await writeAuditLog({
+    org_id: profile.organization_id, actor_id: user.id,
+    action: 'CANCEL', table_name: 'leave_requests', record_id: leaveId,
+    old_data: request, new_data: { status: 'cancelled' },
+  });
+
+  // Notify manager when employee self-cancels
+  if (request.employee_id === user.id) {
+    const { data: lt } = await db.from('leave_types').select('name').eq('id', request.leave_type_id).single();
+    notifyLeaveCancelled({
+      orgId:         profile.organization_id,
+      managerId:     (profile as any).manager_id ?? null,
+      employeeName:  (profile as any).full_name ?? 'An employee',
+      leaveTypeName: lt?.name ?? 'Leave',
+      startDate:     request.start_date,
+    }).catch(() => {});
+  }
+
+  return NextResponse.json({ ok: true });
 }

@@ -237,7 +237,7 @@ Rules:
 
   // ── TASK TOOLS ──────────────────────────────────────────────────────────────
 
-  async CREATE_TASK({ slots, org_id, user_id }): Promise<ToolResult> {
+  async CREATE_TASK({ slots, org_id, user_id, user_role }): Promise<ToolResult> {
     const db   = createAdminClient();
     const lang = (slots._lang as 'en' | 'hi') ?? 'en';
 
@@ -245,6 +245,16 @@ Rules:
     let assigneeName = lang === 'hi' ? 'आप' : 'You';
 
     if (slots.assignee && slots.assignee.toLowerCase() !== 'me') {
+      // RBAC: employees can only create tasks for themselves via bot
+      if (user_role === 'employee') {
+        return {
+          success: false,
+          reply: lang === 'hi'
+            ? `❌ Employees केवल अपने लिए task बना सकते हैं। Task किसी और को assign करने के लिए dashboard उपयोग करें।`
+            : `❌ Employees can only create tasks for themselves. Use the dashboard to assign tasks to others.`,
+        };
+      }
+
       const { data: found } = await db
         .from('users')
         .select('id, full_name')
@@ -274,7 +284,7 @@ Rules:
         organization_id: org_id,
         title:           slots.title!,
         assignee_id:     assignedTo,
-        assigned_by:     user_id,
+        created_by:      user_id,
         deadline:        dueDate,
         due_time:        dueTime,
         priority:        (slots.priority as string) ?? 'medium',
@@ -313,10 +323,10 @@ Rules:
 
     let query = db
       .from('tasks')
-      .select(`id, title, status, deadline, priority, assignee_id:users!tasks_assignee_id_fkey(full_name)`)
+      .select(`id, title, status, deadline, priority, assignee:users!tasks_assignee_id_fkey(full_name)`)
       .eq('organization_id', org_id)
       .is('deleted_at', null)
-      .neq('status', 'completed')
+      .neq('status', 'done')
       .order('deadline', { ascending: true, nullsFirst: false })
       .limit(10);
 
@@ -342,7 +352,7 @@ Rules:
     const formatTask = (t: any, i: number) => {
       const pEmoji  = priorityEmoji(t.priority);
       const due     = t.deadline ? ` — ${formatDate(t.deadline)}` : '';
-      const assignee = user_role !== 'employee' && t.assignee_id?.full_name ? ` _(${t.assigned_to.full_name})_` : '';
+      const assignee = user_role !== 'employee' && t.assignee?.full_name ? ` _(${t.assignee.full_name})_` : '';
       return `${i + 1}. ${pEmoji} *${t.title}*${due}${assignee}`;
     };
 
@@ -384,7 +394,7 @@ Rules:
       .eq('organization_id', org_id)
       .eq('assignee_id', user_id)
       .ilike('title', `%${slots.title}%`)
-      .neq('status', 'completed')
+      .neq('status', 'done')
       .limit(1);
 
     const task = tasks?.[0] as any;
@@ -392,7 +402,7 @@ Rules:
 
     await db
       .from('tasks')
-      .update({ status: 'completed', completed_at: new Date().toISOString() })
+      .update({ status: 'done', completed_at: new Date().toISOString() })
       .eq('id', task.id);
 
     await writeAuditLog({
@@ -414,9 +424,14 @@ Rules:
     return { success: true, reply: REPLIES.taskCompleted(task.title, lang) };
   },
 
-  async ASSIGN_TASK({ slots, org_id, user_id }): Promise<ToolResult> {
+  async ASSIGN_TASK({ slots, org_id, user_id, user_role }): Promise<ToolResult> {
     const db   = createAdminClient();
     const lang = (slots._lang as 'en' | 'hi') ?? 'en';
+
+    // RBAC: only manager+ can assign tasks to others via bot
+    if (!['manager', 'hr', 'admin', 'super_admin'].includes(user_role)) {
+      return { success: false, reply: REPLIES.permissionDenied('assign tasks to others', lang) };
+    }
 
     const { data: tasks } = await db
       .from('tasks')
@@ -507,6 +522,14 @@ Rules:
     const field = slots.update_field?.toLowerCase().trim();
     const value = slots.update_value?.trim() ?? '';
 
+    // RBAC: employees can only change status, not structural fields
+    if (user_role === 'employee' && field && !['status', 'description'].includes(field)) {
+      return { success: false, reply: lang === 'hi'
+        ? `❌ Employees केवल task का status बदल सकते हैं। Priority, deadline या assignee बदलने के लिए manager से कहें।`
+        : `❌ Employees can only update a task's status. Ask your manager to change priority, deadline, or assignee.`
+      };
+    }
+
     if (field === 'deadline') {
       const parts = value.split(' ');
       patch.deadline = parts[0];
@@ -522,19 +545,20 @@ Rules:
       patch.priority = p;
     } else if (field === 'status') {
       const statusMap: Record<string, string> = {
-        todo: 'todo', pending: 'todo', 'in_progress': 'in_progress', 'in progress': 'in_progress',
-        completed: 'completed', complete: 'completed', done: 'completed',
+        todo: 'todo', pending: 'todo',
+        'in_progress': 'in_progress', 'in progress': 'in_progress', 'wip': 'in_progress',
+        done: 'done', completed: 'done', complete: 'done', khatam: 'done',
         cancelled: 'cancelled', cancel: 'cancelled',
       };
       const mapped = statusMap[value.toLowerCase()];
       if (!mapped) {
         return { success: false, reply: lang === 'hi'
-          ? `❌ Status: pending / in_progress / completed / cancelled`
-          : `❌ Invalid status. Use: pending / in_progress / completed / cancelled`
+          ? `❌ Status: todo / in_progress / done / cancelled`
+          : `❌ Invalid status. Use: todo / in_progress / done / cancelled`
         };
       }
       patch.status = mapped;
-      if (mapped === 'completed') patch.completed_at = new Date().toISOString();
+      if (mapped === 'done') patch.completed_at = new Date().toISOString();
     } else if (field === 'assignee') {
       const { data: found } = await db
         .from('users')
@@ -588,7 +612,7 @@ Rules:
         organization_id: org_id,
         title:           slots.title!,
         assignee_id:     user_id,
-        assigned_by:     user_id,
+        created_by:      user_id,
         deadline:        dueDate,
         due_time:        dueTime,
         priority:        'medium',
@@ -619,8 +643,8 @@ Rules:
     let query = db
       .from('tasks')
       .select(`id, title, status, deadline, due_time, priority, description,
-        assignee_id:users!tasks_assignee_id_fkey(full_name),
-        assigned_by:users!tasks_assigned_by_fkey(full_name)`)
+        assignee:users!tasks_assignee_id_fkey(full_name),
+        created_by:users!tasks_created_by_fkey(full_name)`)
       .eq('organization_id', org_id)
       .ilike('title', `%${slots.title ?? ''}%`)
       .is('deleted_at', null)
@@ -643,8 +667,8 @@ Rules:
       `*Status:* ${statusEmoji[t.status] ?? ''} ${t.status}`,
       `*Priority:* ${priorityEmoji(t.priority)} ${t.priority ?? 'medium'}`,
       t.deadline ? `*Due:* ${formatDate(t.deadline)}${t.due_time ? ` at ${t.due_time}` : ''}` : null,
-      t.assignee_id?.full_name ? `*Assigned to:* ${t.assignee_id.full_name}` : null,
-      t.assigned_by?.full_name ? `*Created by:* ${t.assigned_by.full_name}` : null,
+      t.assignee?.full_name    ? `*Assigned to:* ${t.assignee.full_name}` : null,
+      t.created_by?.full_name  ? `*Created by:* ${t.created_by.full_name}` : null,
       t.description ? `\n*Notes:* ${t.description}` : null,
     ].filter(Boolean);
 
@@ -1072,7 +1096,7 @@ Rules:
     return { success: true, reply: lines.join('\n') };
   },
 
-  async WHO_ABSENT({ org_id, slots, user_role }): Promise<ToolResult> {
+  async WHO_ABSENT({ org_id, slots, user_role, user_id }): Promise<ToolResult> {
     const db   = createAdminClient();
     const lang = (slots._lang as 'en' | 'hi') ?? 'en';
 
@@ -1083,8 +1107,16 @@ Rules:
     const today = new Date().toISOString().split('T')[0];
     const dateStr = new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', day: 'numeric', month: 'short' });
 
+    // Managers see only their team; HR+ see the whole org
+    let employeeQuery = db.from('users').select('id, full_name, department')
+      .eq('organization_id', org_id).eq('is_active', true).neq('role', 'super_admin');
+
+    if (user_role === 'manager') {
+      employeeQuery = employeeQuery.eq('manager_id', user_id);
+    }
+
     const [empRes, presentRes] = await Promise.all([
-      db.from('users').select('id, full_name, department').eq('organization_id', org_id).eq('is_active', true).neq('role', 'super_admin'),
+      employeeQuery,
       db.from('attendance_records').select('employee_id').eq('organization_id', org_id).eq('date', today).eq('status', 'present'),
     ]);
 
@@ -1092,8 +1124,9 @@ Rules:
     const absent     = (empRes.data ?? []).filter((e: any) => !presentIds.has(e.id));
     const present    = (empRes.data ?? []).filter((e: any) => presentIds.has(e.id));
 
+    const scope = user_role === 'manager' ? 'Team' : 'Org';
     const lines = [
-      lang === 'hi' ? `📊 *आज की टीम हाजिरी — ${dateStr}:*` : `📊 *Team Attendance — ${dateStr}:*`,
+      lang === 'hi' ? `📊 *आज की ${user_role === 'manager' ? 'टीम' : 'संस्था'} हाजिरी — ${dateStr}:*` : `📊 *${scope} Attendance — ${dateStr}:*`,
       '',
       lang === 'hi' ? `✅ उपस्थित: ${present.length}` : `✅ Present: ${present.length}`,
       lang === 'hi' ? `❌ अनुपस्थित: ${absent.length}` : `❌ Absent: ${absent.length}`,
@@ -1148,7 +1181,7 @@ Rules:
     });
 
     const { data: session, error: sessError } = await db.from('onboarding_sessions')
-      .insert({ organization_id: org_id, user_id: userId, initiated_by: user_id, current_step: 1, total_steps: 8, status: 'in_progress' })
+      .insert({ organization_id: org_id, employee_id: userId, initiated_by: user_id, current_step: 1, total_steps: 8, status: 'in_progress' })
       .select().single();
 
     if (sessError) throw sessError;
@@ -1182,7 +1215,7 @@ Rules:
       .limit(5);
 
     if (user_role === 'employee') {
-      query = query.eq('user_id', user_id);
+      query = query.eq('employee_id', user_id);
     }
 
     const { data: sessions } = await query;

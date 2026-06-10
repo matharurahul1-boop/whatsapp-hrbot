@@ -5,8 +5,14 @@ import { createAdminClient } from '@/lib/supabase/admin';
 
 // Called by n8n or internal services
 export async function POST(req: NextRequest) {
+  const appSecret = process.env.APP_SECRET;
+  // Reject if secret is not configured (prevents 'Bearer undefined' bypass)
+  if (!appSecret) {
+    console.error('[/api/agent] APP_SECRET env var is not set — rejecting all requests');
+    return NextResponse.json({ error: 'Service not configured' }, { status: 503 });
+  }
   const authHeader = req.headers.get('Authorization');
-  if (authHeader !== `Bearer ${process.env.APP_SECRET}`) {
+  if (authHeader !== `Bearer ${appSecret}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

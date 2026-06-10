@@ -104,7 +104,7 @@ export async function classifyIntent(
 
   try {
     const response = await anthropic.messages.create({
-      model: 'claude-haiku-4-5-20251001', // Fast + cheap for classification
+      model: 'claude-3-5-haiku-20241022', // Fast + cheap for classification
       max_tokens: 400,
       temperature: 0,
       system: buildClassifierPrompt(),
@@ -292,7 +292,7 @@ Return ONLY the extracted value as a plain string, or the word null.`;
 
   try {
     const response = await anthropic.messages.create({
-      model: 'claude-haiku-4-5-20251001',
+      model: 'claude-3-5-haiku-20241022',
       max_tokens: 80,
       temperature: 0,
       messages: [{ role: 'user', content: prompt }],

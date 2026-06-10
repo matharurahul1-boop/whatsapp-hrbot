@@ -143,6 +143,7 @@ async function sendUserNotifications(
         .from('users')
         .select('wa_number')
         .eq('id', notif.user_id)
+        .eq('organization_id', orgId)   // org isolation: never notify across orgs
         .single();
 
       if (user?.wa_number) {

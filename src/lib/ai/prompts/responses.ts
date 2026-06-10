@@ -1,5 +1,5 @@
 import type { SlotDefinition, SupportedLanguage, AgentIntent, SlotValues } from '../types';
-import { formatDate, formatDateTime } from '@/lib/utils/date';
+import { formatDate } from '@/lib/utils/date';
 
 // ─── Slot Question Formatter ──────────────────────────────────────────────────
 
@@ -40,7 +40,7 @@ export const REPLIES = {
         : `📋 No pending tasks. You're all caught up!`;
     }
     const statusEmoji: Record<string, string> = {
-      pending: '⏳', in_progress: '🔄', completed: '✅', cancelled: '❌',
+      todo: '⏳', in_progress: '🔄', done: '✅', cancelled: '❌',
     };
     const lines = tasks.map((t, i) =>
       `${i + 1}. ${statusEmoji[t.status] ?? '•'} *${t.title}*${t.due ? ` — ${formatDate(t.due)}` : ''}${t.assignee ? ` (${t.assignee})` : ''}`

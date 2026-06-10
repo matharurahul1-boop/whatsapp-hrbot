@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient }              from '@/lib/supabase/server';
 import { createAdminClient }         from '@/lib/supabase/admin';
 import { sendText, sendTemplate }    from '@/lib/whatsapp/client';
+import { isManagerOrAbove }          from '@/lib/rbac';
 
 // POST /api/wa-send
 // Body: { to, message, orgId, contactName? }
@@ -26,6 +27,11 @@ export async function POST(req: NextRequest) {
     .single();
 
   if (!profile) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+  // Only managers and above can send WhatsApp messages via this endpoint
+  if (!isManagerOrAbove(profile.role)) {
+    return NextResponse.json({ error: 'Only managers and above can send WhatsApp messages' }, { status: 403 });
+  }
 
   const body = await req.json();
   const { to, message, orgId, contactName } =
@@ -119,9 +125,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: userMsg }, { status: 500 });
   }
 
-  // ── Return saved log row ──────────────────────────────────────────────────
-  await new Promise(r => setTimeout(r, 250));
-
+  // ── Return saved log row (best-effort; log may not be written yet) ───────
   const { data: logRow } = await db
     .from('wa_logs')
     .select(`

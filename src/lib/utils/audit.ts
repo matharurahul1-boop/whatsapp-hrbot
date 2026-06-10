@@ -29,7 +29,8 @@ export async function writeAuditLog(entry: AuditEntry): Promise<void> {
       ip_address:      entry.ip_address  ?? null,
       source:          entry.source      ?? 'dashboard',
     });
-  } catch {
-    // Never crash a request because of audit log failure
+  } catch (e) {
+    // Never crash a request because of audit log failure — but do log it
+    console.error('[AuditLog] Failed to write audit entry:', e);
   }
 }

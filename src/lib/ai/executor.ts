@@ -68,7 +68,8 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
         .select('id, title, status, deadline, priority')
         .eq('organization_id', org_id)
         .eq('assignee_id', user_id)
-        .neq('status', 'completed')
+        .neq('status', 'done')
+        .neq('status', 'cancelled')
         .is('deleted_at', null)
         .order('deadline', { ascending: true, nullsFirst: false })
         .limit(6),

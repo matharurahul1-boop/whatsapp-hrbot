@@ -34,6 +34,10 @@ export async function middleware(request: NextRequest) {
     '/api/webhooks',
     '/api/auth',
     '/api/organizations/info',
+    '/api/policy/ask',       // called server-to-server from WA webhook (no session)
+    '/api/agent',            // called by n8n / services with Bearer APP_SECRET
+    '/api/escalate-leaves',  // called by cron with x-escalation-secret header
+    '/api/reminders/run',    // called by cron with Bearer APP_SECRET
   ];
   const isPublic = publicPrefixes.some(p => pathname.startsWith(p));
 

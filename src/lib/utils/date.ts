@@ -26,9 +26,16 @@ export function calcBusinessDays(start: string, end: string): number {
   }
 }
 
+/**
+ * Returns today's date in YYYY-MM-DD format using IST (Asia/Kolkata).
+ * UTC would give the wrong date after 11 PM IST (i.e. before 5:30 AM UTC next day).
+ */
 export function todayISO(): string {
-  return new Date().toISOString().split('T')[0];
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 }
+
+/** Alias of todayISO() — explicitly signals IST intent at call sites */
+export const todayIST = todayISO;
 
 export function istNow(): string {
   return new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });

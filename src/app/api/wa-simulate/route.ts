@@ -48,7 +48,8 @@ export async function POST(req: NextRequest) {
 
   const body    = await req.json();
   const message = (body.message as string)?.trim();
-  const orgId   = (body.orgId   as string) ?? profile.organization_id;
+  // Always use the authenticated user's org — never trust orgId from the request body
+  const orgId   = profile.organization_id;
 
   if (!message) return NextResponse.json({ error: 'message is required' }, { status: 400 });
 

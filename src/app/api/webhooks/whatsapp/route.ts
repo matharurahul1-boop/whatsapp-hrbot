@@ -270,15 +270,26 @@ async function dispatchAgent(from: string, text: string, orgId: string): Promise
 
 // ── Policy Bot keywords ───────────────────────────────────────────────────
 const POLICY_KEYWORDS = [
-  'policy', 'leave', 'holiday', 'benefit', 'rule', 'regulation',
+  'policy', 'holiday', 'benefit', 'rule', 'regulation',
   'dress code', 'work from home', 'wfh', 'salary', 'appraisal',
-  'attendance', 'conduct', 'hr policy', 'annual leave', 'sick leave',
+  'conduct', 'hr policy', 'annual leave', 'sick leave',
   'maternity', 'paternity', 'notice period', 'probation', 'gratuity',
+  'leave policy', 'attendance policy',
+];
+
+// Phrases that indicate the message is a question, not a command
+const QUESTION_PATTERNS = [
+  '?', 'what is', 'what are', "what's", 'how does', 'how do', 'how many',
+  'how much', 'when is', 'when does', 'can i', 'can we', 'do we have',
+  'is there', 'tell me about', 'explain', 'what happens',
 ];
 
 function isPolicyQuestion(text: string): boolean {
   const lower = text.toLowerCase().trim();
-  if (lower.startsWith('?')) return true;
+  // Must look like a question — not just a command containing a keyword
+  const hasQuestionPattern = lower.endsWith('?') || QUESTION_PATTERNS.some(p => lower.includes(p));
+  if (!hasQuestionPattern) return false;
+  // And must reference a policy topic
   return POLICY_KEYWORDS.some(kw => lower.includes(kw));
 }
 

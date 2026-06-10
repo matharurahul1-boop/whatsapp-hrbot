@@ -9,6 +9,12 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const db = createAdminClient();
+
+  // Fetch user's org for isolation
+  const { data: profile } = await db
+    .from('users').select('organization_id').eq('id', user.id).single();
+  if (!profile) return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
+
   const { searchParams } = req.nextUrl;
   const unreadOnly = searchParams.get('unread') === 'true';
   const limit      = Math.min(parseInt(searchParams.get('limit') ?? '30'), 100);
@@ -17,6 +23,7 @@ export async function GET(req: NextRequest) {
     .from('notifications')
     .select('*')
     .eq('user_id', user.id)
+    .eq('organization_id', profile.organization_id)  // org isolation
     .order('created_at', { ascending: false })
     .limit(limit);
 
@@ -29,6 +36,7 @@ export async function GET(req: NextRequest) {
     .from('notifications')
     .select('*', { count: 'exact', head: true })
     .eq('user_id', user.id)
+    .eq('organization_id', profile.organization_id)
     .eq('is_read', false);
 
   return NextResponse.json({ data, unread_count: unreadCount ?? 0 });
@@ -44,10 +52,15 @@ export async function PATCH(req: NextRequest) {
   const ids: string[] | undefined = body.ids;
 
   const db = createAdminClient();
-  await db.rpc('mark_notifications_read', {
+  const { error } = await db.rpc('mark_notifications_read', {
     p_user_id: user.id,
     p_ids: ids ?? null,
   });
+
+  if (error) {
+    console.error('[notifications PATCH] RPC error:', error.message);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
 
   return NextResponse.json({ success: true });
 }

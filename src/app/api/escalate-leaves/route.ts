@@ -93,11 +93,11 @@ export async function POST(req: NextRequest) {
     .from('leave_requests')
     .select(`
       id, organization_id, created_at,
-      escalated_manager_at, escalated_admin_at,
+      escalated_manager_at, escalated_admin_at, escalated_employee_at,
       reason, start_date, end_date,
-      user:users!leave_requests_user_id_fkey(
+      user:users!leave_requests_employee_id_fkey(
         id, full_name, wa_number, manager_id,
-        manager:users!leave_requests_user_id_fkey(id, full_name, wa_number)
+        manager:users!manager_id(id, full_name, wa_number)
       ),
       leave_type:leave_types!leave_requests_leave_type_id_fkey(name),
       organization:organizations!leave_requests_organization_id_fkey(
@@ -202,12 +202,14 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ── 72h: notify the requesting employee of status ─────────────────────
-    if (age >= 72 * HOUR_MS && employee.wa_number) {
-      // Only once (re-use escalated_admin_at to guard; could add a 3rd column)
+    // ── 72h: notify the requesting employee of status (once only) ────────
+    if (age >= 72 * HOUR_MS && !leave.escalated_employee_at && employee.wa_number) {
       const msg = `📋 Leave Request Update\n\nHi ${employeeName}, your ${leaveType} request (${dateRange}) is still under review. Please follow up with your manager or HR for an update.`;
       try {
         await notifyViaWA(employee.wa_number, msg, orgId, orgName, employeeName);
+        await db.from('leave_requests')
+          .update({ escalated_employee_at: new Date().toISOString() })
+          .eq('id', leave.id);
         results.push({ leaveId: leave.id, action: '72h→employee', success: true });
       } catch (err) {
         results.push({ leaveId: leave.id, action: '72h→employee', success: false, error: String(err) });

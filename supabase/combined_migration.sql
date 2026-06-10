@@ -377,6 +377,9 @@ CREATE TABLE leave_requests (
   source              message_source       NOT NULL DEFAULT 'dashboard',
   created_at          TIMESTAMPTZ          NOT NULL DEFAULT NOW(),
   updated_at          TIMESTAMPTZ          NOT NULL DEFAULT NOW(),
+  escalated_manager_at  TIMESTAMPTZ,                                                  -- 24h: WA sent to manager
+  escalated_admin_at    TIMESTAMPTZ,                                                  -- 48h: WA sent to admin
+  escalated_employee_at TIMESTAMPTZ,                                                  -- 72h: WA sent back to employee
   CONSTRAINT valid_date_range CHECK (end_date >= start_date)
 );
 

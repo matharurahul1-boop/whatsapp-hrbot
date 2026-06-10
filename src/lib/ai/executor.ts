@@ -456,6 +456,133 @@ Rules:
     };
   },
 
+  async UPDATE_TASK({ slots, org_id, user_id, user_role }): Promise<ToolResult> {
+    const db   = createAdminClient();
+    const lang = (slots._lang as 'en' | 'hi') ?? 'en';
+
+    let query = db
+      .from('tasks')
+      .select('id, title')
+      .eq('organization_id', org_id)
+      .ilike('title', `%${slots.title}%`)
+      .is('deleted_at', null)
+      .limit(1);
+
+    if (user_role === 'employee') query = query.eq('assigned_to', user_id);
+
+    const { data: tasks } = await query;
+    const task = (tasks as any[])?.[0];
+    if (!task) return { success: false, reply: REPLIES.taskNotFound(slots.title!, lang) };
+
+    const patch: Record<string, unknown> = {};
+    const field = slots.update_field?.toLowerCase().trim();
+    const value = slots.update_value?.trim() ?? '';
+
+    if (field === 'deadline') {
+      const parts = value.split(' ');
+      patch.due_date = parts[0];
+      if (parts[1]) patch.due_time = parts[1];
+    } else if (field === 'priority') {
+      const p = value.toLowerCase();
+      if (!['low', 'medium', 'high', 'urgent'].includes(p)) {
+        return { success: false, reply: lang === 'hi'
+          ? `❌ Priority: low / medium / high / urgent में से एक चुनें।`
+          : `❌ Invalid priority. Use: low / medium / high / urgent`
+        };
+      }
+      patch.priority = p;
+    } else if (field === 'status') {
+      const statusMap: Record<string, string> = {
+        pending: 'pending', 'in_progress': 'in_progress', 'in progress': 'in_progress',
+        completed: 'completed', complete: 'completed', done: 'completed',
+        cancelled: 'cancelled', cancel: 'cancelled',
+      };
+      const mapped = statusMap[value.toLowerCase()];
+      if (!mapped) {
+        return { success: false, reply: lang === 'hi'
+          ? `❌ Status: pending / in_progress / completed / cancelled`
+          : `❌ Invalid status. Use: pending / in_progress / completed / cancelled`
+        };
+      }
+      patch.status = mapped;
+      if (mapped === 'completed') patch.completed_at = new Date().toISOString();
+    } else if (field === 'assignee') {
+      const { data: found } = await db
+        .from('users')
+        .select('id, full_name')
+        .eq('organization_id', org_id)
+        .ilike('full_name', `%${value}%`)
+        .maybeSingle();
+      if (!found) return { success: false, reply: REPLIES.notFound(value, lang) };
+      patch.assigned_to = found.id;
+    }
+
+    if (!Object.keys(patch).length) {
+      return { success: false, reply: lang === 'hi'
+        ? `क्या अपडेट करना है? (deadline / priority / assignee / status)`
+        : `What should I update? deadline / priority / assignee / status`
+      };
+    }
+
+    patch.updated_at = new Date().toISOString();
+    await db.from('tasks').update(patch).eq('id', task.id);
+
+    await writeAuditLog({
+      org_id, actor_id: user_id, actor_type: 'user',
+      action: 'UPDATE_TASK', table_name: 'tasks',
+      record_id: task.id, new_data: patch, source: 'whatsapp',
+    });
+
+    return {
+      success: true,
+      reply: lang === 'hi'
+        ? `✅ *"${task.title}"* — ${field} अपडेट हो गया!`
+        : `✅ *"${task.title}"* — ${field} updated to *${value}*!`,
+    };
+  },
+
+  async SET_REMINDER({ slots, org_id, user_id }): Promise<ToolResult> {
+    const db   = createAdminClient();
+    const lang = (slots._lang as 'en' | 'hi') ?? 'en';
+
+    let dueDate: string | null = null;
+    let dueTime: string | null = null;
+    if (slots.deadline) {
+      const parts = slots.deadline.split(' ');
+      dueDate = parts[0];
+      dueTime = parts[1] ?? null;
+    }
+
+    const { data: task, error } = await db
+      .from('tasks')
+      .insert({
+        organization_id: org_id,
+        title:           slots.title!,
+        assigned_to:     user_id,
+        assigned_by:     user_id,
+        due_date:        dueDate,
+        due_time:        dueTime,
+        priority:        'medium',
+        status:          'pending',
+        source:          'whatsapp',
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    const timeStr = dueDate
+      ? `${formatDate(dueDate)}${dueTime ? ` at ${dueTime}` : ''}`
+      : null;
+
+    return {
+      success: true,
+      reply: lang === 'hi'
+        ? `⏰ *रिमाइंडर सेट!*\n\n📋 ${slots.title!}${timeStr ? `\n🗓 ${timeStr}` : ''}`
+        : `⏰ *Reminder set!*\n\n📋 ${slots.title!}${timeStr ? `\n🗓 ${timeStr}` : ''}`,
+    };
+  },
+
   async TASK_DETAILS({ slots, org_id, user_id, user_role }): Promise<ToolResult> {
     const db   = createAdminClient();
     const lang = (slots._lang as 'en' | 'hi') ?? 'en';

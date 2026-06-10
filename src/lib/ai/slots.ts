@@ -68,6 +68,26 @@ const SLOT_SCHEMAS: Partial<Record<AgentIntent, SlotDefinition[]>> = {
     },
   ],
 
+  DELETE_TASK: [
+    {
+      name: 'title',
+      type: 'string',
+      required: true,
+      question_en: 'Which task do you want to delete? (Title or part of it)',
+      question_hi: 'कौन सा टास्क हटाना है? (नाम या उसका हिस्सा)',
+    },
+  ],
+
+  TASK_DETAILS: [
+    {
+      name: 'title',
+      type: 'string',
+      required: true,
+      question_en: 'Which task do you want details for?',
+      question_hi: 'किस टास्क की जानकारी चाहिए?',
+    },
+  ],
+
   UPDATE_TASK: [
     {
       name: 'title',
@@ -322,6 +342,9 @@ export function buildConfirmationSummary(
     REJECT_LEAVE:     { en: '❌ *Reject this leave request?*',  hi: '❌ *छुट्टी अस्वीकार करें?*' },
     COMPLETE_TASK:    { en: '✅ *Mark this task complete?*',    hi: '✅ *टास्क पूरा करें?*' },
     DELETE_TASK:      { en: '🗑️ *Delete this task?*',          hi: '🗑️ *टास्क हटाएं?*' },
+    UPDATE_TASK:      { en: '✏️ *Update this task?*',          hi: '✏️ *टास्क अपडेट करें?*' },
+    SET_REMINDER:     { en: '⏰ *Set this reminder?*',         hi: '⏰ *रिमाइंडर सेट करें?*' },
+    TASK_DETAILS:     { en: '📋 *Show details for this task?*', hi: '📋 *टास्क की जानकारी देखें?*' },
   };
 
   const headerObj = headers[intent];

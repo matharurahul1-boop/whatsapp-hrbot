@@ -37,10 +37,10 @@ export async function createTask(
     .insert({
       organization_id: org_id,
       title: entities.task_title,
-      assigned_to: assignedTo,
+      assignee_id: assignedTo,
       assigned_by: createdBy,
-      due_date: entities.deadline ?? null,
-      status: 'pending',
+      deadline: entities.deadline ?? null,
+      status: 'todo',
       priority: 'medium',
       source: 'whatsapp',
     })
@@ -69,7 +69,7 @@ export async function createTask(
   return {
     success: true,
     data: { task_id: task.id, assignee_name: assignee?.full_name ?? 'You' },
-    message: `Task "${task.title}" created and assigned to ${assignee?.full_name ?? 'you'}${task.due_date ? ` — due ${formatDate(task.due_date)}` : ''}.`,
+    message: `Task "${task.title}" created and assigned to ${assignee?.full_name ?? 'you'}${task.deadline ? ` — due ${formatDate(task.deadline)}` : ''}.`,
   };
 }
 
@@ -82,14 +82,14 @@ export async function listTasks(
 
   let query = db
     .from('tasks')
-    .select('id, title, status, priority, due_date, assigned_to')
+    .select('id, title, status, priority, deadline, assignee_id')
     .eq('organization_id', org_id)
     .is('deleted_at', null)
-    .order('due_date', { ascending: true })
+    .order('deadline', { ascending: true })
     .limit(10);
 
   if (filter === 'my') {
-    query = query.eq('assigned_to', userId).neq('status', 'completed');
+    query = query.eq('assignee_id', userId).neq('status', 'completed');
   } else if (filter === 'pending') {
     query = query.eq('status', 'pending');
   }
@@ -102,7 +102,7 @@ export async function listTasks(
   const formatted = tasks.map((t) => ({
     title: t.title,
     status: t.status,
-    due: t.due_date ? formatDate(t.due_date) : 'No deadline',
+    due: t.deadline ? formatDate(t.deadline) : 'No deadline',
   }));
 
   return { success: true, data: { tasks: formatted }, message: '' };
@@ -118,9 +118,9 @@ export async function completeTask(
 
   let query = db
     .from('tasks')
-    .select('id, title, assigned_to')
+    .select('id, title, assignee_id')
     .eq('organization_id', org_id)
-    .eq('assigned_to', userId)
+    .eq('assignee_id', userId)
     .neq('status', 'completed');
 
   if (taskId) {

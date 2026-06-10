@@ -59,12 +59,12 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     // Parallel DB queries for speed
     const [tasksRes, attendanceRes, leaveRes] = await Promise.all([
       db.from('tasks')
-        .select('id, title, status, due_date, priority')
+        .select('id, title, status, deadline, priority')
         .eq('organization_id', org_id)
-        .eq('assigned_to', user_id)
+        .eq('assignee_id', user_id)
         .neq('status', 'completed')
         .is('deleted_at', null)
-        .order('due_date', { ascending: true, nullsFirst: false })
+        .order('deadline', { ascending: true, nullsFirst: false })
         .limit(6),
       db.from('attendance_records')
         .select('check_in_time, check_out_time, status')
@@ -82,9 +82,9 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const attendance = attendanceRes.data;
     const pendingLeave = leaveRes.data ?? [];
 
-    const overdue   = tasks.filter((t: any) => t.due_date && t.due_date < today);
-    const dueToday  = tasks.filter((t: any) => t.due_date === today);
-    const upcoming  = tasks.filter((t: any) => !t.due_date || t.due_date > today);
+    const overdue   = tasks.filter((t: any) => t.deadline && t.deadline < today);
+    const dueToday  = tasks.filter((t: any) => t.deadline === today);
+    const upcoming  = tasks.filter((t: any) => !t.deadline || t.deadline > today);
 
     // Time greeting
     let emoji = '🌅'; let greeting = 'Good morning';
@@ -267,12 +267,12 @@ Rules:
       .insert({
         organization_id: org_id,
         title:           slots.title!,
-        assigned_to:     assignedTo,
+        assignee_id:     assignedTo,
         assigned_by:     user_id,
-        due_date:        dueDate,
+        deadline:        dueDate,
         due_time:        dueTime,
         priority:        (slots.priority as string) ?? 'medium',
-        status:          'pending',
+        status:          'todo',
         source:          'whatsapp',
       })
       .select()
@@ -307,15 +307,15 @@ Rules:
 
     let query = db
       .from('tasks')
-      .select(`id, title, status, due_date, priority, assigned_to:users!tasks_assigned_to_fkey(full_name)`)
+      .select(`id, title, status, deadline, priority, assignee_id:users!tasks_assignee_id_fkey(full_name)`)
       .eq('organization_id', org_id)
       .is('deleted_at', null)
       .neq('status', 'completed')
-      .order('due_date', { ascending: true, nullsFirst: false })
+      .order('deadline', { ascending: true, nullsFirst: false })
       .limit(10);
 
     if (user_role === 'employee') {
-      query = query.eq('assigned_to', user_id);
+      query = query.eq('assignee_id', user_id);
     }
 
     const { data: tasks } = await query;
@@ -329,14 +329,14 @@ Rules:
       };
     }
 
-    const overdue  = (tasks as any[]).filter((t) => t.due_date && t.due_date < today);
-    const dueToday = (tasks as any[]).filter((t) => t.due_date === today);
-    const rest     = (tasks as any[]).filter((t) => !t.due_date || t.due_date > today);
+    const overdue  = (tasks as any[]).filter((t) => t.deadline && t.deadline < today);
+    const dueToday = (tasks as any[]).filter((t) => t.deadline === today);
+    const rest     = (tasks as any[]).filter((t) => !t.deadline || t.deadline > today);
 
     const formatTask = (t: any, i: number) => {
       const pEmoji  = priorityEmoji(t.priority);
-      const due     = t.due_date ? ` — ${formatDate(t.due_date)}` : '';
-      const assignee = user_role !== 'employee' && t.assigned_to?.full_name ? ` _(${t.assigned_to.full_name})_` : '';
+      const due     = t.deadline ? ` — ${formatDate(t.deadline)}` : '';
+      const assignee = user_role !== 'employee' && t.assignee_id?.full_name ? ` _(${t.assigned_to.full_name})_` : '';
       return `${i + 1}. ${pEmoji} *${t.title}*${due}${assignee}`;
     };
 
@@ -376,7 +376,7 @@ Rules:
       .from('tasks')
       .select('id, title')
       .eq('organization_id', org_id)
-      .eq('assigned_to', user_id)
+      .eq('assignee_id', user_id)
       .ilike('title', `%${slots.title}%`)
       .neq('status', 'completed')
       .limit(1);
@@ -420,7 +420,7 @@ Rules:
 
     if (!found) return { success: false, reply: REPLIES.notFound(slots.assignee!, lang) };
 
-    await db.from('tasks').update({ assigned_to: found.id }).eq('id', task.id);
+    await db.from('tasks').update({ assignee_id: found.id }).eq('id', task.id);
     n8n.notifyTaskAssigned(org_id, task.id, found.id).catch(() => {});
 
     return {
@@ -439,7 +439,7 @@ Rules:
       .from('tasks')
       .select('id, title')
       .eq('organization_id', org_id)
-      .eq('assigned_to', user_id)
+      .eq('assignee_id', user_id)
       .ilike('title', `%${slots.title}%`)
       .limit(1);
 
@@ -480,7 +480,7 @@ Rules:
 
     if (field === 'deadline') {
       const parts = value.split(' ');
-      patch.due_date = parts[0];
+      patch.deadline = parts[0];
       if (parts[1]) patch.due_time = parts[1];
     } else if (field === 'priority') {
       const p = value.toLowerCase();
@@ -493,7 +493,7 @@ Rules:
       patch.priority = p;
     } else if (field === 'status') {
       const statusMap: Record<string, string> = {
-        pending: 'pending', 'in_progress': 'in_progress', 'in progress': 'in_progress',
+        todo: 'todo', pending: 'todo', 'in_progress': 'in_progress', 'in progress': 'in_progress',
         completed: 'completed', complete: 'completed', done: 'completed',
         cancelled: 'cancelled', cancel: 'cancelled',
       };
@@ -514,7 +514,7 @@ Rules:
         .ilike('full_name', `%${value}%`)
         .maybeSingle();
       if (!found) return { success: false, reply: REPLIES.notFound(value, lang) };
-      patch.assigned_to = found.id;
+      patch.assignee_id = found.id;
     }
 
     if (!Object.keys(patch).length) {
@@ -558,12 +558,12 @@ Rules:
       .insert({
         organization_id: org_id,
         title:           slots.title!,
-        assigned_to:     user_id,
+        assignee_id:     user_id,
         assigned_by:     user_id,
-        due_date:        dueDate,
+        deadline:        dueDate,
         due_time:        dueTime,
         priority:        'medium',
-        status:          'pending',
+        status:          'todo',
         source:          'whatsapp',
       })
       .select()
@@ -589,15 +589,15 @@ Rules:
 
     let query = db
       .from('tasks')
-      .select(`id, title, status, due_date, due_time, priority, description,
-        assigned_to:users!tasks_assigned_to_fkey(full_name),
+      .select(`id, title, status, deadline, due_time, priority, description,
+        assignee_id:users!tasks_assignee_id_fkey(full_name),
         assigned_by:users!tasks_assigned_by_fkey(full_name)`)
       .eq('organization_id', org_id)
       .ilike('title', `%${slots.title ?? ''}%`)
       .is('deleted_at', null)
       .limit(1);
 
-    if (user_role === 'employee') query = query.eq('assigned_to', user_id);
+    if (user_role === 'employee') query = query.eq('assignee_id', user_id);
 
     const { data: tasks } = await query;
     const t = (tasks as any[])?.[0];
@@ -613,8 +613,8 @@ Rules:
       `*Title:* ${t.title}`,
       `*Status:* ${statusEmoji[t.status] ?? ''} ${t.status}`,
       `*Priority:* ${priorityEmoji(t.priority)} ${t.priority ?? 'medium'}`,
-      t.due_date ? `*Due:* ${formatDate(t.due_date)}${t.due_time ? ` at ${t.due_time}` : ''}` : null,
-      t.assigned_to?.full_name ? `*Assigned to:* ${t.assigned_to.full_name}` : null,
+      t.deadline ? `*Due:* ${formatDate(t.deadline)}${t.due_time ? ` at ${t.due_time}` : ''}` : null,
+      t.assignee_id?.full_name ? `*Assigned to:* ${t.assignee_id.full_name}` : null,
       t.assigned_by?.full_name ? `*Created by:* ${t.assigned_by.full_name}` : null,
       t.description ? `\n*Notes:* ${t.description}` : null,
     ].filter(Boolean);

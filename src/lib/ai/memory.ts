@@ -18,7 +18,7 @@ export type { ConversationContext };
 //           TTL: permanent (updated via onboarding/admin)
 
 const IDLE_TIMEOUT_MS     = 30 * 60 * 1000; // 30 minutes
-const CONTEXT_WINDOW_SIZE = 8;              // Last N messages for Claude
+const CONTEXT_WINDOW_SIZE = 20;             // Last N messages for Claude
 
 // ─── Load Full Agent Session ──────────────────────────────────────────────────
 

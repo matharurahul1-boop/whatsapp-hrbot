@@ -19,7 +19,7 @@ export function SidebarToggle() {
     <button
       onClick={toggle}
       title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-      className="hidden md:flex fixed top-1/2 -translate-y-1/2 z-50
+      className="hidden md:flex fixed -translate-y-1/2 z-50
                  h-6 w-6 items-center justify-center rounded-full
                  bg-surface-100 border border-surface-300
                  text-surface-500
@@ -27,6 +27,7 @@ export function SidebarToggle() {
                  shadow-card cursor-pointer"
       style={{
         left: leftPx,
+        top: '3.5rem', /* h-14 = 56px = topbar height — pill sits on the topbar bottom border */
         transition: 'left 0.3s ease, background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease',
       }}
     >

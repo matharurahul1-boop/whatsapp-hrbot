@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, CheckSquare, Calendar, Clock,
   Users, MessageSquare, Settings, Zap, ChevronRight,
-  FileText, AlertTriangle,
+  FileText, AlertTriangle, Menu,
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import type { UserRole } from '@/types/database.types';
@@ -57,40 +57,50 @@ function Tooltip({ label }: { label: string }) {
 
 export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: string }) {
   const pathname      = usePathname();
-  const { collapsed } = useSidebar();
+  const { collapsed, toggle } = useSidebar();
   const visible       = NAV.filter(n => n.roles.includes(role));
 
   return (
-    <aside className={cn('sidebar transition-[width] duration-300 ease-in-out', collapsed && 'sidebar-collapsed')}>
+    <aside className={cn('sidebar', collapsed && 'sidebar-collapsed')}>
 
-      {/* ── Brand ── */}
-      <div className={cn(
-        'flex items-center h-14 border-b border-surface-300/30 shrink-0 overflow-hidden',
-        collapsed ? 'justify-center px-0' : 'gap-3 px-4',
-      )}>
+      {/* ── Brand + hamburger ── */}
+      <div className="flex items-center h-14 border-b border-surface-300/30 shrink-0 px-3 gap-2">
+        {/* Zap logo */}
         <div className="relative shrink-0">
           <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-gradient shadow-glow">
             <Zap className="h-4 w-4 text-white" />
           </div>
           <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-success border-2 border-surface-0" />
         </div>
+
+        {/* Title — fades out when collapsed */}
         <div className={cn(
-          'min-w-0 flex-1 transition-opacity duration-200',
-          collapsed ? 'opacity-0 w-0 overflow-hidden' : 'opacity-100',
+          'min-w-0 flex-1 overflow-hidden transition-[opacity,width] duration-300',
+          collapsed ? 'opacity-0 w-0' : 'opacity-100',
         )}>
           <p className="text-sm font-bold text-surface-950 leading-none whitespace-nowrap">HRBot</p>
           {orgName && <p className="text-2xs text-surface-600 truncate mt-0.5">{orgName}</p>}
         </div>
+
+        {/* Hamburger toggle — desktop only (mobile uses header hamburger) */}
+        <button
+          onClick={toggle}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          className="hidden md:flex h-7 w-7 shrink-0 items-center justify-center rounded-lg
+                     text-surface-500 hover:bg-surface-200 hover:text-surface-950 transition-colors"
+        >
+          <Menu className="h-4 w-4" />
+        </button>
       </div>
 
       {/* ── Nav ── */}
       <nav className={cn(
         'flex-1 py-3 space-y-0.5 no-scrollbar',
-        collapsed ? 'overflow-visible px-2' : 'overflow-y-auto px-3',
+        collapsed ? 'overflow-visible px-1.5' : 'overflow-y-auto px-3',
       )}>
         <p className={cn(
-          'px-3 mb-2 text-2xs font-bold text-surface-600 uppercase tracking-widest select-none transition-opacity duration-200',
-          collapsed ? 'opacity-0 h-0 mb-0 overflow-hidden' : 'opacity-100',
+          'px-3 mb-2 text-2xs font-bold text-surface-600 uppercase tracking-widest select-none transition-[opacity,height] duration-200',
+          collapsed ? 'opacity-0 h-0 mb-0 overflow-hidden' : 'opacity-100 h-auto',
         )}>
           Main Menu
         </p>
@@ -145,7 +155,7 @@ export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: s
       {/* ── Footer ── */}
       <div className={cn(
         'pt-2 pb-4 border-t border-surface-300/30 shrink-0 space-y-0.5',
-        collapsed ? 'px-2' : 'px-3',
+        collapsed ? 'px-1.5' : 'px-3',
       )}>
         {collapsed ? (
           <div className="group relative flex justify-center">

@@ -129,6 +129,16 @@
     }
   }
 
+  /* ── Sidebar shell (main content offset) ── */
+  /* Driven by html[data-sidebar] set from SidebarShell.tsx — static CSS, never purged */
+  .sidebar-shell {
+    transition: padding-left 0.3s ease;
+  }
+  @media (min-width: 768px) {
+    .sidebar-shell { padding-left: 256px; } /* sidebar expanded */
+    html[data-sidebar="collapsed"] .sidebar-shell { padding-left: 64px; } /* sidebar collapsed */
+  }
+
   /* ── Topbar ── */
   .topbar {
     @apply sticky top-0 z-30 flex items-center justify-between h-14 px-4 md:px-6;

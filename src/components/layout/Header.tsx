@@ -7,7 +7,6 @@ import { createClient } from '@/lib/supabase/client';
 import { Avatar } from '@/components/ui/Avatar';
 import { cn } from '@/lib/utils/cn';
 import { useTheme } from '@/components/layout/ThemeProvider';
-import { useSidebar } from '@/components/layout/SidebarProvider';
 
 interface HeaderProps {
   userName:  string;
@@ -40,8 +39,6 @@ export default function Header({ userName, userRole, avatarUrl }: HeaderProps) {
   const supabase = createClient();
   const { theme, toggleTheme } = useTheme();
 
-  const { toggle: toggleCollapsed } = useSidebar();
-
   const notifRef    = useRef<HTMLDivElement>(null);
   const [notifOpen, setNotifOpen]     = useState(false);
   const [notifs,    setNotifs]        = useState<Notification[]>([]);
@@ -70,24 +67,20 @@ export default function Header({ userName, userRole, avatarUrl }: HeaderProps) {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  // Hamburger: collapses sidebar on desktop, toggles overlay on mobile
-  function handleHamburger() {
-    if (typeof window !== 'undefined' && window.innerWidth >= 768) {
-      toggleCollapsed();
+  // Mobile-only: toggle sidebar overlay
+  function toggleMobileSidebar() {
+    const sidebar = document.querySelector('.sidebar');
+    const overlay = document.getElementById('sidebar-overlay');
+    if (!sidebar || !overlay) return;
+    const isOpen = !sidebar.classList.contains('sidebar-closed');
+    if (isOpen) {
+      sidebar.classList.add('sidebar-closed');
+      overlay.classList.add('hidden');
     } else {
-      const sidebar = document.querySelector('.sidebar');
-      const overlay = document.getElementById('sidebar-overlay');
-      if (!sidebar || !overlay) return;
-      const isOpen = !sidebar.classList.contains('sidebar-closed');
-      if (isOpen) {
-        sidebar.classList.add('sidebar-closed');
-        overlay.classList.add('hidden');
-      } else {
-        sidebar.classList.remove('sidebar-closed');
-        overlay.classList.remove('hidden');
-      }
-      setMenuOpen(!isOpen);
+      sidebar.classList.remove('sidebar-closed');
+      overlay.classList.remove('hidden');
     }
+    setMenuOpen(!isOpen);
   }
 
   async function signOut() {
@@ -115,14 +108,12 @@ export default function Header({ userName, userRole, avatarUrl }: HeaderProps) {
     <header className="topbar shrink-0">
       {/* Left — hamburger + breadcrumbs */}
       <div className="flex items-center gap-2 min-w-0 flex-1">
-        {/* Hamburger — mobile: overlay toggle | desktop: sidebar collapse */}
+        {/* Mobile-only hamburger (desktop uses the one in the sidebar brand section) */}
         <button
-          onClick={handleHamburger}
-          title="Toggle sidebar"
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-surface-600 hover:bg-surface-300 hover:text-surface-950 transition-colors shrink-0"
+          onClick={toggleMobileSidebar}
+          className="md:hidden flex h-8 w-8 items-center justify-center rounded-lg text-surface-600 hover:bg-surface-300 hover:text-surface-950 transition-colors shrink-0"
         >
-          {menuOpen ? <X className="h-4 w-4 md:hidden" /> : null}
-          <Menu className={cn('h-4 w-4', menuOpen && 'hidden md:block')} />
+          {menuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
         </button>
 
         {/* Breadcrumbs */}

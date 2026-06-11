@@ -107,13 +107,21 @@ async function handleNewIntent(
   const initialSlots = initSlots(intent);
   let mergedSlots    = mergeSlots(initialSlots, classified.extracted_slots);
 
-  // Pre-fill title from the last discussed task when the user doesn't name one explicitly.
-  // Covers "update the assigned to also" / "mark the same task done" type follow-ups.
+  // Pre-fill title from the last discussed task when the user doesn't name one explicitly
+  // OR uses a reference phrase like "same task", "it", "that task", "the same one".
+  // Covers "update the assigned to also" / "update the same task" type follow-ups.
   const TITLE_LOOKUP_INTENTS: AgentIntent[] = [
     'UPDATE_TASK', 'TASK_DETAILS', 'COMPLETE_TASK', 'DELETE_TASK', 'ASSIGN_TASK',
   ];
-  if (TITLE_LOOKUP_INTENTS.includes(intent) && !mergedSlots.title && context.last_task_title) {
-    mergedSlots = { ...mergedSlots, title: context.last_task_title };
+  // Reference phrases that are NOT actual task titles — treat as "same as last task"
+  const IMPLICIT_REF_RE =
+    /^(the same(?: task| one)?|same(?: task| one)?|it|that(?: task| one)?|this(?: task| one)?|the task|the one|same)$/i;
+
+  if (TITLE_LOOKUP_INTENTS.includes(intent) && context.last_task_title) {
+    const titleVal = mergedSlots.title as string | null | undefined;
+    if (!titleVal || IMPLICIT_REF_RE.test(titleVal.trim())) {
+      mergedSlots = { ...mergedSlots, title: context.last_task_title };
+    }
   }
 
   // Check what slot is needed next

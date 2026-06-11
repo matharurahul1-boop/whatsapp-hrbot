@@ -165,7 +165,7 @@ export async function runMasterAgent(
 // full resolved slot set and can regenerate the confirmation if needed.
 
 const LAST_TASK_RE =
-  /\b(last(?:ly)?|recent(?:ly)?|previous(?:ly)?|the one (?:you|i)|just (?:created|updated|modified)|latest|the last (?:one|task)|previous (?:one|task)|my (?:last|recent|latest) task)\b/i;
+  /\b(last(?:ly)?|recent(?:ly)?|previous(?:ly)?|the one (?:you|i)|just (?:created|updated|modified)|latest|the last (?:one|task)|previous (?:one|task)|my (?:last|recent|latest) task|the same(?: task| one)?|same(?: task| one)?|that task|this task)\b/i;
 
 const LAST_UPDATED_RE =
   /\b(last(?:ly)?|recent(?:ly)?)\s+(?:updated|modified|changed)\b|\bupdated\s+task\b/i;

@@ -18,7 +18,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient }              from '@/lib/supabase/server';
 import { createAdminClient }         from '@/lib/supabase/admin';
-import { sendText, sendTemplate }    from '@/lib/whatsapp/client';
 
 const LOG_SELECT = `
   id, wa_number, contact_name, direction, message_type,
@@ -81,7 +80,7 @@ export async function POST(req: NextRequest) {
   }
 
   // ── 2. Dispatch AI agent (non-blocking start, but we'll poll for reply) ──
-  const agentPromise = dispatchAgent(userWaNumber, message, orgId);
+  const agentPromise = dispatchAgent(userWaNumber, message, orgId, user.id);
 
   // ── 3. Wait up to 12 s for the agent's reply to appear in wa_logs ────────
   let replyLog = null;
@@ -119,7 +118,9 @@ export async function POST(req: NextRequest) {
 
 // ── AI agent dispatcher (mirrors webhook route logic) ─────────────────────
 
-async function dispatchAgent(from: string, text: string, orgId: string): Promise<void> {
+async function dispatchAgent(
+  from: string, text: string, orgId: string, userId: string
+): Promise<void> {
   const n8nUrl = process.env.N8N_WEBHOOK_URL;
 
   if (n8nUrl) {
@@ -140,27 +141,47 @@ async function dispatchAgent(from: string, text: string, orgId: string): Promise
       const reply = json?.reply ?? json?.output ?? json?.text ?? json?.message;
       if (!reply) throw new Error('n8n returned no reply');
 
-      await sendText(`+${from}`, reply, orgId);
+      await logSimulatedReply(from, orgId, userId, reply);
     } catch (err) {
       console.error('[wa-simulate] n8n error:', err);
-      // Fallback to local agent
-      await runLocalAgent(from, text, orgId);
+      await runLocalAgent(from, text, orgId, userId);
     }
   } else {
-    await runLocalAgent(from, text, orgId);
+    await runLocalAgent(from, text, orgId, userId);
   }
 }
 
-async function runLocalAgent(from: string, text: string, orgId: string): Promise<void> {
+// Write the bot reply directly to wa_logs without touching the WhatsApp API.
+// The simulate poller reads wa_logs — no real send is needed for local testing.
+async function logSimulatedReply(
+  from: string, orgId: string, userId: string, replyText: string
+): Promise<void> {
+  const db = createAdminClient();
+  await db.from('wa_logs').insert({
+    organization_id: orgId,
+    user_id:         userId,
+    wa_number:       from,
+    meta_message_id: `sim_out_${Date.now()}_${from}`,
+    direction:       'outgoing',
+    message_type:    'text',
+    message_text:    replyText,
+    delivery_status: 'sent',
+    wa_timestamp:    new Date().toISOString(),
+    sent_at:         new Date().toISOString(),
+  });
+}
+
+async function runLocalAgent(
+  from: string, text: string, orgId: string, userId: string
+): Promise<void> {
   try {
     const { runMasterAgent } = await import('@/lib/ai/agent');
     const result = await runMasterAgent(text, `+${from}`, orgId);
-    await sendText(`+${from}`, result.reply, orgId);
+    await logSimulatedReply(from, orgId, userId, result.reply);
   } catch (err) {
     console.error('[wa-simulate] Local agent error:', err);
-    // Send a fallback so there's at least SOME reply in the log
     try {
-      await sendText(`+${from}`, '⚠️ Agent unavailable. Please try again.', orgId);
+      await logSimulatedReply(from, orgId, userId, '⚠️ Agent unavailable. Please try again.');
     } catch { /* ignore */ }
   }
 }

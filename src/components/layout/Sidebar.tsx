@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, CheckSquare, Calendar, Clock,
   Users, MessageSquare, Settings, Zap, ChevronRight,
-  FileText, AlertTriangle, Menu,
+  FileText, AlertTriangle, ChevronsLeft, ChevronsRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import type { UserRole } from '@/types/database.types';
@@ -45,11 +45,14 @@ function Tooltip({ label }: { label: string }) {
   return (
     <div className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-3 z-[60]
                     opacity-0 group-hover:opacity-100 transition-opacity duration-150">
-      <span className="relative block rounded-lg bg-surface-950 px-2.5 py-1.5 text-xs font-medium
-                       text-white whitespace-nowrap shadow-modal">
+      <span className="relative block rounded-lg px-2.5 py-1.5 text-xs font-semibold
+                       whitespace-nowrap shadow-modal"
+            style={{ background: '#0c0c1a', color: '#e8e8f6' }}>
         {label}
-        <span className="absolute right-full top-1/2 -translate-y-1/2 border-[5px]
-                         border-transparent border-r-surface-950" />
+        {/* Arrow pointing left back to the icon */}
+        <span className="absolute right-full top-1/2 -translate-y-1/2"
+              style={{ borderWidth: 5, borderStyle: 'solid',
+                       borderColor: 'transparent #0c0c1a transparent transparent' }} />
       </span>
     </div>
   );
@@ -82,14 +85,16 @@ export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: s
           {orgName && <p className="text-2xs text-surface-600 truncate mt-0.5">{orgName}</p>}
         </div>
 
-        {/* Hamburger toggle — desktop only (mobile uses header hamburger) */}
+        {/* Collapse / expand toggle — desktop only */}
         <button
           onClick={toggle}
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           className="hidden md:flex h-7 w-7 shrink-0 items-center justify-center rounded-lg
                      text-surface-500 hover:bg-surface-200 hover:text-surface-950 transition-colors"
         >
-          <Menu className="h-4 w-4" />
+          {collapsed
+            ? <ChevronsRight className="h-4 w-4" />
+            : <ChevronsLeft  className="h-4 w-4" />}
         </button>
       </div>
 

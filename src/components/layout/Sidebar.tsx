@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import {
   LayoutDashboard, CheckSquare, Calendar, Clock,
   Users, MessageSquare, Settings, Zap, ChevronRight,
-  FileText, AlertTriangle,
+  FileText, AlertTriangle, X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import type { UserRole } from '@/types/database.types';
@@ -100,6 +100,22 @@ export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: s
           <p className="text-sm font-bold text-surface-950 leading-none whitespace-nowrap">HRBot</p>
           {orgName && <p className="text-2xs text-surface-600 truncate mt-0.5">{orgName}</p>}
         </div>
+
+        {/* Close button — overlay mode only (hidden on desktop where sidebar is inline) */}
+        <button
+          onClick={() => {
+            const sidebar  = document.querySelector('.sidebar');
+            const overlay  = document.getElementById('sidebar-overlay');
+            if (sidebar)  sidebar.classList.remove('sidebar-open');
+            if (overlay)  overlay.classList.add('hidden');
+          }}
+          className="lg:hidden shrink-0 flex h-8 w-8 items-center justify-center rounded-lg
+                     text-surface-600 hover:text-surface-950 hover:bg-surface-300
+                     transition-colors"
+          aria-label="Close sidebar"
+        >
+          <X className="h-4 w-4" />
+        </button>
       </div>
 
       {/* ── Nav ── */}

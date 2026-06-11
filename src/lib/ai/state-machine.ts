@@ -105,7 +105,16 @@ async function handleNewIntent(
 
   // Initialize slots and merge any extracted from the current message
   const initialSlots = initSlots(intent);
-  const mergedSlots  = mergeSlots(initialSlots, classified.extracted_slots);
+  let mergedSlots    = mergeSlots(initialSlots, classified.extracted_slots);
+
+  // Pre-fill title from the last discussed task when the user doesn't name one explicitly.
+  // Covers "update the assigned to also" / "mark the same task done" type follow-ups.
+  const TITLE_LOOKUP_INTENTS: AgentIntent[] = [
+    'UPDATE_TASK', 'TASK_DETAILS', 'COMPLETE_TASK', 'DELETE_TASK', 'ASSIGN_TASK',
+  ];
+  if (TITLE_LOOKUP_INTENTS.includes(intent) && !mergedSlots.title && context.last_task_title) {
+    mergedSlots = { ...mergedSlots, title: context.last_task_title };
+  }
 
   // Check what slot is needed next
   const nextSlot = getNextPendingSlot(intent, mergedSlots);

@@ -91,6 +91,9 @@ export interface ConversationContext {
   error_context: string | null;   // Last error message for recovery
   language: SupportedLanguage;
   turn_count: number;             // Total turns in this flow
+  // Persists across flow resets so follow-up messages like "update the same task"
+  // don't have to re-specify the task title.
+  last_task_title?: string | null;
 }
 
 export const EMPTY_CONTEXT: ConversationContext = {

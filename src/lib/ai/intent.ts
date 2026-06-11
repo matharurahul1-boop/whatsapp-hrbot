@@ -26,6 +26,9 @@ Current IST time: ${istTime}
 - LIST_TASKS: show / list / view tasks (pending/my/all)
 - COMPLETE_TASK: mark done / complete / finish a task
 - UPDATE_TASK: change deadline / priority / status / assignee of a task
+  ✅ "update the assigned to", "change the assignee", "update assigned to also" → UPDATE_TASK, update_field: "assignee"
+  ✅ "update the priority", "change deadline" → UPDATE_TASK with the relevant update_field
+  Note: "assigned to" = "assignee". Even without a task title, classify as UPDATE_TASK.
 - SET_REMINDER: set a reminder / remind me / yaad dilana
 - DELETE_TASK: delete / remove a task
 - TASK_DETAILS: show details / info about a specific task
@@ -216,7 +219,7 @@ function fallbackClassification(message: string): ClassifiedIntent {
   // "give" alone is NOT an assign signal — require "assign"/"transfer" or "give...to [person]"
   const isAssignTask   = /\b(assign|transfer)\b.*\btasks?\b|\btasks?\b.*\b(assign|transfer)\b|\bgive\b.*\btasks?\b.*\bto\b/i.test(lower);
   const isDeleteTask   = /\b(delete|remove)\b.*\btasks?\b/i.test(lower);
-  const isUpdateTask   = /\b(update|change|modify|edit|set)\b.*\b(task|deadline|priority|status|assignee|due date)\b/i.test(lower);
+  const isUpdateTask   = /\b(update|change|modify|edit|set)\b.*\b(task|deadline|priority|status|assignee|assigned\s+to|due\s+date)\b|\b(update|change|modify)\b.*\b(assigned?\s+to|the\s+assignee)\b/i.test(lower);
   const isTaskDetails  = /\btask\s+(details?|info)\b|\b(details?|info)\b.*\btask\b/i.test(lower);
   const isListTasks    = /\b(list|show|view|pending|all)\b.*\btasks?\b|\btasks?\b.*\b(list|show|pending|all)\b|\bmy\s+(pending\s+)?tasks?\b/i.test(lower);
   const isCreateTask   = /\b(create|add|make|new|bana|banao)\b.*\btasks?\b|\btasks?\b.*\b(create|add|make|new)\b/i.test(lower);
@@ -285,6 +288,14 @@ function fallbackClassification(message: string): ClassifiedIntent {
   if (intent === 'ASSIGN_TASK' || intent === 'UPDATE_TASK') {
     const aMatch = message.match(/\b(?:to|for|assign to|give to)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/);
     if (aMatch?.[1]) extracted_slots.assignee = aMatch[1];
+  }
+
+  // Extract update_field for UPDATE_TASK when specific field words appear in the message
+  if (intent === 'UPDATE_TASK') {
+    if (/\bassigned?\s+to\b|\bassignee\b/i.test(lower))               extracted_slots.update_field = 'assignee';
+    else if (/\bdeadline\b|\bdue\s+date\b|\bdue.?date\b/i.test(lower)) extracted_slots.update_field = 'deadline';
+    else if (/\bpriority\b/i.test(lower))                              extracted_slots.update_field = 'priority';
+    else if (/\bstatus\b/i.test(lower))                                extracted_slots.update_field = 'status';
   }
 
   // Extract leave type

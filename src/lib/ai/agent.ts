@@ -103,11 +103,21 @@ export async function runMasterAgent(
           retry_count:     1,
         };
       } else {
+        // Carry the task title forward so follow-up messages ("update the same task",
+        // "mark it done") know which task without asking again.
+        const TASK_TITLE_FLOWS: Array<string> = [
+          'CREATE_TASK', 'UPDATE_TASK', 'TASK_DETAILS', 'COMPLETE_TASK', 'DELETE_TASK', 'ASSIGN_TASK',
+        ];
+        const lastTitle = TASK_TITLE_FLOWS.includes(finalContext.flow ?? '')
+          ? (finalContext.slots?.title as string | null | undefined) ?? workingCtx.last_task_title ?? null
+          : (workingCtx.last_task_title ?? null);
+
         // Reset flow after successful execution (or unrecoverable failure)
         finalContext = {
           ...EMPTY_CONTEXT,
-          language:   currentLang,
-          turn_count: 0,
+          language:        currentLang,
+          turn_count:      0,
+          last_task_title: lastTitle,
         };
       }
     }

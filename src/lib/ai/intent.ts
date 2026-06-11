@@ -250,10 +250,10 @@ function fallbackClassification(message: string): ClassifiedIntent {
     extracted_slots.deadline = `${today.getFullYear()}-${mon}-${mMatch[1].padStart(2,'0')}`;
   }
 
-  // Extract task title — only when the user EXPLICITLY names the task with a connector word.
-  // Requiring a non-optional connector prevents "create a task please" → title:"please".
+  // Extract task title — only when user EXPLICITLY names the task.
+  // "to" is intentionally excluded: "task to be created" / "task to me" are not titles.
   if (intent === 'CREATE_TASK' || intent === 'SET_REMINDER') {
-    const tMatch = message.match(/(?:tasks?|todos?|reminder)\s+(?:to|called|named|titled|:)\s+(.+?)(?:\s+(?:by|on|due|before|at)\s+|$)/i);
+    const tMatch = message.match(/(?:tasks?|todos?|reminder)\s+(?:called|named|titled|:)\s+(.+?)(?:\s+(?:by|on|due|before|at)\s+|$)/i);
     if (tMatch?.[1]?.trim()) extracted_slots.title = tMatch[1].trim();
   }
 

@@ -37,7 +37,7 @@ export async function processStateTransition(
 
   // ── Case 1: User is confirming or cancelling a pending action ─────────────
   if (context.flow_state === 'CONFIRMING') {
-    return handleConfirmationTurn(message, context, classified);
+    return await handleConfirmationTurn(message, context, classified);
   }
 
   // ── Case 2: We are mid-flow collecting a slot ─────────────────────────────
@@ -231,11 +231,18 @@ async function handleSlotFillingTurn(
 
 // ─── Handler: Confirmation Turn ───────────────────────────────────────────────
 
-function handleConfirmationTurn(
+// Intents that require slot collection — if seen while confirming, treat as fresh start
+const ACTION_INTENTS: AgentIntent[] = [
+  'CREATE_TASK', 'ASSIGN_TASK', 'COMPLETE_TASK', 'UPDATE_TASK', 'DELETE_TASK',
+  'SET_REMINDER', 'TASK_DETAILS', 'APPLY_LEAVE', 'CANCEL_LEAVE', 'APPROVE_LEAVE',
+  'REJECT_LEAVE', 'CHECK_IN', 'CHECK_OUT', 'START_ONBOARDING',
+];
+
+async function handleConfirmationTurn(
   message: string,
   context: ConversationContext,
   classified: ClassifiedIntent
-): StateTransitionResult {
+): Promise<StateTransitionResult> {
 
   const lang = context.language;
 
@@ -277,6 +284,21 @@ function handleConfirmationTurn(
         should_confirm: false,
       };
     }
+  }
+
+  // If user sends a meaningful new intent while waiting for confirmation, start fresh.
+  // This covers: "Can you please create a new task?" sent while bot awaits Yes/No.
+  if (ACTION_INTENTS.includes(classified.intent) && classified.confidence >= 0.55) {
+    const freshContext: ConversationContext = {
+      ...context,
+      flow:            null,
+      flow_state:      'IDLE',
+      slots:           {},
+      pending_slot:    null,
+      confirm_message: null,
+      retry_count:     0,
+    };
+    return handleNewIntent(message, freshContext, classified);
   }
 
   // Ambiguous — resend the confirmation as-is (it already contains the reply footer)

@@ -311,6 +311,28 @@ function fallbackClassification(message: string): ClassifiedIntent {
   };
 }
 
+// ─── update_field normalizer ──────────────────────────────────────────────────
+// Maps free-form text (including typos and multi-value replies) to a single
+// valid update_field enum value. Returns null if nothing recognizable is found.
+
+function normalizeUpdateField(text: string): 'deadline' | 'priority' | 'assignee' | 'status' | null {
+  const t = text.toLowerCase();
+  // Scan left-to-right — return the FIRST recognized field (handles "assigne and pririty")
+  const tokens = t.split(/[\s,&+/]+/);
+  for (const tok of tokens) {
+    if (/^dead|due.?date|duedate/.test(tok))                        return 'deadline';
+    if (/^pri[ro]|^prior|pririty|prioty|priorty/.test(tok))        return 'priority';
+    if (/^assign|^asign|^asigi|^assi/.test(tok))                   return 'assignee';
+    if (/^stat/.test(tok))                                         return 'status';
+  }
+  // Substring fallback for things like "change the assignee"
+  if (t.includes('deadline') || t.includes('due date')) return 'deadline';
+  if (t.includes('priority'))                           return 'priority';
+  if (t.includes('assign'))                             return 'assignee';
+  if (t.includes('status'))                             return 'status';
+  return null;
+}
+
 // ─── Slot Extraction from Follow-up ──────────────────────────────────────────
 // When we're in SLOT_FILLING mode and asking for a specific slot,
 // we extract just that slot value from the user's reply.
@@ -333,8 +355,13 @@ Rules:
 - For person names: return Title Case name as given
 - For leave_type: normalize to casual/sick/annual/maternity
 - For priority: normalize to low/medium/high/urgent
-- For update_field: return ONLY ONE value from: deadline/priority/assignee/status.
-  If user mentions multiple (e.g. "assignee and priority"), return the FIRST one mentioned.
+- For update_field: return ONLY ONE value from exactly: deadline, priority, assignee, status
+  Handle typos and misspellings — map to the closest valid field:
+    "assigne", "asigne", "Asigni", "assigni", "asignee" → assignee
+    "pririty", "prioty", "proirity", "priorty"          → priority
+    "deadlin", "due date", "duedate"                    → deadline
+    "statu", "stats"                                    → status
+  Return the FIRST field the user intended, even if misspelled.
 - If user says "skip" or "no reason" for optional fields: return "SKIP"
 - If the value cannot be extracted: return null
 
@@ -350,6 +377,13 @@ Return ONLY the extracted value as a plain string, or the word null.`;
 
     const raw = response.content[0].type === 'text' ? response.content[0].text.trim() : '';
     if (!raw || raw.toLowerCase() === 'null') return null;
+
+    // For update_field: always normalize to a valid enum value, even if Claude
+    // returned a typo or multi-value phrase (e.g. "assigne and pririty").
+    if (pendingSlotName === 'update_field') {
+      return normalizeUpdateField(raw) ?? null;
+    }
+
     return raw;
   } catch {
     // ── Keyword-based fallback: extract common slot types ourselves ──────────
@@ -395,12 +429,9 @@ Return ONLY the extracted value as a plain string, or the word null.`;
       }
     }
 
-    // ── Update field — pick the first valid field name, ignore extras ─────────
+    // ── Update field — fuzzy match, handles typos & multi-value replies ────────
     if (pendingSlotName === 'update_field') {
-      const validFields = ['deadline', 'priority', 'assignee', 'status'] as const;
-      const r = reply.toLowerCase();
-      const found = validFields.find(f => r.includes(f));
-      if (found) return found;
+      return normalizeUpdateField(reply);
     }
 
     // ── Priority ─────────────────────────────────────────────────────────────

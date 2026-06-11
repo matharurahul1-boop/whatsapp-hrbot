@@ -103,7 +103,7 @@ export async function generateSlotQuestion(opts: {
 
   try {
     const response = await anthropic.messages.create({
-      model:       'claude-haiku-4-5-20251001',
+      model:       'claude-3-5-haiku-20241022',
       max_tokens:  100,
       temperature: 0.4,
       system: `You are HRBot — a smart, friendly HR assistant on WhatsApp.
@@ -154,7 +154,7 @@ export async function generateConfirmation(opts: {
 
   try {
     const response = await anthropic.messages.create({
-      model:       'claude-haiku-4-5-20251001',
+      model:       'claude-3-5-haiku-20241022',
       max_tokens:  150,
       temperature: 0.3,
       system: `You are HRBot on WhatsApp. Write a short, clear confirmation message before taking an action.

@@ -218,7 +218,7 @@ Rules:
 
     try {
       const response = await anthropic.messages.create({
-        model:      'claude-haiku-4-5-20251001',
+        model:      'claude-3-5-haiku-20241022',
         max_tokens: 350,
         temperature: 0.6,
         system:     systemPrompt,
@@ -594,11 +594,14 @@ Rules:
       record_id: task.id, new_data: patch, source: 'whatsapp',
     });
 
+    // Use the normalized/mapped value in the reply so the user sees what was
+    // actually stored (e.g. "urgent" not "critical").
+    const displayValue = String(Object.values(patch)[0] ?? value);
     return {
       success: true,
       reply: lang === 'hi'
         ? `✅ *"${task.title}"* — ${field} अपडेट हो गया!`
-        : `✅ *"${task.title}"* — ${field} updated to *${value}*!`,
+        : `✅ *"${task.title}"* — ${field} updated to *${displayValue}*!`,
     };
   },
 

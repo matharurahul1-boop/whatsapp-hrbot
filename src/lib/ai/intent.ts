@@ -217,7 +217,7 @@ function fallbackClassification(message: string): ClassifiedIntent {
   const isAssignTask   = /\b(assign|transfer)\b.*\btasks?\b|\btasks?\b.*\b(assign|transfer)\b|\bgive\b.*\btasks?\b.*\bto\b/i.test(lower);
   const isDeleteTask   = /\b(delete|remove)\b.*\btasks?\b/i.test(lower);
   const isUpdateTask   = /\b(update|change|modify|edit|set)\b.*\b(task|deadline|priority|status|assignee|due date)\b/i.test(lower);
-  const isTaskDetails  = /\btask\s+(details|info)\b|\b(details|info)\b.*\btask\b/i.test(lower);
+  const isTaskDetails  = /\btask\s+(details?|info)\b|\b(details?|info)\b.*\btask\b/i.test(lower);
   const isListTasks    = /\b(list|show|view|pending|all)\b.*\btasks?\b|\btasks?\b.*\b(list|show|pending|all)\b|\bmy\s+(pending\s+)?tasks?\b/i.test(lower);
   const isCreateTask   = /\b(create|add|make|new|bana|banao)\b.*\btasks?\b|\btasks?\b.*\b(create|add|make|new)\b/i.test(lower);
   const isReminder     = /\b(remind|reminder|yaad dilao|alert me)\b/i.test(lower);

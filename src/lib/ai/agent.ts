@@ -155,7 +155,10 @@ export async function runMasterAgent(
 // full resolved slot set and can regenerate the confirmation if needed.
 
 const LAST_TASK_RE =
-  /\b(last(?:ly)?|recent(?:ly)?|previous(?:ly)?|the one (?:you|i)|just created|latest|the last (?:one|task)|previous (?:one|task)|my (?:last|recent|latest) task)\b/i;
+  /\b(last(?:ly)?|recent(?:ly)?|previous(?:ly)?|the one (?:you|i)|just (?:created|updated|modified)|latest|the last (?:one|task)|previous (?:one|task)|my (?:last|recent|latest) task)\b/i;
+
+const LAST_UPDATED_RE =
+  /\b(last(?:ly)?|recent(?:ly)?)\s+(?:updated|modified|changed)\b|\bupdated\s+task\b/i;
 
 async function resolveLastTaskRef(
   transition: StateTransitionResult,
@@ -169,14 +172,16 @@ async function resolveLastTaskRef(
     const { createAdminClient } = await import('@/lib/supabase/admin');
     const db = createAdminClient();
 
-    // Most recently created task by this user
+    // Decide sort column: "last updated task" queries updated_at, otherwise created_at
+    const orderCol = LAST_UPDATED_RE.test(titleVal) ? 'updated_at' : 'created_at';
+
     const { data: lastTask } = await db
       .from('tasks')
       .select('title')
       .eq('organization_id', orgId)
-      .eq('created_by', userId)
+      .or(`created_by.eq.${userId},assignee_id.eq.${userId}`)
       .is('deleted_at', null)
-      .order('created_at', { ascending: false })
+      .order(orderCol, { ascending: false })
       .limit(1)
       .maybeSingle();
 

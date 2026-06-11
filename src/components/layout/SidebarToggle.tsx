@@ -27,7 +27,7 @@ export function SidebarToggle() {
                  shadow-card cursor-pointer"
       style={{
         left: leftPx,
-        top: '3.5rem', /* h-14 = 56px = topbar height — pill sits on the topbar bottom border */
+        top: '1.75rem', /* half of h-14 (56px) — centres pill on the topbar / breadcrumb line */
         transition: 'left 0.3s ease, background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease',
       }}
     >

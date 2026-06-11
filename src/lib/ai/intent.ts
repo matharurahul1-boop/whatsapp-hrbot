@@ -59,6 +59,29 @@ Current IST time: ${istTime}
 - leave_type: normalize to: casual/sick/annual/maternity
 - priority: normalize to: low/medium/high/urgent
 
+## title Slot — CRITICAL RULES
+Only extract "title" when the user EXPLICITLY names the task in their message.
+Set title: null when the message is just a generic request with no named task.
+
+ALLOWED (explicit title given):
+  "create a task called Submit TPS report" → title: "Submit TPS report"
+  "add task: Call Ramesh tomorrow" → title: "Call Ramesh"
+  "create a task to fix the login bug" → title: "Fix the login bug"
+  "remind me to send invoice" → title: "Send invoice"
+  "new task — review PR from Ankur" → title: "Review PR from Ankur"
+
+NOT ALLOWED (only a generic intent, no specific task named):
+  "Can you please create a task?" → title: null
+  "create a task" → title: null
+  "please make a new task" → title: null
+  "I want to create a task" → title: null
+  "add a todo" → title: null
+  "set a reminder" → title: null
+  "remind me" → title: null
+
+NEVER use the user's full request sentence as the title.
+NEVER use phrases like "create a task", "please create", "can you" as the title value.
+
 ## Affirmative/Negative Detection
 is_affirmative: true if message is: yes, ok, sure, confirm, haan, bilkul, theek hai, done, correct, right, proceed
 is_negative: true if message is: no, nahi, cancel, stop, nope, wrong, mat karo, ruko
@@ -227,9 +250,10 @@ function fallbackClassification(message: string): ClassifiedIntent {
     extracted_slots.deadline = `${today.getFullYear()}-${mon}-${mMatch[1].padStart(2,'0')}`;
   }
 
-  // Extract task title (text after "task"/"todo" trigger, before "by"/"on"/"due")
+  // Extract task title — only when the user EXPLICITLY names the task with a connector word.
+  // Requiring a non-optional connector prevents "create a task please" → title:"please".
   if (intent === 'CREATE_TASK' || intent === 'SET_REMINDER') {
-    const tMatch = message.match(/(?:tasks?|todos?|reminder)(?:\s+(?:to|for|called|named|titled|:))?\s+(.+?)(?:\s+(?:by|on|due|before|at)\s+|$)/i);
+    const tMatch = message.match(/(?:tasks?|todos?|reminder)\s+(?:to|called|named|titled|:)\s+(.+?)(?:\s+(?:by|on|due|before|at)\s+|$)/i);
     if (tMatch?.[1]?.trim()) extracted_slots.title = tMatch[1].trim();
   }
 

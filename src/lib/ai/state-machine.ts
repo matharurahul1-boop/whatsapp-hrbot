@@ -232,7 +232,7 @@ async function handleSlotFillingTurn(
 // ─── Handler: Confirmation Turn ───────────────────────────────────────────────
 
 function handleConfirmationTurn(
-  _message: string,
+  message: string,
   context: ConversationContext,
   classified: ClassifiedIntent
 ): StateTransitionResult {
@@ -255,12 +255,36 @@ function handleConfirmationTurn(
     );
   }
 
-  // Ambiguous — ask again
+  // Detect correction intent — user wants to change or re-enter something
+  const correctionRe = /\b(change|wrong|different|edit|didn't give|that's not|not right|incorrect|mistake|modify|redo|restart|actually|wait)\b/i;
+  if (context.flow && correctionRe.test(message)) {
+    const freshSlots = initSlots(context.flow);
+    const nextSlot   = getNextPendingSlot(context.flow, freshSlots);
+    if (nextSlot) {
+      return {
+        next_context: {
+          ...context,
+          flow_state:      'SLOT_FILLING',
+          slots:           freshSlots,
+          pending_slot:    nextSlot.name,
+          confirm_message: null,
+          retry_count:     0,
+        },
+        reply: lang === 'hi'
+          ? `ठीक है, फिर से शुरू करते हैं। ${formatSlotQuestion(nextSlot, lang)}`
+          : `No problem, let's redo that. ${formatSlotQuestion(nextSlot, lang)}`,
+        should_execute: false,
+        should_confirm: false,
+      };
+    }
+  }
+
+  // Ambiguous — resend the confirmation as-is (it already contains the reply footer)
   return {
     next_context: context,
     reply: lang === 'hi'
-      ? `कृपया *Yes* (हाँ) या *No* (नहीं) में जवाब दें।\n\n${context.confirm_message}`
-      : `Please reply *Yes* to confirm or *No* to cancel.\n\n${context.confirm_message}`,
+      ? `कृपया *Yes* या *No* में जवाब दें।\n\n${context.confirm_message}`
+      : context.confirm_message ?? `Please reply *Yes* to confirm or *No* to cancel.`,
     should_execute: false,
     should_confirm: false,
   };

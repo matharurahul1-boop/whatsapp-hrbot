@@ -89,6 +89,22 @@ NOT ALLOWED (only a generic intent, no specific task named):
 NEVER use the user's full request sentence as the title.
 NEVER use phrases like "create a task", "please create", "can you" as the title value.
 
+## Context-Aware Behaviour
+When the previous context block starts with [State: SLOT_FILLING | ...], the user is answering
+a specific question the bot just asked. The "awaiting_slot" field tells you which slot is being
+filled. Extract the value for THAT slot from the current message rather than treating it as a
+fresh intent. Do NOT switch intent unless the user's message clearly abandons the current flow
+(e.g. says "cancel" or starts a completely unrelated request).
+
+Example:
+  [State: SLOT_FILLING | intent=UPDATE_TASK | awaiting_slot=update_field]
+  Bot: What to update? (deadline / priority / assignee / status)
+  User: assignee and priority
+  → intent=UPDATE_TASK, update_field="assignee" (first valid field, do NOT switch intent)
+
+When [State: CONFIRMING | ...] and user says something that is neither yes/no nor a correction,
+re-classify carefully using the full message before deciding it is a new intent.
+
 ## Affirmative/Negative Detection
 is_affirmative: true if message is: yes, ok, sure, confirm, haan, bilkul, theek hai, done, correct, right, proceed
 is_negative: true if message is: no, nahi, cancel, stop, nope, wrong, mat karo, ruko

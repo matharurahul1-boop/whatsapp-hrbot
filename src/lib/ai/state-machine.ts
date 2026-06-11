@@ -223,8 +223,15 @@ async function handleSlotFillingTurn(
   // Slot filled successfully
   const newSlots = mergeSlots(context.slots, { [pendingName]: extracted });
 
-  // Also merge any other slots extracted from this message
-  const additionalSlots = mergeSlots(newSlots, classified.extracted_slots);
+  // Merge any OTHER slots the classifier incidentally extracted from this message
+  // (e.g. user says "Rahul, priority high" while answering the assignee question).
+  // Exclude the pending slot itself — extractSlotValue is more accurate than the
+  // classifier for the slot we explicitly asked about (e.g. prevents "assignee and
+  // priority" in the classifier from overwriting the correctly extracted "assignee").
+  const otherExtracted = Object.fromEntries(
+    Object.entries(classified.extracted_slots).filter(([k]) => k !== pendingName)
+  );
+  const additionalSlots = mergeSlots(newSlots, otherExtracted);
 
   return advanceToNextSlotOrConfirm(intent, additionalSlots, context, lang);
 }

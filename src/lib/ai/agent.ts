@@ -52,7 +52,9 @@ export async function runMasterAgent(
 
   try {
     // ── Step 2: Classify intent ────────────────────────────────────────────
-    const recentCtx   = buildContextString(recent_messages);
+    // Pass the current flow state so the classifier knows whether we're mid-slot-filling,
+    // awaiting confirmation, etc. — critical for context-aware intent decisions.
+    const recentCtx   = buildContextString(recent_messages, context);
     const classified  = await classifyIntent(message, recentCtx);
 
     // Update language from latest message

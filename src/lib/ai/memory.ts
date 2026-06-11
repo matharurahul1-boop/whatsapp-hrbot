@@ -1,6 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/admin';
 import type { AgentUser, ConversationContext, SupportedLanguage } from './types';
 import { EMPTY_CONTEXT } from './types';
+export type { ConversationContext };
 
 // ─── Memory Architecture ──────────────────────────────────────────────────────
 //
@@ -156,14 +157,35 @@ export async function resetContext(
 }
 
 // ─── Build Recent Context String (for Claude) ─────────────────────────────────
+//
+// Includes the conversation flow state so the classifier knows whether we're
+// mid-flow (collecting slots, awaiting confirmation) or idle. Without this,
+// the classifier has no idea it's currently asking for a specific slot and
+// makes incorrect intent decisions.
 
 export function buildContextString(
-  messages: Array<{ role: string; content: string }>
+  messages: Array<{ role: string; content: string }>,
+  state?: ConversationContext
 ): string {
-  return messages
-    .slice(-4) // Last 4 messages only for intent classification
+  const chatLines = messages
+    .slice(-5)
     .map((m) => `${m.role === 'user' ? 'User' : 'Bot'}: ${m.content}`)
     .join('\n');
+
+  if (!state || state.flow_state === 'IDLE') return chatLines;
+
+  // Summarise the bot's current state so the classifier knows what's happening
+  const parts: string[] = [`State: ${state.flow_state}`];
+  if (state.flow)         parts.push(`intent=${state.flow}`);
+  if (state.pending_slot) parts.push(`awaiting_slot=${state.pending_slot}`);
+
+  const filled = Object.entries(state.slots ?? {})
+    .filter(([, v]) => v !== null && v !== undefined)
+    .map(([k, v]) => `${k}="${v}"`)
+    .join(', ');
+  if (filled) parts.push(`collected={${filled}}`);
+
+  return `[${parts.join(' | ')}]\n${chatLines}`;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

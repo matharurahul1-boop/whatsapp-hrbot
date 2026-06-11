@@ -6,6 +6,7 @@ import { evaluateRecovery, logAgentError, buildOfflineReply } from './recovery';
 import { sendText } from '@/lib/whatsapp/client';
 import { EMPTY_CONTEXT } from './types';
 import type { AgentTurn, ConversationContext } from './types';
+import type { StateTransitionResult } from './state-machine';
 
 // ─── Master Agent Entry Point ─────────────────────────────────────────────────
 //
@@ -63,11 +64,15 @@ export async function runMasterAgent(
 
     // ── Step 3: State machine transition ───────────────────────────────────
     const transition = await processStateTransition(message, workingCtx, classified);
-    let finalContext  = transition.next_context;
-    let reply         = transition.reply;
+
+    // Resolve reference phrases like "the last task" / "the one you created"
+    // to the actual task title before showing confirmation or moving to next slot
+    const resolved   = await resolveLastTaskRef(transition, user.id, orgId);
+    let finalContext  = resolved.next_context;
+    let reply         = resolved.reply;
 
     // ── Step 4: Execute tool if ready ──────────────────────────────────────
-    if (transition.should_execute || finalContext.flow_state === 'EXECUTING') {
+    if (resolved.should_execute || finalContext.flow_state === 'EXECUTING') {
       const toolResult = await executeTool({
         intent:          finalContext.flow!,
         slots:           { ...finalContext.slots, _lang: currentLang },
@@ -127,6 +132,72 @@ export async function runMasterAgent(
       reply:       errReply,
       new_context: recovery.new_context ?? context,
     };
+  }
+}
+
+// ─── Resolve "last task" references ──────────────────────────────────────────
+//
+// Detects phrases like "the one you lastly created", "my last task", "the last
+// one" in the title slot and replaces them with the actual most-recently-created
+// task title from the database.  Runs AFTER the state machine so we have the
+// full resolved slot set and can regenerate the confirmation if needed.
+
+const LAST_TASK_RE =
+  /\b(last(?:ly)?|recent(?:ly)?|previous(?:ly)?|the one (?:you|i)|just created|latest|the last (?:one|task)|previous (?:one|task)|my (?:last|recent|latest) task)\b/i;
+
+async function resolveLastTaskRef(
+  transition: StateTransitionResult,
+  userId: string,
+  orgId: string
+): Promise<StateTransitionResult> {
+  const titleVal = transition.next_context.slots?.title as string | null | undefined;
+  if (!titleVal || !LAST_TASK_RE.test(titleVal)) return transition;
+
+  try {
+    const { createAdminClient } = await import('@/lib/supabase/admin');
+    const db = createAdminClient();
+
+    // Most recently created task by this user
+    const { data: lastTask } = await db
+      .from('tasks')
+      .select('title')
+      .eq('organization_id', orgId)
+      .eq('created_by', userId)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!lastTask?.title) return transition;
+
+    const resolvedSlots = { ...transition.next_context.slots, title: lastTask.title };
+
+    let reply          = transition.reply;
+    let confirmMessage = transition.next_context.confirm_message;
+
+    // If we just moved to CONFIRMING, regenerate the message with the real title
+    if (transition.should_confirm) {
+      const { generateConfirmation } = await import('./conversation');
+      const newConfirm = await generateConfirmation({
+        intent: transition.next_context.flow!,
+        slots:  resolvedSlots,
+        lang:   transition.next_context.language,
+      });
+      reply          = newConfirm;
+      confirmMessage = newConfirm;
+    }
+
+    return {
+      ...transition,
+      reply,
+      next_context: {
+        ...transition.next_context,
+        slots:           resolvedSlots,
+        confirm_message: confirmMessage,
+      },
+    };
+  } catch {
+    return transition;
   }
 }
 

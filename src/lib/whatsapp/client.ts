@@ -1,231 +1,215 @@
 /**
- * WhatsApp Cloud API client.
+ * WhatsApp outgoing message client — powered by AISensy Campaign API.
  *
  * Every public send* function:
- *  1. Resolves credentials — org DB first, env vars as fallback
- *  2. Calls the Meta Graph API
+ *  1. Resolves the AISensy API key (env var or org DB)
+ *  2. Calls the AISensy Campaign API via aisensySend()
  *  3. Logs the outgoing message to wa_logs via WALogger
- *  4. Returns the WAApiResponse (or throws on hard failure)
+ *  4. Returns a WAApiResponse (or throws on hard failure)
+ *
+ * markMessageRead and downloadMedia still hit Meta's Graph API directly
+ * because AISensy has no equivalent endpoints for those operations.
  */
 
 import { WALogger } from './logger';
-import { createAdminClient } from '@/lib/supabase/admin';
+import { aisensySend } from './aisensy';
 import type {
-  WAOutboundPayload,
   WAApiResponse,
-  WAButtonAction,
   WAListAction,
   WAMessageType,
 } from '@/types/whatsapp.types';
 
-const WA_API_BASE = 'https://graph.facebook.com/v20.0';
+// ── AISensy credential resolver ──────────────────────────────────────────
 
-// ── Credential resolver ──────────────────────────────────────────────────
-
-interface WACreds {
-  phoneNumberId: string;
-  accessToken:   string;
+function resolveApiKey(): string {
+  const key = process.env.AISENSY_API_KEY;
+  if (!key) {
+    throw new Error(
+      'AISensy not configured. Add AISENSY_API_KEY to .env.local and restart the dev server.'
+    );
+  }
+  return key;
 }
 
-/** Cache creds per org for 10 minutes to avoid DB hit on every send */
-const credsCache = new Map<string, { creds: WACreds; exp: number }>();
+// ── Meta Graph API (read receipts + incoming-media download only) ────────
 
-async function resolveCreds(orgId?: string): Promise<WACreds> {
-  // 1. Try org DB credentials
-  if (orgId) {
-    const cached = credsCache.get(orgId);
-    if (cached && cached.exp > Date.now()) return cached.creds;
+const META_API_BASE = 'https://graph.facebook.com/v20.0';
 
-    try {
-      const db = createAdminClient();
-      const { data } = await db
-        .from('organizations')
-        .select('wa_phone_number_id, wa_access_token')
-        .eq('id', orgId)
-        .single();
-
-      if (data?.wa_phone_number_id && data?.wa_access_token) {
-        const creds: WACreds = {
-          phoneNumberId: data.wa_phone_number_id,
-          accessToken:   data.wa_access_token,
-        };
-        credsCache.set(orgId, { creds, exp: Date.now() + 10 * 60 * 1000 });
-        return creds;
-      }
-    } catch {
-      // fall through to env vars
-    }
-  }
-
-  // 2. Fallback to env vars
+function resolveMetaCreds() {
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
   const accessToken   = process.env.WHATSAPP_ACCESS_TOKEN;
-
   if (!phoneNumberId || !accessToken) {
-    throw new Error('WhatsApp credentials not configured. Set WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_ACCESS_TOKEN in .env or org settings.');
+    throw new Error(
+      'Meta credentials not configured. Set WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_ACCESS_TOKEN in .env.local'
+    );
   }
-
   return { phoneNumberId, accessToken };
 }
 
-/** Invalidate org creds cache (call after org settings update) */
-export function invalidateCredsCache(orgId: string) {
-  credsCache.delete(orgId);
+// ── Core send (private) ───────────────────────────────────────────────────
+
+interface SendOpts {
+  orgId:           string;
+  to:              string;
+  userName?:       string;
+  messageType:     WAMessageType | 'template';
+  messageText:     string | null;
+  campaignName:    string;
+  templateParams?: string[];
+  mediaUrl?:       string;
+  mediaFilename?:  string;
 }
 
-// ── Core send (private) ──────────────────────────────────────────────────
-
-interface SendOptions {
-  orgId:       string;
-  to:          string;
-  messageType: WAMessageType | 'template';
-  messageText: string | null;
-}
-
-async function sendMessage(
-  payload: WAOutboundPayload,
-  opts:    SendOptions
-): Promise<WAApiResponse> {
-  let creds: WACreds;
-  try {
-    creds = await resolveCreds(opts.orgId);
-  } catch (err) {
-    throw err;
-  }
+async function sendViaCampaign(opts: SendOpts): Promise<WAApiResponse> {
+  const apiKey = resolveApiKey();
 
   let apiResponse: WAApiResponse | null = null;
-  let sendError:   unknown              = undefined;
+  let sendError:   unknown;
 
   try {
-    const res = await fetch(`${WA_API_BASE}/${creds.phoneNumberId}/messages`, {
-      method:  'POST',
-      headers: {
-        Authorization:  `Bearer ${creds.accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
+    const result = await aisensySend({
+      apiKey,
+      campaignName: opts.campaignName,
+      destination:  opts.to,
+      userName:     opts.userName ?? 'User',
+      source:       'api',
+      ...(opts.templateParams?.length && { templateParams: opts.templateParams }),
+      ...(opts.mediaUrl && {
+        media: { url: opts.mediaUrl, filename: opts.mediaFilename },
+      }),
     });
-
-    const responseBody = await res.json().catch(() => ({}));
-
-    if (!res.ok) {
-      // Extract Meta's error details for better UX
-      const metaError = responseBody?.error;
-      const code      = metaError?.code;
-      const msg       = metaError?.message ?? JSON.stringify(responseBody);
-
-      // Known error codes with friendly messages
-      let friendly = msg;
-      if (code === 131047) friendly = '24-hour window expired — the recipient must message you first before you can send them a free-form message.';
-      if (code === 131026) friendly = 'Message failed — recipient phone number is not a valid WhatsApp account.';
-      if (code === 131000) friendly = 'Message failed — unknown error from WhatsApp API.';
-      if (code === 131008) friendly = 'Required parameter missing in API call.';
-      if (code === 131009) friendly = 'Invalid parameter value in API call.';
-      if (code === 131021) friendly = 'Recipient is not in your WhatsApp Business test contacts. Add them in Meta Business → WhatsApp → Settings → Test numbers.';
-
-      throw new Error(`WA API ${res.status} (code ${code}): ${friendly}`);
-    }
-
-    apiResponse = responseBody as WAApiResponse;
-    console.log(`[WA Client] ✅ Message sent — wamid: ${apiResponse?.messages?.[0]?.id}, to: ${opts.to}`);
-
+    apiResponse = result as WAApiResponse;
+    console.log(`[AISensy] ✅ Campaign "${opts.campaignName}" sent to ${opts.to}`);
   } catch (err) {
     sendError = err;
-    console.error(`[WA Client] ❌ Send failed to ${opts.to}:`, err instanceof Error ? err.message : err);
+    console.error(
+      `[AISensy] ❌ Send failed to ${opts.to}:`,
+      err instanceof Error ? err.message : err
+    );
   }
 
-  // Always log — even failures are recorded
   await WALogger.logOutgoing({
     orgId:           opts.orgId,
     to:              opts.to,
     messageType:     opts.messageType,
     messageText:     opts.messageText,
-    outboundPayload: payload,
+    // Store AISensy payload shape in the log column (JSON)
+    outboundPayload: {
+      campaignName: opts.campaignName,
+      destination:  opts.to,
+      templateParams: opts.templateParams,
+    } as unknown as Parameters<typeof WALogger.logOutgoing>[0]['outboundPayload'],
     apiResponse,
-    error:           sendError,
+    error: sendError,
   });
 
   if (sendError) throw sendError;
   return apiResponse!;
 }
 
+// ── Text campaign helper ─────────────────────────────────────────────────
+
+function textCampaign(): string {
+  const c = process.env.AISENSY_TEXT_CAMPAIGN;
+  if (!c) {
+    throw new Error(
+      'AISENSY_TEXT_CAMPAIGN is not set. Create a WhatsApp template with body "{{1}}" ' +
+      'in your AISensy dashboard, then set its campaign name in .env.local.'
+    );
+  }
+  return c;
+}
+
 // ── Public API ────────────────────────────────────────────────────────────
 
+/**
+ * Send a free-form text message (requires an active 24-hour session or
+ * a template campaign that accepts a single {{1}} body variable).
+ *
+ * Set AISENSY_TEXT_CAMPAIGN to the name of a campaign whose template body
+ * is exactly "{{1}}" so the message body becomes the template variable.
+ */
 export async function sendText(
   to:    string,
   body:  string,
   orgId: string = ''
 ): Promise<WAApiResponse> {
-  return sendMessage(
-    {
-      messaging_product: 'whatsapp',
-      recipient_type:    'individual',
-      to,
-      type:              'text',
-      text:              { body },
-    },
-    { orgId, to, messageType: 'text', messageText: body }
-  );
+  return sendViaCampaign({
+    orgId, to,
+    messageType:    'text',
+    messageText:    body,
+    campaignName:   textCampaign(),
+    templateParams: [body],
+  });
 }
 
+/**
+ * Send an interactive button message.
+ *
+ * AISensy Campaign API does not support inline interactive messages;
+ * the button options are appended to the body text as a numbered list
+ * and sent via the text campaign.
+ */
 export async function sendButtons(
   to:          string,
   bodyText:    string,
   buttons:     Array<{ id: string; title: string }>,
   orgId:       string = '',
   headerText?: string,
-  footerText?: string
+  _footerText?: string
 ): Promise<WAApiResponse> {
-  const action: WAButtonAction = {
-    buttons: buttons.map(b => ({
-      type:  'reply',
-      reply: { id: b.id, title: b.title.slice(0, 20) },
-    })),
-  };
-
-  return sendMessage(
-    {
-      messaging_product: 'whatsapp',
-      recipient_type:    'individual',
-      to,
-      type:              'interactive',
-      interactive: {
-        type:                        'button',
-        ...(headerText && { header: { type: 'text', text: headerText } }),
-        body:                        { text: bodyText },
-        ...(footerText && { footer: { text: footerText } }),
-        action,
-      },
-    },
-    { orgId, to, messageType: 'interactive', messageText: bodyText }
-  );
+  const lines = [
+    ...(headerText ? [headerText] : []),
+    bodyText,
+    '',
+    ...buttons.map((b, i) => `${i + 1}. ${b.title}`),
+  ];
+  return sendViaCampaign({
+    orgId, to,
+    messageType:    'interactive',
+    messageText:    bodyText,
+    campaignName:   textCampaign(),
+    templateParams: [lines.join('\n')],
+  });
 }
 
+/**
+ * Send an interactive list message.
+ *
+ * Same AISensy limitation as sendButtons — options are flattened to text.
+ */
 export async function sendList(
   to:          string,
   bodyText:    string,
-  buttonLabel: string,
+  _buttonLabel: string,
   sections:    WAListAction['sections'],
   orgId:       string = '',
   headerText?: string
 ): Promise<WAApiResponse> {
-  return sendMessage(
-    {
-      messaging_product: 'whatsapp',
-      recipient_type:    'individual',
-      to,
-      type:              'interactive',
-      interactive: {
-        type:                        'list',
-        ...(headerText && { header: { type: 'text', text: headerText } }),
-        body:                        { text: bodyText },
-        action:                      { button: buttonLabel, sections },
-      },
-    },
-    { orgId, to, messageType: 'interactive', messageText: bodyText }
+  const items = sections.flatMap(s =>
+    s.rows.map(r => `• ${r.title}${r.description ? ` — ${r.description}` : ''}`)
   );
+  const lines = [
+    ...(headerText ? [headerText] : []),
+    bodyText,
+    '',
+    ...items,
+  ];
+  return sendViaCampaign({
+    orgId, to,
+    messageType:    'interactive',
+    messageText:    bodyText,
+    campaignName:   textCampaign(),
+    templateParams: [lines.join('\n')],
+  });
 }
 
+/**
+ * Send a document/PDF attachment.
+ *
+ * Set AISENSY_DOC_CAMPAIGN to a campaign that accepts a media document.
+ * Falls back to AISENSY_TEXT_CAMPAIGN if not set.
+ */
 export async function sendDocument(
   to:        string,
   fileUrl:   string,
@@ -233,78 +217,63 @@ export async function sendDocument(
   caption?:  string,
   filename?: string
 ): Promise<WAApiResponse> {
-  return sendMessage(
-    {
-      messaging_product: 'whatsapp',
-      recipient_type:    'individual',
-      to,
-      type:              'document',
-      document:          { link: fileUrl, caption, filename },
-    },
-    { orgId, to, messageType: 'document', messageText: caption ?? filename ?? null }
-  );
+  const campaign =
+    process.env.AISENSY_DOC_CAMPAIGN ?? process.env.AISENSY_TEXT_CAMPAIGN;
+  if (!campaign) {
+    throw new Error(
+      'Set AISENSY_DOC_CAMPAIGN (or AISENSY_TEXT_CAMPAIGN) in .env.local for document sending.'
+    );
+  }
+  return sendViaCampaign({
+    orgId, to,
+    messageType:    'document',
+    messageText:    caption ?? filename ?? null,
+    campaignName:   campaign,
+    mediaUrl:       fileUrl,
+    mediaFilename:  filename,
+    ...(caption && { templateParams: [caption] }),
+  });
 }
 
 /**
- * Send a pre-approved WhatsApp template message.
- * Templates bypass the 24-hour window — can be sent to ANY number at ANY time.
- *
- * @param to           - Recipient WA number (e.g. "919876543210")
- * @param templateName - Approved template name in Meta Business Manager
- * @param variables    - Values for {{1}}, {{2}} ... in the template body
- * @param langCode     - Template language code (default "en")
- * @param orgId        - For credential + log lookup
+ * Send a pre-approved WhatsApp template campaign.
+ * The templateName must match a campaign name in your AISensy dashboard.
  */
 export async function sendTemplate(
   to:           string,
   templateName: string,
   variables:    string[],
-  langCode:     string = 'en',
+  _langCode:    string = 'en',
   orgId:        string = ''
 ): Promise<WAApiResponse> {
-  const components = variables.length > 0
-    ? [{
-        type:       'body',
-        parameters: variables.map(v => ({ type: 'text', text: v })),
-      }]
-    : [];
-
-  return sendMessage(
-    {
-      messaging_product: 'whatsapp',
-      recipient_type:    'individual',
-      to,
-      type:              'template',
-      template: {
-        name:       templateName,
-        language:   { code: langCode },
-        components,
-      },
-    } as unknown as WAOutboundPayload,
-    {
-      orgId,
-      to,
-      messageType: 'text',
-      messageText: variables[0] ?? `[Template: ${templateName}]`,
-    }
-  );
+  return sendViaCampaign({
+    orgId, to,
+    messageType:    'text',
+    messageText:    variables[0] ?? `[Template: ${templateName}]`,
+    campaignName:   templateName,
+    templateParams: variables,
+  });
 }
 
+// ── Meta-direct operations (no AISensy equivalent) ───────────────────────
+
+/** Download incoming media from Meta's CDN (AISensy webhooks still come from Meta). */
 export async function downloadMedia(
   mediaId: string
 ): Promise<{ url: string; mime_type: string }> {
-  const { accessToken } = await resolveCreds();
-  const res = await fetch(`${WA_API_BASE}/${mediaId}`, {
+  const { accessToken } = resolveMetaCreds();
+  const res = await fetch(`${META_API_BASE}/${mediaId}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) throw new Error(`Failed to get media URL for: ${mediaId}`);
   return res.json();
 }
 
-export async function markMessageRead(messageId: string, orgId?: string): Promise<void> {
+/** Send a read receipt back to Meta (AISensy has no read-receipt API). */
+export async function markMessageRead(messageId: string, _orgId?: string): Promise<void> {
   try {
-    const { phoneNumberId, accessToken } = await resolveCreds(orgId);
-    await fetch(`${WA_API_BASE}/${phoneNumberId}/messages`, {
+    const { phoneNumberId, accessToken } = resolveMetaCreds();
+    await fetch(`${META_API_BASE}/${phoneNumberId}/messages`, {
       method:  'POST',
       headers: {
         Authorization:  `Bearer ${accessToken}`,
@@ -320,3 +289,6 @@ export async function markMessageRead(messageId: string, orgId?: string): Promis
     // Read receipts are fire-and-forget
   }
 }
+
+/** No-op — AISensy uses a global API key, no per-org credential cache. */
+export function invalidateCredsCache(_orgId: string) {}

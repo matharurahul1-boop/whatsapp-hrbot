@@ -536,24 +536,31 @@ Rules:
       patch.deadline = parts[0];
       if (parts[1]) patch.due_time = parts[1];
     } else if (field === 'priority') {
-      const p = value.toLowerCase();
-      if (!['low', 'medium', 'high', 'urgent'].includes(p)) {
-        return { success: false, reply: lang === 'hi'
+      const PRIORITY_MAP: Record<string, string> = {
+        urgent: 'urgent', critical: 'urgent', asap: 'urgent', top: 'urgent', highest: 'urgent',
+        high: 'high', hi: 'high',
+        medium: 'medium', med: 'medium', normal: 'medium', moderate: 'medium',
+        low: 'low', lo: 'low', minor: 'low',
+      };
+      const normalized = PRIORITY_MAP[value.toLowerCase()];
+      if (!normalized) {
+        return { success: false, recoverable: true, retry_slot: 'update_value', reply: lang === 'hi'
           ? `❌ Priority: low / medium / high / urgent में से एक चुनें।`
           : `❌ Invalid priority. Use: low / medium / high / urgent`
         };
       }
-      patch.priority = p;
+      patch.priority = normalized;
     } else if (field === 'status') {
       const statusMap: Record<string, string> = {
-        todo: 'todo', pending: 'todo',
-        'in_progress': 'in_progress', 'in progress': 'in_progress', 'wip': 'in_progress',
-        done: 'done', completed: 'done', complete: 'done', khatam: 'done',
-        cancelled: 'cancelled', cancel: 'cancelled',
+        todo: 'todo', pending: 'todo', open: 'todo', new: 'todo',
+        'in_progress': 'in_progress', 'in progress': 'in_progress', wip: 'in_progress',
+        started: 'in_progress', doing: 'in_progress', ongoing: 'in_progress',
+        done: 'done', completed: 'done', complete: 'done', khatam: 'done', finished: 'done',
+        cancelled: 'cancelled', cancel: 'cancelled', dropped: 'cancelled',
       };
       const mapped = statusMap[value.toLowerCase()];
       if (!mapped) {
-        return { success: false, reply: lang === 'hi'
+        return { success: false, recoverable: true, retry_slot: 'update_value', reply: lang === 'hi'
           ? `❌ Status: todo / in_progress / done / cancelled`
           : `❌ Invalid status. Use: todo / in_progress / done / cancelled`
         };

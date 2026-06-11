@@ -146,6 +146,10 @@ export interface ToolResult {
     workflow: string;
     payload: Record<string, unknown>;
   };
+  // When true, agent keeps the flow alive in SLOT_FILLING so the user can
+  // correct the bad value without restarting from scratch.
+  recoverable?: boolean;
+  retry_slot?:  string;
 }
 
 // ─── Agent Response ───────────────────────────────────────────────────────────

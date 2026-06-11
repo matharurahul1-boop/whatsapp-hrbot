@@ -92,12 +92,24 @@ export async function runMasterAgent(
         sendUserNotifications(toolResult.notify, orgId).catch(() => {});
       }
 
-      // Reset flow after execution
-      finalContext = {
-        ...EMPTY_CONTEXT,
-        language:    currentLang,
-        turn_count:  0,
-      };
+      if (!toolResult.success && toolResult.recoverable && toolResult.retry_slot) {
+        // Validation error — keep the flow alive so the user can correct just the
+        // bad slot without restarting the whole conversation from scratch.
+        finalContext = {
+          ...finalContext,
+          flow_state:      'SLOT_FILLING',
+          pending_slot:    toolResult.retry_slot,
+          confirm_message: null,
+          retry_count:     1,
+        };
+      } else {
+        // Reset flow after successful execution (or unrecoverable failure)
+        finalContext = {
+          ...EMPTY_CONTEXT,
+          language:   currentLang,
+          turn_count: 0,
+        };
+      }
     }
 
     // ── Step 5: Persist context ─────────────────────────────────────────────

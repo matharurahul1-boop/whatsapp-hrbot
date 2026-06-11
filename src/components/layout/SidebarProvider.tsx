@@ -1,33 +1,36 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect, useLayoutEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useLayoutEffect, useCallback } from 'react';
 
 interface SidebarCtx {
-  collapsed:   boolean;
-  toggle:      () => void;
-  mobileOpen:  boolean;
-  openMobile:  () => void;
-  closeMobile: () => void;
+  collapsed:       boolean;
+  toggle:          () => void;
+  mobileOpen:      boolean;
+  openMobile:      () => void;
+  closeMobile:     () => void;
+  pendingPath:     string | null;
+  startNavigation: (href: string) => void;
+  clearNavigation: () => void;
 }
 
 const Ctx = createContext<SidebarCtx>({
   collapsed: false, toggle: () => {},
   mobileOpen: false, openMobile: () => {}, closeMobile: () => {},
+  pendingPath: null, startNavigation: () => {}, clearNavigation: () => {},
 });
 
-// useLayoutEffect fires before browser paint (no flash); fall back to useEffect on SSR
 const useSyncEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
 
 export function SidebarProvider({ children }: { children: React.ReactNode }) {
-  const [collapsed,  setCollapsed]  = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const [collapsed,   setCollapsed]   = useState(false);
+  const [mobileOpen,  setMobileOpen]  = useState(false);
+  const [pendingPath, setPendingPath] = useState<string | null>(null);
 
   useSyncEffect(() => {
     const saved = localStorage.getItem('hrbot-sidebar-collapsed');
     if (saved !== null) {
       setCollapsed(saved === 'true');
     } else {
-      // Auto-collapse on screens narrower than xl (1280px) — gives content more room
       setCollapsed(window.innerWidth < 1280);
     }
   }, []);
@@ -52,8 +55,16 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
     document.getElementById('sidebar-overlay')?.classList.add('hidden');
   }
 
+  // useCallback keeps identity stable so SidebarShell's effect dep array is safe
+  const startNavigation = useCallback((href: string) => setPendingPath(href), []);
+  const clearNavigation = useCallback(() => setPendingPath(null), []);
+
   return (
-    <Ctx.Provider value={{ collapsed, toggle, mobileOpen, openMobile, closeMobile }}>
+    <Ctx.Provider value={{
+      collapsed, toggle,
+      mobileOpen, openMobile, closeMobile,
+      pendingPath, startNavigation, clearNavigation,
+    }}>
       {children}
     </Ctx.Provider>
   );

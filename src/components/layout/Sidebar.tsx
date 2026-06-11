@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import {
   LayoutDashboard, CheckSquare, Calendar, Clock,
   Users, MessageSquare, Settings, Zap, ChevronRight,
-  FileText, AlertTriangle, X,
+  FileText, AlertTriangle, X, Loader2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import type { UserRole } from '@/types/database.types';
@@ -50,7 +50,6 @@ function Tooltip({ label }: { label: string }) {
                        whitespace-nowrap shadow-modal"
             style={{ background: '#0c0c1a', color: '#e8e8f6' }}>
         {label}
-        {/* Arrow pointing left back to the icon */}
         <span className="absolute right-full top-1/2 -translate-y-1/2"
               style={{ borderWidth: 5, borderStyle: 'solid',
                        borderColor: 'transparent #0c0c1a transparent transparent' }} />
@@ -60,12 +59,11 @@ function Tooltip({ label }: { label: string }) {
 }
 
 export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: string }) {
-  const pathname             = usePathname();
-  const { collapsed: state, closeMobile } = useSidebar();
-  const visible              = NAV.filter(n => n.roles.includes(role));
+  const pathname = usePathname();
+  const { collapsed: state, closeMobile, pendingPath, startNavigation } = useSidebar();
+  const visible = NAV.filter(n => n.roles.includes(role));
 
-  // On overlay screens (< 1024px) the sidebar slides over content as a full panel —
-  // always show the expanded (icon + label) layout regardless of the collapsed state.
+  // On overlay screens (< 1024px) always show expanded layout regardless of collapsed state
   const [isDesktop, setIsDesktop] = useState(
     typeof window !== 'undefined' ? window.innerWidth >= 1024 : true,
   );
@@ -77,14 +75,24 @@ export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: s
     return () => mq.removeEventListener('change', handler);
   }, []);
 
-  const collapsed = state && isDesktop; // collapse only in desktop inline mode
+  const collapsed = state && isDesktop;
+
+  // Determine which item is visually active:
+  // pendingPath wins immediately on click; falls back to pathname once route settles.
+  function isActive(href: string, exact = false) {
+    const target = pendingPath ?? pathname;
+    return exact
+      ? target === href
+      : target === href || target.startsWith(href + '/');
+  }
+
+  const settingsActive = isActive('/settings');
 
   return (
     <aside className={cn('sidebar', collapsed && 'sidebar-collapsed')}>
 
       {/* ── Brand ── */}
       <div className="flex items-center h-14 border-b border-surface-300/30 shrink-0 px-3 gap-2">
-        {/* Zap logo */}
         <div className="relative shrink-0">
           <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-gradient shadow-glow">
             <Zap className="h-4 w-4 text-white" />
@@ -92,7 +100,6 @@ export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: s
           <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-success border-2 border-surface-0" />
         </div>
 
-        {/* Title — fades out when collapsed */}
         <div className={cn(
           'min-w-0 flex-1 overflow-hidden transition-[opacity,width] duration-300',
           collapsed ? 'opacity-0 w-0' : 'opacity-100',
@@ -101,12 +108,11 @@ export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: s
           {orgName && <p className="text-2xs text-surface-600 truncate mt-0.5">{orgName}</p>}
         </div>
 
-        {/* Close button — overlay mode only (hidden on desktop where sidebar is inline) */}
+        {/* Close button — overlay mode only */}
         <button
           onClick={closeMobile}
           className="lg:hidden shrink-0 flex h-8 w-8 items-center justify-center rounded-lg
-                     text-surface-600 hover:text-surface-950 hover:bg-surface-300
-                     transition-colors"
+                     text-surface-600 hover:text-surface-950 hover:bg-surface-300 transition-colors"
           aria-label="Close sidebar"
         >
           <X className="h-4 w-4" />
@@ -126,23 +132,27 @@ export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: s
         </p>
 
         {visible.map(item => {
-          const active = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href + '/'));
+          const active  = isActive(item.href);
+          const loading = pendingPath === item.href;
 
           if (collapsed) {
             return (
               <div key={item.href} className="group relative flex justify-center">
                 <Link
                   href={item.href}
+                  onClick={() => startNavigation(item.href)}
                   className={cn(
                     'relative flex items-center justify-center h-10 w-10 rounded-xl transition-all duration-150',
                     active ? 'bg-surface-200/80' : 'hover:bg-surface-200/40',
                   )}
                 >
-                  {active && (
+                  {active && !loading && (
                     <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-r bg-brand-500" />
                   )}
                   <span className={cn('shrink-0', active ? item.color : 'text-surface-600 group-hover:text-surface-900')}>
-                    {item.icon}
+                    {loading
+                      ? <Loader2 className="h-[18px] w-[18px] animate-spin" />
+                      : item.icon}
                   </span>
                 </Link>
                 <Tooltip label={item.label} />
@@ -154,6 +164,7 @@ export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: s
             <Link
               key={item.href}
               href={item.href}
+              onClick={() => startNavigation(item.href)}
               className={cn(
                 'relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150',
                 active
@@ -161,12 +172,17 @@ export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: s
                   : 'text-surface-700 hover:text-surface-900 hover:bg-surface-200/40',
               )}
             >
-              {active && (
+              {active && !loading && (
                 <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-r bg-brand-500" />
               )}
-              <span className={cn('shrink-0', active ? item.color : 'text-surface-600')}>{item.icon}</span>
+              <span className={cn('shrink-0', active ? item.color : 'text-surface-600')}>
+                {loading
+                  ? <Loader2 className="h-[18px] w-[18px] animate-spin" />
+                  : item.icon}
+              </span>
               <span className="flex-1 truncate">{item.label}</span>
-              {active && <ChevronRight className="h-3.5 w-3.5 text-surface-500 shrink-0" />}
+              {active && !loading && <ChevronRight className="h-3.5 w-3.5 text-surface-500 shrink-0" />}
+              {loading && <Loader2 className="h-3.5 w-3.5 text-surface-500 shrink-0 animate-spin" />}
             </Link>
           );
         })}
@@ -181,15 +197,19 @@ export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: s
           <div className="group relative flex justify-center">
             <Link
               href="/settings"
+              onClick={() => startNavigation('/settings')}
               className={cn(
                 'relative flex items-center justify-center h-10 w-10 rounded-xl transition-all duration-150',
-                pathname.startsWith('/settings') ? 'bg-surface-200/80' : 'hover:bg-surface-200/40',
+                settingsActive ? 'bg-surface-200/80' : 'hover:bg-surface-200/40',
               )}
             >
-              <Settings className={cn(
-                'h-[18px] w-[18px] shrink-0',
-                pathname.startsWith('/settings') ? 'text-surface-700' : 'text-surface-600 group-hover:text-surface-900',
-              )} />
+              {pendingPath === '/settings'
+                ? <Loader2 className="h-[18px] w-[18px] shrink-0 animate-spin text-surface-700" />
+                : <Settings className={cn(
+                    'h-[18px] w-[18px] shrink-0',
+                    settingsActive ? 'text-surface-700' : 'text-surface-600 group-hover:text-surface-900',
+                  )} />
+              }
             </Link>
             <Tooltip label="Settings" />
           </div>
@@ -197,18 +217,25 @@ export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: s
           <>
             <Link
               href="/settings"
+              onClick={() => startNavigation('/settings')}
               className={cn(
                 'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150',
-                pathname.startsWith('/settings')
+                settingsActive
                   ? 'bg-surface-200/80 text-surface-950'
                   : 'text-surface-700 hover:text-surface-900 hover:bg-surface-200/40',
               )}
             >
-              <Settings className={cn(
-                'h-[18px] w-[18px] shrink-0',
-                pathname.startsWith('/settings') ? 'text-surface-700' : 'text-surface-600',
-              )} />
+              {pendingPath === '/settings'
+                ? <Loader2 className="h-[18px] w-[18px] shrink-0 animate-spin text-surface-600" />
+                : <Settings className={cn(
+                    'h-[18px] w-[18px] shrink-0',
+                    settingsActive ? 'text-surface-700' : 'text-surface-600',
+                  )} />
+              }
               <span className="flex-1">Settings</span>
+              {pendingPath === '/settings' && (
+                <Loader2 className="h-3.5 w-3.5 text-surface-500 shrink-0 animate-spin" />
+              )}
             </Link>
             <div className="px-3 pt-2">
               <span className={cn(

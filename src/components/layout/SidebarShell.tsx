@@ -18,8 +18,10 @@ export function SidebarShell({ children }: { children: React.ReactNode }) {
     );
   }, [collapsed]);
 
-  // Clear pending navigation state when the route change actually completes
-  useEffect(() => {
+  // Clear pending navigation state when the route change actually completes.
+  // useLayoutEffect fires before browser paint so the skeleton is swapped for
+  // the new page in the same frame — no visible flash between states.
+  useSyncEffect(() => {
     clearNavigation();
   }, [pathname, clearNavigation]);
 

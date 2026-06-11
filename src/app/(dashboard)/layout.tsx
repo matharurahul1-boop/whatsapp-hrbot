@@ -31,8 +31,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
           {/* Sidebar — fixed, collapses on desktop / slides as overlay on mobile */}
           <Sidebar role={profile.role} orgName={orgName} />
 
-          {/* Mobile overlay backdrop */}
-          <div id="sidebar-overlay" className="fixed inset-0 z-30 bg-black/50 hidden md:hidden" />
+          {/* Mobile/tablet overlay backdrop — hidden on desktop (lg+) where sidebar is inline */}
+          <div id="sidebar-overlay" className="fixed inset-0 z-30 bg-black/50 hidden lg:hidden" />
 
           {/* Floating toggle pill — sits on sidebar right border, vertically centred */}
           <SidebarToggle />

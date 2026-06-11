@@ -19,7 +19,7 @@ export function SidebarToggle() {
     <button
       onClick={toggle}
       title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-      className="hidden md:flex fixed -translate-y-1/2 z-50
+      className="hidden lg:flex fixed -translate-y-1/2 z-50
                  h-6 w-6 items-center justify-center rounded-full
                  bg-surface-100 border border-surface-300
                  text-surface-500

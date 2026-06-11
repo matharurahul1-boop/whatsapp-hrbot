@@ -126,7 +126,7 @@ export default function Header({ userName, userRole, avatarUrl }: HeaderProps) {
         {/* Mobile-only hamburger (desktop uses the one in the sidebar brand section) */}
         <button
           onClick={toggleMobileSidebar}
-          className="md:hidden flex h-8 w-8 items-center justify-center rounded-lg text-surface-600 hover:bg-surface-300 hover:text-surface-950 transition-colors shrink-0"
+          className="lg:hidden flex h-8 w-8 items-center justify-center rounded-lg text-surface-600 hover:bg-surface-300 hover:text-surface-950 transition-colors shrink-0"
         >
           {menuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
         </button>

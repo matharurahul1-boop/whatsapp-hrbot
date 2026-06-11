@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import {
   LayoutDashboard, CheckSquare, Calendar, Clock,
   Users, MessageSquare, Settings, Zap, ChevronRight,
@@ -59,9 +60,24 @@ function Tooltip({ label }: { label: string }) {
 }
 
 export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: string }) {
-  const pathname      = usePathname();
-  const { collapsed } = useSidebar();
-  const visible       = NAV.filter(n => n.roles.includes(role));
+  const pathname             = usePathname();
+  const { collapsed: state } = useSidebar();
+  const visible              = NAV.filter(n => n.roles.includes(role));
+
+  // On overlay screens (< 1024px) the sidebar slides over content as a full panel —
+  // always show the expanded (icon + label) layout regardless of the collapsed state.
+  const [isDesktop, setIsDesktop] = useState(
+    typeof window !== 'undefined' ? window.innerWidth >= 1024 : true,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)');
+    setIsDesktop(mq.matches);
+    const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+
+  const collapsed = state && isDesktop; // collapse only in desktop inline mode
 
   return (
     <aside className={cn('sidebar', collapsed && 'sidebar-collapsed')}>

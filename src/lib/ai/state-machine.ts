@@ -15,6 +15,7 @@ import {
 } from './slots';
 import { extractSlotValue } from './intent';
 import { formatSlotQuestion } from './prompts/responses';
+import { generateSlotQuestion, generateConfirmation } from './conversation';
 
 // ─── State Transitions ────────────────────────────────────────────────────────
 
@@ -42,7 +43,7 @@ export async function processStateTransition(
 
   // ── Case 2: We are mid-flow collecting a slot ─────────────────────────────
   if (context.flow_state === 'SLOT_FILLING' && context.flow && context.pending_slot) {
-    return handleSlotFillingTurn(message, context, classified);
+    return await handleSlotFillingTurn(message, context, classified);
   }
 
   // ── Case 3: New intent arrives (IDLE or new intent interrupts old flow) ────
@@ -52,7 +53,7 @@ export async function processStateTransition(
 // ─── Handler: New Intent ──────────────────────────────────────────────────────
 
 async function handleNewIntent(
-  _message: string,
+  message: string,
   context: ConversationContext,
   classified: ClassifiedIntent
 ): Promise<StateTransitionResult> {
@@ -111,7 +112,7 @@ async function handleNewIntent(
 
   if (!nextSlot) {
     // All required slots already in message — go to confirmation
-    const confirmMsg = buildConfirmationSummary(intent, mergedSlots, lang);
+    const confirmMsg = await generateConfirmation({ intent, slots: mergedSlots, lang });
     return {
       next_context: {
         ...context,
@@ -131,7 +132,13 @@ async function handleNewIntent(
   }
 
   // Ask for the first missing slot
-  const question = formatSlotQuestion(nextSlot, lang);
+  const question = await generateSlotQuestion({
+    slot:        nextSlot,
+    intent,
+    filledSlots: mergedSlots,
+    userMessage: message,
+    lang,
+  });
   return {
     next_context: {
       ...context,
@@ -171,11 +178,17 @@ async function handleSlotFillingTurn(
   // Detect hesitation — user is not ready to answer yet
   const hesitationRe = /\b(let me think|give me a (second|moment|minute)|wait|hold on|not yet|i.?m thinking|one sec|one moment|just a (sec|moment)|i.?ll (tell|let) you)\b/i;
   if (hesitationRe.test(message)) {
+    const hesitationReply = await generateSlotQuestion({
+      slot:         slotDef,
+      intent,
+      filledSlots:  context.slots,
+      userMessage:  message,
+      lang,
+      isHesitation: true,
+    });
     return {
       next_context: context, // stay here, don't increment retry_count
-      reply: lang === 'hi'
-        ? `कोई जल्दी नहीं! जब तैयार हों तो बताएं — ${formatSlotQuestion(slotDef, lang)}`
-        : `No rush! Whenever you're ready — ${formatSlotQuestion(slotDef, lang)}`,
+      reply: hesitationReply,
       should_execute: false,
       should_confirm: false,
     };
@@ -187,9 +200,8 @@ async function handleSlotFillingTurn(
 
   // Handle explicit skip for optional slots
   if (extracted === 'SKIP' || message.toLowerCase().trim() === 'skip') {
-    // Skip this optional slot and move to next
     const newSlots = { ...context.slots, [pendingName]: 'SKIP' };
-    return advanceToNextSlotOrConfirm(intent, newSlots, context, lang);
+    return advanceToNextSlotOrConfirm(intent, newSlots, context, lang, message);
   }
 
   // Validate
@@ -199,7 +211,7 @@ async function handleSlotFillingTurn(
       // Give up on this optional slot, or fail on required
       if (!slotDef.required) {
         const newSlots = { ...context.slots, [pendingName]: null };
-        return advanceToNextSlotOrConfirm(intent, newSlots, context, lang);
+        return advanceToNextSlotOrConfirm(intent, newSlots, context, lang, message);
       }
       return resetFlow(context, lang, lang === 'hi'
         ? `माफ़ करें, यह जानकारी नहीं मिल पाई। कृपया नए सिरे से कोशिश करें।`
@@ -207,14 +219,18 @@ async function handleSlotFillingTurn(
       );
     }
 
-    const hint = retries >= 2 && slotDef.hint
-      ? `\n💡 ${slotDef.hint}`
-      : '';
+    const retryReply = await generateSlotQuestion({
+      slot:        slotDef,
+      intent,
+      filledSlots: context.slots,
+      userMessage: message,
+      lang,
+      isRetry:     true,
+    });
 
     return {
       next_context: { ...context, retry_count: retries },
-      reply: (lang === 'hi' ? `समझ नहीं पाया। ` : `Hmm, I didn't catch that. `) +
-        formatSlotQuestion(slotDef, lang) + hint,
+      reply: retryReply,
       should_execute: false,
       should_confirm: false,
     };
@@ -246,7 +262,7 @@ async function handleSlotFillingTurn(
   );
   const additionalSlots = mergeSlots(newSlots, otherExtracted);
 
-  return advanceToNextSlotOrConfirm(intent, additionalSlots, context, lang);
+  return advanceToNextSlotOrConfirm(intent, additionalSlots, context, lang, message);
 }
 
 // ─── Handler: Confirmation Turn ───────────────────────────────────────────────
@@ -291,6 +307,13 @@ async function handleConfirmationTurn(
     const freshSlots = initSlots(context.flow);
     const nextSlot   = getNextPendingSlot(context.flow, freshSlots);
     if (nextSlot) {
+      const question = await generateSlotQuestion({
+        slot:        nextSlot,
+        intent:      context.flow,
+        filledSlots: freshSlots,
+        userMessage: message,
+        lang,
+      });
       return {
         next_context: {
           ...context,
@@ -300,9 +323,7 @@ async function handleConfirmationTurn(
           confirm_message: null,
           retry_count:     0,
         },
-        reply: lang === 'hi'
-          ? `ठीक है, फिर से शुरू करते हैं। ${formatSlotQuestion(nextSlot, lang)}`
-          : `No problem, let's redo that. ${formatSlotQuestion(nextSlot, lang)}`,
+        reply: question,
         should_execute: false,
         should_confirm: false,
       };
@@ -337,16 +358,24 @@ async function handleConfirmationTurn(
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function advanceToNextSlotOrConfirm(
+async function advanceToNextSlotOrConfirm(
   intent: AgentIntent,
   slots: SlotValues,
   context: ConversationContext,
-  lang: SupportedLanguage
-): StateTransitionResult {
+  lang: SupportedLanguage,
+  userMessage: string = ''
+): Promise<StateTransitionResult> {
 
   const nextSlot = getNextPendingSlot(intent, slots);
 
   if (nextSlot) {
+    const question = await generateSlotQuestion({
+      slot:        nextSlot,
+      intent,
+      filledSlots: slots,
+      userMessage,
+      lang,
+    });
     return {
       next_context: {
         ...context,
@@ -355,14 +384,14 @@ function advanceToNextSlotOrConfirm(
         flow_state: 'SLOT_FILLING',
         retry_count: 0,
       },
-      reply: formatSlotQuestion(nextSlot, lang),
+      reply: question,
       should_execute: false,
       should_confirm: false,
     };
   }
 
   // All required slots done → confirmation
-  const confirmMsg = buildConfirmationSummary(intent, slots, lang);
+  const confirmMsg = await generateConfirmation({ intent, slots, lang });
   return {
     next_context: {
       ...context,

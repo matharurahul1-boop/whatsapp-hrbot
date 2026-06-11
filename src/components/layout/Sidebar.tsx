@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, CheckSquare, Calendar, Clock,
   Users, MessageSquare, Settings, Zap, ChevronRight,
-  FileText, AlertTriangle, ChevronsLeft, ChevronsRight,
+  FileText, AlertTriangle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import type { UserRole } from '@/types/database.types';
@@ -60,13 +60,13 @@ function Tooltip({ label }: { label: string }) {
 
 export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: string }) {
   const pathname      = usePathname();
-  const { collapsed, toggle } = useSidebar();
+  const { collapsed } = useSidebar();
   const visible       = NAV.filter(n => n.roles.includes(role));
 
   return (
     <aside className={cn('sidebar', collapsed && 'sidebar-collapsed')}>
 
-      {/* ── Brand + hamburger ── */}
+      {/* ── Brand ── */}
       <div className="flex items-center h-14 border-b border-surface-300/30 shrink-0 px-3 gap-2">
         {/* Zap logo */}
         <div className="relative shrink-0">
@@ -84,18 +84,6 @@ export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: s
           <p className="text-sm font-bold text-surface-950 leading-none whitespace-nowrap">HRBot</p>
           {orgName && <p className="text-2xs text-surface-600 truncate mt-0.5">{orgName}</p>}
         </div>
-
-        {/* Collapse / expand toggle — desktop only */}
-        <button
-          onClick={toggle}
-          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          className="hidden md:flex h-7 w-7 shrink-0 items-center justify-center rounded-lg
-                     text-surface-500 hover:bg-surface-200 hover:text-surface-950 transition-colors"
-        >
-          {collapsed
-            ? <ChevronsRight className="h-4 w-4" />
-            : <ChevronsLeft  className="h-4 w-4" />}
-        </button>
       </div>
 
       {/* ── Nav ── */}

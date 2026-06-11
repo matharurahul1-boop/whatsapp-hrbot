@@ -6,6 +6,7 @@ import Header from '@/components/layout/Header';
 import ThemeProvider from '@/components/layout/ThemeProvider';
 import { SidebarProvider } from '@/components/layout/SidebarProvider';
 import { SidebarShell } from '@/components/layout/SidebarShell';
+import { SidebarToggle } from '@/components/layout/SidebarToggle';
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
@@ -32,6 +33,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
           {/* Mobile overlay backdrop */}
           <div id="sidebar-overlay" className="fixed inset-0 z-30 bg-black/50 hidden md:hidden" />
+
+          {/* Floating toggle pill — sits on sidebar right border, vertically centred */}
+          <SidebarToggle />
 
           {/* Main content — tracks sidebar width */}
           <SidebarShell>

@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import {
   LayoutDashboard, CheckSquare, Calendar, Clock,
-  Users, MessageSquare, Settings, Zap, ChevronRight,
+  Users, MessageSquare, Settings, Zap,
   FileText, AlertTriangle, X, Loader2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
@@ -181,8 +181,6 @@ export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: s
                   : item.icon}
               </span>
               <span className="flex-1 truncate">{item.label}</span>
-              {active && !loading && <ChevronRight className="h-3.5 w-3.5 text-surface-500 shrink-0" />}
-              {loading && <Loader2 className="h-3.5 w-3.5 text-surface-500 shrink-0 animate-spin" />}
             </Link>
           );
         })}
@@ -233,9 +231,6 @@ export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: s
                   )} />
               }
               <span className="flex-1">Settings</span>
-              {pendingPath === '/settings' && (
-                <Loader2 className="h-3.5 w-3.5 text-surface-500 shrink-0 animate-spin" />
-              )}
             </Link>
             <div className="px-3 pt-2">
               <span className={cn(

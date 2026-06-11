@@ -72,16 +72,31 @@ export default function Header({ userName, userRole, avatarUrl }: HeaderProps) {
     const sidebar = document.querySelector('.sidebar');
     const overlay = document.getElementById('sidebar-overlay');
     if (!sidebar || !overlay) return;
-    const isOpen = !sidebar.classList.contains('sidebar-closed');
+    const isOpen = sidebar.classList.contains('sidebar-open');
     if (isOpen) {
-      sidebar.classList.add('sidebar-closed');
+      sidebar.classList.remove('sidebar-open');
       overlay.classList.add('hidden');
+      setMenuOpen(false);
     } else {
-      sidebar.classList.remove('sidebar-closed');
+      sidebar.classList.add('sidebar-open');
       overlay.classList.remove('hidden');
+      setMenuOpen(true);
     }
-    setMenuOpen(!isOpen);
   }
+
+  // Close sidebar when the backdrop overlay is tapped
+  useEffect(() => {
+    const overlay = document.getElementById('sidebar-overlay');
+    if (!overlay) return;
+    function close() {
+      const sidebar = document.querySelector('.sidebar');
+      if (sidebar) sidebar.classList.remove('sidebar-open');
+      overlay!.classList.add('hidden');
+      setMenuOpen(false);
+    }
+    overlay.addEventListener('click', close);
+    return () => overlay.removeEventListener('click', close);
+  }, []);
 
   async function signOut() {
     await supabase.auth.signOut();

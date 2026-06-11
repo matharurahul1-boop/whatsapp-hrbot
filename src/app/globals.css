@@ -116,17 +116,16 @@
     background: linear-gradient(180deg, rgb(var(--shell-bg-from)) 0%, rgb(var(--shell-bg-to)) 100%);
     border-right: 1px solid var(--shell-border);
     transition: transform 0.3s ease, width 0.3s ease;
+    /* Mobile: hidden off-screen by default */
+    transform: translateX(-100%);
   }
-  /* Mobile: slide off-screen when closed */
-  .sidebar-closed { transform: translateX(-100%); }
+  /* Mobile: slide in when hamburger is tapped */
+  .sidebar.sidebar-open { transform: translateX(0); }
   @media (min-width: 768px) {
-    /* Desktop: always visible — never slide off-screen */
-    .sidebar-closed { transform: translateX(0); }
+    /* Desktop: always visible */
+    .sidebar           { transform: translateX(0); }
     /* Desktop collapsed: narrow icon-only rail */
-    .sidebar-collapsed {
-      width: 64px;
-      overflow: visible; /* let tooltips overflow the narrow rail */
-    }
+    .sidebar-collapsed { width: 64px; overflow: visible; }
   }
 
   /* ── Sidebar shell (main content offset) ── */

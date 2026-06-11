@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useLayoutEffect } from 'react';
 
 interface SidebarCtx {
   collapsed: boolean;
@@ -9,11 +9,20 @@ interface SidebarCtx {
 
 const Ctx = createContext<SidebarCtx>({ collapsed: false, toggle: () => {} });
 
+// useLayoutEffect fires before browser paint (no flash); fall back to useEffect on SSR
+const useSyncEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
+
 export function SidebarProvider({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
 
-  useEffect(() => {
-    setCollapsed(localStorage.getItem('hrbot-sidebar-collapsed') === 'true');
+  useSyncEffect(() => {
+    const saved = localStorage.getItem('hrbot-sidebar-collapsed');
+    if (saved !== null) {
+      setCollapsed(saved === 'true');
+    } else {
+      // Auto-collapse on screens narrower than xl (1280px) — gives content more room
+      setCollapsed(window.innerWidth < 1280);
+    }
   }, []);
 
   function toggle() {

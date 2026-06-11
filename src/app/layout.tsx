@@ -16,6 +16,12 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
+      {/* Sets data-sidebar before first CSS render so padding never flashes */}
+      <head>
+        <script dangerouslySetInnerHTML={{ __html:
+          `(function(){try{var c=localStorage.getItem('hrbot-sidebar-collapsed');var s=window.innerWidth<1280;document.documentElement.setAttribute('data-sidebar',(c==='true'||(c===null&&s))?'collapsed':'expanded');}catch(e){}})();`
+        }} />
+      </head>
       <body>{children}</body>
     </html>
   );

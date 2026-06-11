@@ -61,7 +61,7 @@ function Tooltip({ label }: { label: string }) {
 
 export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: string }) {
   const pathname             = usePathname();
-  const { collapsed: state } = useSidebar();
+  const { collapsed: state, closeMobile } = useSidebar();
   const visible              = NAV.filter(n => n.roles.includes(role));
 
   // On overlay screens (< 1024px) the sidebar slides over content as a full panel —
@@ -103,12 +103,7 @@ export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: s
 
         {/* Close button — overlay mode only (hidden on desktop where sidebar is inline) */}
         <button
-          onClick={() => {
-            const sidebar  = document.querySelector('.sidebar');
-            const overlay  = document.getElementById('sidebar-overlay');
-            if (sidebar)  sidebar.classList.remove('sidebar-open');
-            if (overlay)  overlay.classList.add('hidden');
-          }}
+          onClick={closeMobile}
           className="lg:hidden shrink-0 flex h-8 w-8 items-center justify-center rounded-lg
                      text-surface-600 hover:text-surface-950 hover:bg-surface-300
                      transition-colors"

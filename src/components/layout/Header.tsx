@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Avatar } from '@/components/ui/Avatar';
 import { cn } from '@/lib/utils/cn';
 import { useTheme } from '@/components/layout/ThemeProvider';
+import { useSidebar } from '@/components/layout/SidebarProvider';
 
 interface HeaderProps {
   userName:  string;
@@ -39,11 +40,12 @@ export default function Header({ userName, userRole, avatarUrl }: HeaderProps) {
   const supabase = createClient();
   const { theme, toggleTheme } = useTheme();
 
+  const { mobileOpen, openMobile, closeMobile } = useSidebar();
+
   const notifRef    = useRef<HTMLDivElement>(null);
-  const [notifOpen, setNotifOpen]     = useState(false);
-  const [notifs,    setNotifs]        = useState<Notification[]>([]);
-  const [unread,    setUnread]        = useState(0);
-  const [menuOpen,  setMenuOpen]      = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [notifs,    setNotifs]    = useState<Notification[]>([]);
+  const [unread,    setUnread]    = useState(0);
 
   // Breadcrumbs
   const segments = pathname.split('/').filter(Boolean);
@@ -67,36 +69,13 @@ export default function Header({ userName, userRole, avatarUrl }: HeaderProps) {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  // Mobile-only: toggle sidebar overlay
-  function toggleMobileSidebar() {
-    const sidebar = document.querySelector('.sidebar');
-    const overlay = document.getElementById('sidebar-overlay');
-    if (!sidebar || !overlay) return;
-    const isOpen = sidebar.classList.contains('sidebar-open');
-    if (isOpen) {
-      sidebar.classList.remove('sidebar-open');
-      overlay.classList.add('hidden');
-      setMenuOpen(false);
-    } else {
-      sidebar.classList.add('sidebar-open');
-      overlay.classList.remove('hidden');
-      setMenuOpen(true);
-    }
-  }
-
   // Close sidebar when the backdrop overlay is tapped
   useEffect(() => {
     const overlay = document.getElementById('sidebar-overlay');
     if (!overlay) return;
-    function close() {
-      const sidebar = document.querySelector('.sidebar');
-      if (sidebar) sidebar.classList.remove('sidebar-open');
-      overlay!.classList.add('hidden');
-      setMenuOpen(false);
-    }
-    overlay.addEventListener('click', close);
-    return () => overlay.removeEventListener('click', close);
-  }, []);
+    overlay.addEventListener('click', closeMobile);
+    return () => overlay.removeEventListener('click', closeMobile);
+  }, [closeMobile]);
 
   async function signOut() {
     await supabase.auth.signOut();
@@ -125,10 +104,10 @@ export default function Header({ userName, userRole, avatarUrl }: HeaderProps) {
       <div className="flex items-center gap-2 min-w-0 flex-1">
         {/* Mobile-only hamburger (desktop uses the one in the sidebar brand section) */}
         <button
-          onClick={toggleMobileSidebar}
+          onClick={() => mobileOpen ? closeMobile() : openMobile()}
           className="lg:hidden flex h-8 w-8 items-center justify-center rounded-lg text-surface-600 hover:bg-surface-300 hover:text-surface-950 transition-colors shrink-0"
         >
-          {menuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+          {mobileOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
         </button>
 
         {/* Breadcrumbs */}

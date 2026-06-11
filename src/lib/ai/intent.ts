@@ -19,13 +19,18 @@ Current IST time: ${istTime}
 
 ### TASK module
 - CREATE_TASK: create / add / make a task or todo
-- ASSIGN_TASK: assign an existing task to someone
+- ASSIGN_TASK: explicitly assign or reassign a task TO someone — requires an assignee person.
+  ✅ "assign task X to Rahul", "give task to Pooja", "transfer task to John"
+  ❌ "give me detail" → this is TASK_DETAILS, NOT ASSIGN_TASK
+  ❌ "give me the task list" → this is LIST_TASKS, NOT ASSIGN_TASK
 - LIST_TASKS: show / list / view tasks (pending/my/all)
 - COMPLETE_TASK: mark done / complete / finish a task
 - UPDATE_TASK: change deadline / priority / status / assignee of a task
 - SET_REMINDER: set a reminder / remind me / yaad dilana
 - DELETE_TASK: delete / remove a task
-- TASK_DETAILS: show details of a specific task
+- TASK_DETAILS: show details / info about a specific task
+  ✅ "give me detail of X task", "show details for task Y", "what is the status of task X"
+  The word "give" alone is NOT an ASSIGN_TASK indicator — "give me detail" = TASK_DETAILS
 
 ### LEAVE module
 - APPLY_LEAVE: apply / take / request leave / holiday / chutti
@@ -58,6 +63,8 @@ Current IST time: ${istTime}
 - time: convert to HH:MM 24h format. "7pm"="19:00", "9am"="09:00"
 - leave_type: normalize to: casual/sick/annual/maternity
 - priority: normalize to: low/medium/high/urgent
+- update_field: return ONLY ONE field name from: deadline/priority/assignee/status.
+  If user mentions multiple (e.g. "assignee and priority"), return the first one mentioned.
 
 ## title Slot — CRITICAL RULES
 Only extract "title" when the user EXPLICITLY names the task in their message.
@@ -190,7 +197,8 @@ function fallbackClassification(message: string): ClassifiedIntent {
 
   // ── TASK (task OR tasks — handle both singular and plural) ────────────────
   const isCompleteTask = /\b(complete|done|finish|mark.*(done|complete)|completed|khatam)\b.*\btasks?\b|\btasks?\b.*\b(complete|done|finish|khatam)\b/i.test(lower);
-  const isAssignTask   = /\b(assign|give|transfer)\b.*\btasks?\b|\btask\b.*\b(assign|give|transfer)\b/i.test(lower);
+  // "give" alone is NOT an assign signal — require "assign"/"transfer" or "give...to [person]"
+  const isAssignTask   = /\b(assign|transfer)\b.*\btasks?\b|\btasks?\b.*\b(assign|transfer)\b|\bgive\b.*\btasks?\b.*\bto\b/i.test(lower);
   const isDeleteTask   = /\b(delete|remove)\b.*\btasks?\b/i.test(lower);
   const isUpdateTask   = /\b(update|change|modify|edit|set)\b.*\b(task|deadline|priority|status|assignee|due date)\b/i.test(lower);
   const isTaskDetails  = /\btask\s+(details|info)\b|\b(details|info)\b.*\btask\b/i.test(lower);
@@ -309,6 +317,8 @@ Rules:
 - For person names: return Title Case name as given
 - For leave_type: normalize to casual/sick/annual/maternity
 - For priority: normalize to low/medium/high/urgent
+- For update_field: return ONLY ONE value from: deadline/priority/assignee/status.
+  If user mentions multiple (e.g. "assignee and priority"), return the FIRST one mentioned.
 - If user says "skip" or "no reason" for optional fields: return "SKIP"
 - If the value cannot be extracted: return null
 
@@ -367,6 +377,14 @@ Return ONLY the extracted value as a plain string, or the word null.`;
         const mon = monthMap[mdM[1].toLowerCase().slice(0,3)];
         return `${now.getFullYear()}-${mon}-${mdM[2].padStart(2,'0')}`;
       }
+    }
+
+    // ── Update field — pick the first valid field name, ignore extras ─────────
+    if (pendingSlotName === 'update_field') {
+      const validFields = ['deadline', 'priority', 'assignee', 'status'] as const;
+      const r = reply.toLowerCase();
+      const found = validFields.find(f => r.includes(f));
+      if (found) return found;
     }
 
     // ── Priority ─────────────────────────────────────────────────────────────

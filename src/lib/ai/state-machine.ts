@@ -168,6 +168,19 @@ async function handleSlotFillingTurn(
     return resetFlow(context, lang);
   }
 
+  // Detect hesitation — user is not ready to answer yet
+  const hesitationRe = /\b(let me think|give me a (second|moment|minute)|wait|hold on|not yet|i.?m thinking|one sec|one moment|just a (sec|moment)|i.?ll (tell|let) you)\b/i;
+  if (hesitationRe.test(message)) {
+    return {
+      next_context: context, // stay here, don't increment retry_count
+      reply: lang === 'hi'
+        ? `कोई जल्दी नहीं! जब तैयार हों तो बताएं — ${formatSlotQuestion(slotDef, lang)}`
+        : `No rush! Whenever you're ready — ${formatSlotQuestion(slotDef, lang)}`,
+      should_execute: false,
+      should_confirm: false,
+    };
+  }
+
   // Extract slot value from user reply
   const contextStr = `Flow: ${intent}, Collecting: ${pendingName}`;
   const extracted  = await extractSlotValue(pendingName, message, contextStr);
@@ -238,11 +251,14 @@ async function handleSlotFillingTurn(
 
 // ─── Handler: Confirmation Turn ───────────────────────────────────────────────
 
-// Intents that require slot collection — if seen while confirming, treat as fresh start
+// Intents that should break out of a stale CONFIRMING flow and start fresh
 const ACTION_INTENTS: AgentIntent[] = [
   'CREATE_TASK', 'ASSIGN_TASK', 'COMPLETE_TASK', 'UPDATE_TASK', 'DELETE_TASK',
   'SET_REMINDER', 'TASK_DETAILS', 'APPLY_LEAVE', 'CANCEL_LEAVE', 'APPROVE_LEAVE',
   'REJECT_LEAVE', 'CHECK_IN', 'CHECK_OUT', 'START_ONBOARDING',
+  // Greetings and help always escape a stale confirmation — never trap the user
+  'GREETING', 'HELP', 'MY_ATTENDANCE', 'TEAM_ATTENDANCE', 'LIST_TASKS',
+  'CHECK_LEAVE_BALANCE', 'LIST_LEAVES',
 ];
 
 async function handleConfirmationTurn(
@@ -270,7 +286,7 @@ async function handleConfirmationTurn(
   }
 
   // Detect correction intent — user wants to change or re-enter something
-  const correctionRe = /\b(change|wrong|different|edit|didn't give|that's not|not right|incorrect|mistake|modify|redo|restart|actually|wait)\b/i;
+  const correctionRe = /\b(change|wrong|different|edit|didn't give|that'?s not|not right|not the|this is not|incorrect|mistake|modify|redo|restart|actually|wait|that's wrong|wrong title|wrong task)\b/i;
   if (context.flow && correctionRe.test(message)) {
     const freshSlots = initSlots(context.flow);
     const nextSlot   = getNextPendingSlot(context.flow, freshSlots);

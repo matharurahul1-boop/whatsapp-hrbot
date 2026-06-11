@@ -295,10 +295,8 @@
   }
   .card-sm { @apply card p-4; }
   .card-lg { @apply card p-6; }
-}
 
   /* ── Navigation progress bar ── */
-  /* Thin animated stripe shown at the top while a route is loading */
   .nav-progress-bar {
     position: absolute;
     top: 0; bottom: 0;

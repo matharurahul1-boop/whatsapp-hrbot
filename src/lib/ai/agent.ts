@@ -1,177 +1,231 @@
-import Anthropic from '@anthropic-ai/sdk';
+import Groq from 'groq-sdk';
 import { loadSession, saveMessage } from './memory';
 import { sendText } from '@/lib/whatsapp/client';
 import { EMPTY_CONTEXT } from './types';
 import type { AgentTurn, AgentUser } from './types';
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// ─── Tool definitions ─────────────────────────────────────────────────────────
-//
-// Each tool maps 1-to-1 to an executor in executor.ts.
-// Claude decides which tool to call and when — no intent classification needed.
+type GroqMessage = Groq.Chat.ChatCompletionMessageParam;
+type GroqTool    = Groq.Chat.ChatCompletionTool;
 
-const HRBOT_TOOLS: Anthropic.Tool[] = [
+// ─── Tool definitions (OpenAI / Groq function-calling format) ─────────────────
+
+const HRBOT_TOOLS: GroqTool[] = [
   {
-    name: 'daily_briefing',
-    description: "Show the user's daily status: attendance check-in, task summary, pending items. Call this when they greet you (hi, hello, good morning, namaste, etc.).",
-    input_schema: { type: 'object' as const, properties: {} },
-  },
-  {
-    name: 'list_tasks',
-    description: "List the user's pending / active tasks.",
-    input_schema: { type: 'object' as const, properties: {} },
-  },
-  {
-    name: 'get_task_details',
-    description: 'Show full details of a specific task.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        task_title: { type: 'string', description: 'Task title or a part of it' },
-      },
-      required: ['task_title'],
+    type: 'function',
+    function: {
+      name: 'daily_briefing',
+      description: "Show the user's daily status: attendance check-in, task summary, pending items. Call this when they greet you (hi, hello, good morning, namaste, etc.).",
+      parameters: { type: 'object', properties: {} },
     },
   },
   {
-    name: 'create_task',
-    description: 'Create a new task.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        title:    { type: 'string',  description: 'Short, clear task title' },
-        assignee: { type: 'string',  description: 'Assignee name, or "me" to assign to self. Omit if self.' },
-        deadline: { type: 'string',  description: 'Due date as YYYY-MM-DD, optionally YYYY-MM-DD HH:MM' },
-        priority: { type: 'string',  enum: ['low', 'medium', 'high', 'urgent'] },
-      },
-      required: ['title'],
+    type: 'function',
+    function: {
+      name: 'list_tasks',
+      description: "List the user's pending / active tasks.",
+      parameters: { type: 'object', properties: {} },
     },
   },
   {
-    name: 'update_task',
-    description: "Update a task's deadline, priority, assignee, or status.",
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        task_title:   { type: 'string', description: 'Title (or part) of the task to update' },
-        update_field: { type: 'string', enum: ['deadline', 'priority', 'assignee', 'status'], description: 'Which field to change' },
-        update_value: { type: 'string', description: 'New value for the field' },
+    type: 'function',
+    function: {
+      name: 'get_task_details',
+      description: 'Show full details of a specific task.',
+      parameters: {
+        type: 'object',
+        properties: {
+          task_title: { type: 'string', description: 'Task title or a part of it' },
+        },
+        required: ['task_title'],
       },
-      required: ['task_title', 'update_field', 'update_value'],
     },
   },
   {
-    name: 'complete_task',
-    description: 'Mark a task as done / completed.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        task_title: { type: 'string', description: 'Task title or part of it' },
+    type: 'function',
+    function: {
+      name: 'create_task',
+      description: 'Create a new task.',
+      parameters: {
+        type: 'object',
+        properties: {
+          title:    { type: 'string',  description: 'Short, clear task title' },
+          assignee: { type: 'string',  description: 'Assignee name, or "me" to assign to self. Omit if self.' },
+          deadline: { type: 'string',  description: 'Due date as YYYY-MM-DD, optionally YYYY-MM-DD HH:MM' },
+          priority: { type: 'string',  enum: ['low', 'medium', 'high', 'urgent'] },
+        },
+        required: ['title'],
       },
-      required: ['task_title'],
     },
   },
   {
-    name: 'delete_task',
-    description: 'Delete a task.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        task_title: { type: 'string' },
+    type: 'function',
+    function: {
+      name: 'update_task',
+      description: "Update a task's deadline, priority, assignee, or status.",
+      parameters: {
+        type: 'object',
+        properties: {
+          task_title:   { type: 'string', description: 'Title (or part) of the task to update' },
+          update_field: { type: 'string', enum: ['deadline', 'priority', 'assignee', 'status'], description: 'Which field to change' },
+          update_value: { type: 'string', description: 'New value for the field' },
+        },
+        required: ['task_title', 'update_field', 'update_value'],
       },
-      required: ['task_title'],
     },
   },
   {
-    name: 'apply_leave',
-    description: 'Apply for leave.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        leave_type: { type: 'string', enum: ['casual', 'sick', 'annual', 'maternity'] },
-        start_date: { type: 'string', description: 'YYYY-MM-DD' },
-        end_date:   { type: 'string', description: 'YYYY-MM-DD — omit if single day' },
-        reason:     { type: 'string', description: 'Optional reason' },
+    type: 'function',
+    function: {
+      name: 'complete_task',
+      description: 'Mark a task as done / completed.',
+      parameters: {
+        type: 'object',
+        properties: {
+          task_title: { type: 'string', description: 'Task title or part of it' },
+        },
+        required: ['task_title'],
       },
-      required: ['leave_type', 'start_date'],
     },
   },
   {
-    name: 'check_leave_balance',
-    description: 'Show the remaining leave balance for the current year.',
-    input_schema: { type: 'object' as const, properties: {} },
-  },
-  {
-    name: 'list_leaves',
-    description: 'List leave requests.',
-    input_schema: { type: 'object' as const, properties: {} },
-  },
-  {
-    name: 'approve_leave',
-    description: 'Approve a leave request (managers / HR only).',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        employee_name: { type: 'string', description: 'Employee whose leave to approve' },
+    type: 'function',
+    function: {
+      name: 'delete_task',
+      description: 'Delete a task.',
+      parameters: {
+        type: 'object',
+        properties: {
+          task_title: { type: 'string' },
+        },
+        required: ['task_title'],
       },
-      required: ['employee_name'],
     },
   },
   {
-    name: 'reject_leave',
-    description: 'Reject a leave request (managers / HR only).',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        employee_name: { type: 'string' },
-        reason:        { type: 'string', description: 'Optional reason for rejection' },
+    type: 'function',
+    function: {
+      name: 'apply_leave',
+      description: 'Apply for leave.',
+      parameters: {
+        type: 'object',
+        properties: {
+          leave_type: { type: 'string', enum: ['casual', 'sick', 'annual', 'maternity'] },
+          start_date: { type: 'string', description: 'YYYY-MM-DD' },
+          end_date:   { type: 'string', description: 'YYYY-MM-DD — omit if single day' },
+          reason:     { type: 'string', description: 'Optional reason' },
+        },
+        required: ['leave_type', 'start_date'],
       },
-      required: ['employee_name'],
     },
   },
   {
-    name: 'cancel_leave',
-    description: "Cancel one of the user's own leave requests.",
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        start_date: { type: 'string', description: 'YYYY-MM-DD start date of the leave to cancel' },
-      },
-      required: ['start_date'],
+    type: 'function',
+    function: {
+      name: 'check_leave_balance',
+      description: 'Show the remaining leave balance for the current year.',
+      parameters: { type: 'object', properties: {} },
     },
   },
   {
-    name: 'check_in',
-    description: 'Mark attendance check-in for today.',
-    input_schema: { type: 'object' as const, properties: {} },
+    type: 'function',
+    function: {
+      name: 'list_leaves',
+      description: 'List leave requests.',
+      parameters: { type: 'object', properties: {} },
+    },
   },
   {
-    name: 'check_out',
-    description: 'Mark attendance check-out for today.',
-    input_schema: { type: 'object' as const, properties: {} },
-  },
-  {
-    name: 'my_attendance',
-    description: "Show the user's own attendance report for the last 7 days.",
-    input_schema: { type: 'object' as const, properties: {} },
-  },
-  {
-    name: 'team_attendance',
-    description: 'Show team attendance for today (managers / HR only).',
-    input_schema: { type: 'object' as const, properties: {} },
-  },
-  {
-    name: 'start_onboarding',
-    description: 'Onboard a new employee (HR / admin only).',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        employee_name: { type: 'string', description: 'Full name of the new employee' },
-        wa_number:     { type: 'string', description: 'WhatsApp number with country code, e.g. +919876543210' },
-        department:    { type: 'string', description: 'Department (optional)' },
-        designation:   { type: 'string', description: 'Job title / designation (optional)' },
+    type: 'function',
+    function: {
+      name: 'approve_leave',
+      description: 'Approve a leave request (managers / HR only).',
+      parameters: {
+        type: 'object',
+        properties: {
+          employee_name: { type: 'string', description: 'Employee whose leave to approve' },
+        },
+        required: ['employee_name'],
       },
-      required: ['employee_name', 'wa_number'],
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'reject_leave',
+      description: 'Reject a leave request (managers / HR only).',
+      parameters: {
+        type: 'object',
+        properties: {
+          employee_name: { type: 'string' },
+          reason:        { type: 'string', description: 'Optional reason for rejection' },
+        },
+        required: ['employee_name'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'cancel_leave',
+      description: "Cancel one of the user's own leave requests.",
+      parameters: {
+        type: 'object',
+        properties: {
+          start_date: { type: 'string', description: 'YYYY-MM-DD start date of the leave to cancel' },
+        },
+        required: ['start_date'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'check_in',
+      description: 'Mark attendance check-in for today.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'check_out',
+      description: 'Mark attendance check-out for today.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'my_attendance',
+      description: "Show the user's own attendance report for the last 7 days.",
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'team_attendance',
+      description: 'Show team attendance for today (managers / HR only).',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'start_onboarding',
+      description: 'Onboard a new employee (HR / admin only).',
+      parameters: {
+        type: 'object',
+        properties: {
+          employee_name: { type: 'string', description: 'Full name of the new employee' },
+          wa_number:     { type: 'string', description: 'WhatsApp number with country code, e.g. +919876543210' },
+          department:    { type: 'string', description: 'Department (optional)' },
+          designation:   { type: 'string', description: 'Job title / designation (optional)' },
+        },
+        required: ['employee_name', 'wa_number'],
+      },
     },
   },
 ];
@@ -235,7 +289,6 @@ export async function runMasterAgent(
 ): Promise<AgentTurn> {
   const start = Date.now();
 
-  // Load session (user identity + recent conversation)
   let session;
   try {
     session = await loadSession(waNumber, orgId);
@@ -256,15 +309,14 @@ export async function runMasterAgent(
   await saveMessage(conversation_id, orgId, 'user', 'inbound', message).catch(() => {});
 
   try {
-    // Build Claude message history from recent conversation
-    const history: Anthropic.MessageParam[] = (recent_messages ?? [])
+    const history: GroqMessage[] = (recent_messages ?? [])
       .filter((m: any) => m.role !== 'system' && m.content?.trim())
       .map((m: any) => ({
         role:    (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
         content: m.content as string,
       }));
 
-    const reply = await runClaudeLoop(message, history, user, orgId);
+    const reply = await runGroqLoop(message, history, user, orgId);
     const finalReply = reply || "What else can I help you with?";
 
     await saveMessage(conversation_id, orgId, 'assistant', 'outbound', finalReply, {
@@ -284,70 +336,70 @@ export async function runMasterAgent(
   }
 }
 
-// ─── Claude tool-use loop ─────────────────────────────────────────────────────
-//
-// Claude reads the full conversation, decides what to do, and either:
-//   a) Responds with a question / confirmation (end_turn — no tool call)
-//   b) Calls a tool → we execute it → Claude formats the final reply
-//
-// The loop runs until Claude produces a text-only response (end_turn).
+// ─── Groq tool-use loop ───────────────────────────────────────────────────────
 
-async function runClaudeLoop(
-  message:  string,
-  history:  Anthropic.MessageParam[],
-  user:     AgentUser,
-  orgId:    string,
+async function runGroqLoop(
+  message: string,
+  history: GroqMessage[],
+  user:    AgentUser,
+  orgId:   string,
 ): Promise<string> {
-  const messages: Anthropic.MessageParam[] = [
+  const messages: GroqMessage[] = [
+    { role: 'system', content: buildSystemPrompt(user) },
     ...history,
     { role: 'user', content: message },
   ];
 
   for (let round = 0; round < 6; round++) {
-    const response = await anthropic.messages.create({
-      model:      'claude-3-5-haiku-20241022',
-      max_tokens: 1000,
-      system:     buildSystemPrompt(user),
-      tools:      HRBOT_TOOLS,
+    const response = await groq.chat.completions.create({
+      model:       'llama-3.3-70b-versatile',
+      max_tokens:  1000,
+      tools:       HRBOT_TOOLS,
+      tool_choice: 'auto',
       messages,
     });
 
-    // Pure text reply — return it
-    if (response.stop_reason === 'end_turn') {
-      const textBlock = response.content.find((c) => c.type === 'text');
-      return textBlock?.type === 'text' ? textBlock.text.trim() : '';
+    const choice = response.choices[0];
+    if (!choice) break;
+
+    const { finish_reason, message: assistantMsg } = choice;
+
+    // Text-only reply — return it
+    if (finish_reason === 'stop' || !assistantMsg.tool_calls?.length) {
+      return assistantMsg.content?.trim() ?? '';
     }
 
-    // Tool call(s) — execute them and feed results back to Claude
-    if (response.stop_reason === 'tool_use') {
-      messages.push({ role: 'assistant', content: response.content });
+    // Tool calls — execute each and feed results back
+    if (finish_reason === 'tool_calls') {
+      messages.push(assistantMsg as GroqMessage);
 
-      const results: Anthropic.ToolResultBlockParam[] = [];
-      for (const block of response.content) {
-        if (block.type !== 'tool_use') continue;
+      for (const toolCall of assistantMsg.tool_calls!) {
+        let toolInput: Record<string, string> = {};
+        try { toolInput = JSON.parse(toolCall.function.arguments); } catch { /* ignore */ }
+
         const toolOutput = await dispatchTool(
-          block.name,
-          block.input as Record<string, string>,
+          toolCall.function.name,
+          toolInput,
           user,
           orgId,
         );
-        results.push({ type: 'tool_result', tool_use_id: block.id, content: toolOutput });
-      }
 
-      messages.push({ role: 'user', content: results });
-      continue; // loop → Claude formulates final reply
+        messages.push({
+          role:         'tool',
+          tool_call_id: toolCall.id,
+          content:      toolOutput,
+        });
+      }
+      continue;
     }
 
-    break; // unexpected stop_reason
+    break;
   }
 
   return 'I had trouble processing that — please try again.';
 }
 
 // ─── Tool dispatcher ──────────────────────────────────────────────────────────
-//
-// Maps Claude's tool_use call to the existing executor.ts functions.
-// executor.ts handles all DB logic; nothing changes there.
 
 const INTENT_MAP: Record<string, string> = {
   daily_briefing:      'GREETING',
@@ -382,7 +434,6 @@ async function dispatchTool(
   try {
     const { executeTool } = await import('./executor');
 
-    // Normalise Claude's tool input into the slot map the executor expects
     const slots: Record<string, string | null> = {
       title:         input.task_title   ?? input.title         ?? null,
       assignee:      input.assignee                            ?? null,
@@ -452,6 +503,6 @@ async function sendUserNotifications(
         status:          'sent',
         sent_at:         new Date().toISOString(),
       });
-    } catch { /* non-critical — don't fail the main flow */ }
+    } catch { /* non-critical */ }
   }
 }

@@ -36,6 +36,14 @@ interface MetaCreds {
 const credsCache = new Map<string, { creds: MetaCreds; exp: number }>();
 
 async function resolveMetaCreds(orgId?: string): Promise<MetaCreds> {
+  // Env vars take priority — if explicitly set they are always up-to-date
+  const envPhoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  const envToken   = process.env.WHATSAPP_ACCESS_TOKEN;
+  if (envPhoneId && envToken) {
+    return { phoneNumberId: envPhoneId, accessToken: envToken };
+  }
+
+  // Fall back to org-specific credentials stored in the DB
   if (orgId) {
     const cached = credsCache.get(orgId);
     if (cached && cached.exp > Date.now()) return cached.creds;
@@ -57,18 +65,13 @@ async function resolveMetaCreds(orgId?: string): Promise<MetaCreds> {
         return creds;
       }
     } catch {
-      // fall through to env vars
+      // fall through to error
     }
   }
 
-  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-  const accessToken   = process.env.WHATSAPP_ACCESS_TOKEN;
-  if (!phoneNumberId || !accessToken) {
-    throw new Error(
-      'WhatsApp credentials not configured. Set WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_ACCESS_TOKEN in .env.local'
-    );
-  }
-  return { phoneNumberId, accessToken };
+  throw new Error(
+    'WhatsApp credentials not configured. Set WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_ACCESS_TOKEN in .env.local'
+  );
 }
 
 export function invalidateCredsCache(orgId: string) {

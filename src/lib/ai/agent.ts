@@ -9,6 +9,31 @@ const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 type GroqMessage = Groq.Chat.ChatCompletionMessageParam;
 type GroqTool    = Groq.Chat.ChatCompletionTool;
 
+// ─── Deterministic quick-router ───────────────────────────────────────────────
+//
+// For crystal-clear short patterns, bypass the AI entirely.
+// This guarantees correct behaviour regardless of model quality.
+// Only read-only tools here — action tools (check_in, create_task etc.)
+// still go through Groq so confirmation prompts are preserved.
+
+const QUICK_ROUTES: Array<{ re: RegExp; tool: string }> = [
+  { re: /^(hi+|hey+|hello+|good\s*(morning|afternoon|evening|night)|namaste|namaskar|hlo+|hii+|greetings?)\s*[!.]*$/i, tool: 'daily_briefing' },
+  { re: /^(list\s*tasks?|my\s*tasks?|show\s*tasks?|tasks?|pending\s*tasks?)$/i,                                        tool: 'list_tasks'     },
+  { re: /^(leave\s*balance|my\s*leave\s*balance|leaves?\s*left|check\s*leave)$/i,                                      tool: 'check_leave_balance' },
+  { re: /^(my\s*attendance|attendance\s*report|show\s*attendance|attendance)$/i,                                        tool: 'my_attendance'  },
+  { re: /^(list\s*leaves?|my\s*leaves?|leave\s*requests?|leaves?)$/i,                                                  tool: 'list_leaves'    },
+  { re: /^(team\s*attendance|who\s*(is\s*)?absent|absent\s*today)$/i,                                                  tool: 'team_attendance'},
+  { re: /^(help|\?|commands?)$/i,                                                                                       tool: 'help'           },
+];
+
+function quickRoute(message: string): string | null {
+  const t = message.trim();
+  for (const { re, tool } of QUICK_ROUTES) {
+    if (re.test(t)) return tool;
+  }
+  return null;
+}
+
 // ─── Tool definitions (OpenAI / Groq function-calling format) ─────────────────
 
 const HRBOT_TOOLS: GroqTool[] = [
@@ -16,7 +41,7 @@ const HRBOT_TOOLS: GroqTool[] = [
     type: 'function',
     function: {
       name: 'daily_briefing',
-      description: "Show the user's daily status: attendance check-in, task summary, pending items. Call this when they greet you (hi, hello, good morning, namaste, etc.).",
+      description: "Show the user's daily status: attendance, task summary, pending items. Call ONLY for greetings (hi, hello, good morning, namaste, etc.).",
       parameters: { type: 'object', properties: {} },
     },
   },
@@ -46,13 +71,13 @@ const HRBOT_TOOLS: GroqTool[] = [
     type: 'function',
     function: {
       name: 'create_task',
-      description: 'Create a new task.',
+      description: 'Create a new task. Only call AFTER the user confirms.',
       parameters: {
         type: 'object',
         properties: {
           title:    { type: 'string',  description: 'Short, clear task title' },
-          assignee: { type: 'string',  description: 'Assignee name, or "me" to assign to self. Omit if self.' },
-          deadline: { type: 'string',  description: 'Due date as YYYY-MM-DD, optionally YYYY-MM-DD HH:MM' },
+          assignee: { type: 'string',  description: 'Assignee name or "me". Omit if self.' },
+          deadline: { type: 'string',  description: 'Due date as YYYY-MM-DD' },
           priority: { type: 'string',  enum: ['low', 'medium', 'high', 'urgent'] },
         },
         required: ['title'],
@@ -63,12 +88,12 @@ const HRBOT_TOOLS: GroqTool[] = [
     type: 'function',
     function: {
       name: 'update_task',
-      description: "Update a task's deadline, priority, assignee, or status.",
+      description: "Update a task's deadline, priority, assignee, or status. Only call AFTER user confirms.",
       parameters: {
         type: 'object',
         properties: {
           task_title:   { type: 'string', description: 'Title (or part) of the task to update' },
-          update_field: { type: 'string', enum: ['deadline', 'priority', 'assignee', 'status'], description: 'Which field to change' },
+          update_field: { type: 'string', enum: ['deadline', 'priority', 'assignee', 'status'] },
           update_value: { type: 'string', description: 'New value for the field' },
         },
         required: ['task_title', 'update_field', 'update_value'],
@@ -79,7 +104,7 @@ const HRBOT_TOOLS: GroqTool[] = [
     type: 'function',
     function: {
       name: 'complete_task',
-      description: 'Mark a task as done / completed.',
+      description: 'Mark a task as completed. Only call AFTER user confirms.',
       parameters: {
         type: 'object',
         properties: {
@@ -93,7 +118,7 @@ const HRBOT_TOOLS: GroqTool[] = [
     type: 'function',
     function: {
       name: 'delete_task',
-      description: 'Delete a task.',
+      description: 'Delete a task. Only call AFTER user confirms.',
       parameters: {
         type: 'object',
         properties: {
@@ -107,7 +132,7 @@ const HRBOT_TOOLS: GroqTool[] = [
     type: 'function',
     function: {
       name: 'apply_leave',
-      description: 'Apply for leave.',
+      description: 'Apply for leave. Only call AFTER user confirms.',
       parameters: {
         type: 'object',
         properties: {
@@ -124,7 +149,7 @@ const HRBOT_TOOLS: GroqTool[] = [
     type: 'function',
     function: {
       name: 'check_leave_balance',
-      description: 'Show the remaining leave balance for the current year.',
+      description: 'Show remaining leave balance.',
       parameters: { type: 'object', properties: {} },
     },
   },
@@ -140,11 +165,11 @@ const HRBOT_TOOLS: GroqTool[] = [
     type: 'function',
     function: {
       name: 'approve_leave',
-      description: 'Approve a leave request (managers / HR only).',
+      description: 'Approve a leave request (managers / HR only). Only call AFTER user confirms.',
       parameters: {
         type: 'object',
         properties: {
-          employee_name: { type: 'string', description: 'Employee whose leave to approve' },
+          employee_name: { type: 'string' },
         },
         required: ['employee_name'],
       },
@@ -154,12 +179,12 @@ const HRBOT_TOOLS: GroqTool[] = [
     type: 'function',
     function: {
       name: 'reject_leave',
-      description: 'Reject a leave request (managers / HR only).',
+      description: 'Reject a leave request (managers / HR only). Only call AFTER user confirms.',
       parameters: {
         type: 'object',
         properties: {
           employee_name: { type: 'string' },
-          reason:        { type: 'string', description: 'Optional reason for rejection' },
+          reason:        { type: 'string' },
         },
         required: ['employee_name'],
       },
@@ -169,7 +194,7 @@ const HRBOT_TOOLS: GroqTool[] = [
     type: 'function',
     function: {
       name: 'cancel_leave',
-      description: "Cancel one of the user's own leave requests.",
+      description: "Cancel the user's own leave request. Only call AFTER user confirms.",
       parameters: {
         type: 'object',
         properties: {
@@ -183,7 +208,7 @@ const HRBOT_TOOLS: GroqTool[] = [
     type: 'function',
     function: {
       name: 'check_in',
-      description: 'Mark attendance check-in for today.',
+      description: 'Mark attendance check-in for today. Only call AFTER user confirms.',
       parameters: { type: 'object', properties: {} },
     },
   },
@@ -191,7 +216,7 @@ const HRBOT_TOOLS: GroqTool[] = [
     type: 'function',
     function: {
       name: 'check_out',
-      description: 'Mark attendance check-out for today.',
+      description: 'Mark attendance check-out for today. Only call AFTER user confirms.',
       parameters: { type: 'object', properties: {} },
     },
   },
@@ -199,7 +224,7 @@ const HRBOT_TOOLS: GroqTool[] = [
     type: 'function',
     function: {
       name: 'my_attendance',
-      description: "Show the user's own attendance report for the last 7 days.",
+      description: "Show the user's attendance report.",
       parameters: { type: 'object', properties: {} },
     },
   },
@@ -215,14 +240,14 @@ const HRBOT_TOOLS: GroqTool[] = [
     type: 'function',
     function: {
       name: 'start_onboarding',
-      description: 'Onboard a new employee (HR / admin only).',
+      description: 'Onboard a new employee (HR / admin only). Only call AFTER user confirms.',
       parameters: {
         type: 'object',
         properties: {
-          employee_name: { type: 'string', description: 'Full name of the new employee' },
+          employee_name: { type: 'string' },
           wa_number:     { type: 'string', description: 'WhatsApp number with country code, e.g. +919876543210' },
-          department:    { type: 'string', description: 'Department (optional)' },
-          designation:   { type: 'string', description: 'Job title / designation (optional)' },
+          department:    { type: 'string' },
+          designation:   { type: 'string' },
         },
         required: ['employee_name', 'wa_number'],
       },
@@ -242,47 +267,56 @@ function buildSystemPrompt(user: AgentUser): string {
   });
   const isManager = ['manager', 'hr', 'admin', 'super_admin'].includes(user.role);
 
-  return `You are HRBot — a smart, friendly HR assistant for a company, talking to employees over WhatsApp.
+  return `You are HRBot — a smart, friendly HR assistant talking to employees over WhatsApp.
 
-## Who you are talking to
-- Name: ${user.full_name} (address them by first name: ${user.first_name})
-- Role: ${user.role}${isManager ? ' (can approve/reject leave, manage team tasks)' : ''}
+## User
+- Name: ${user.full_name} (call them: ${user.first_name})
+- Role: ${user.role}${isManager ? ' (manager — can approve/reject leave, view team)' : ''}
 - Department: ${user.department ?? 'Not specified'}
 - Today: ${today}, ${time} IST
 
-## Personality & style
-Respond like a knowledgeable, warm colleague — not a robot filling out a form.
-- Read the conversation history carefully. If you already know the task title, assignee, or any detail from earlier in the chat, USE it — don't ask again.
-- Understand natural references: "same task", "it", "that one", "the one we just created", "also", "update the assigned to" (= update the assignee), etc.
-- If you need more info, ask ONE clear question — never a list of questions at once.
-- Keep replies short: 1-4 lines for simple things, longer only when listing data.
-- WhatsApp formatting: *bold* for task names, field names, and key values. Emojis where natural (✅ ❌ 📋 ⏰ 👤 📅 🔴 🟠 🟡 🟢).
+## How to respond
+- Be warm and direct like a helpful colleague, not a form-filling robot.
+- Read conversation history. If a task title or detail was mentioned earlier, use it — never ask again.
+- Understand natural references: "same task", "it", "that one", "update the assigned to" = update assignee.
+- Ask ONE question at a time if you need info.
+- Keep replies concise. *bold* for task names and key values. Emojis naturally (✅ ❌ 📋 ⏰ 👤 📅).
 
-## Tool output — CRITICAL RULE
-When a tool returns a result, output it EXACTLY as-is — word for word, formatting and all.
-Do NOT summarize, shorten, rephrase, or add your own questions or commentary after tool output.
-The tool result IS the final reply. Just send it.
+## CRITICAL: Tool output rule
+When a tool returns a result, send it back EXACTLY as-is — no summarising, no rephrasing, no added questions.
+The tool text IS the complete reply.
 
-## Confirmation before actions — MANDATORY
-Before calling any action tool (create_task, update_task, complete_task, delete_task, apply_leave, approve_leave, reject_leave, cancel_leave, start_onboarding, check_in, check_out):
-1. Write one clear line describing exactly what you will do, using *bold* for the key values.
-2. End with "Go ahead? (Yes/No)" or "Shall I go ahead?"
-3. Wait for the user to confirm — do NOT call the tool until they say yes.
+## CRITICAL: Confirmation rule
+For every action tool (create_task, update_task, complete_task, delete_task, apply_leave, approve_leave,
+reject_leave, cancel_leave, start_onboarding, check_in, check_out):
+1. First reply with one sentence describing what you'll do (bold the key values).
+2. End with "Go ahead? (Yes / No)"
+3. Only call the tool AFTER the user says Yes / Haan / Sure / Ok / Confirm.
+4. If user says No / Nahi / Cancel → say "Got it, cancelled. What else can I help with?"
 
-Read-only tools — call immediately, return output verbatim:
+## Read-only tools — call immediately, NO confirmation needed:
 daily_briefing, list_tasks, get_task_details, check_leave_balance, list_leaves, my_attendance, team_attendance
 
-## Greeting
-When user says hi / hello / good morning / namaste or any greeting → call daily_briefing immediately.
+## Examples
+User: "create a task Fix login bug due tomorrow priority high"
+You: I'll create task *Fix login bug* with *high* priority due *tomorrow*. Go ahead? (Yes / No)
+
+User: "yes"
+You: [call create_task]
+
+User: "update the assigned to of Design Review to Rahul"
+You: I'll update *Design Review* — set *assignee* to *Rahul*. Go ahead? (Yes / No)
+
+User: "list my tasks"
+You: [call list_tasks, return result verbatim]
 
 ## Permissions
-- Employees can only update a task's *status* (not priority, deadline, or assignee). If they try, explain politely and suggest asking their manager.
-- Only managers / HR can approve or reject leave requests, or view team attendance.
-- Never invent employee names, task titles, leave balances, or any company data.
-- If a task or person is not found, say so clearly and ask the user to double-check the name.
+- Regular employees can only change task *status*. For other fields, suggest asking their manager.
+- Only managers/HR can approve/reject leave or view team attendance.
+- Never invent data. If something is not found, say so clearly.
 
 ## Language
-Match the user's language — English or Hindi/Hinglish.`;
+Match the user — English, Hindi, or Hinglish.`;
 }
 
 // ─── Master agent entry point ─────────────────────────────────────────────────
@@ -322,7 +356,7 @@ export async function runMasterAgent(
       }));
 
     const reply = await runGroqLoop(message, history, user, orgId);
-    const finalReply = reply || "What else can I help you with?";
+    const finalReply = reply || 'What else can I help you with?';
 
     await saveMessage(conversation_id, orgId, 'assistant', 'outbound', finalReply, {
       latency_ms: Date.now() - start,
@@ -349,6 +383,15 @@ async function runGroqLoop(
   user:    AgentUser,
   orgId:   string,
 ): Promise<string> {
+
+  // ── 1. Quick-route deterministic patterns — bypass AI entirely ────────────
+  const directTool = quickRoute(message);
+  if (directTool) {
+    console.log(`[Agent] Quick-route: "${message}" → ${directTool}`);
+    return dispatchTool(directTool, {}, user, orgId);
+  }
+
+  // ── 2. AI loop for everything else ────────────────────────────────────────
   const messages: GroqMessage[] = [
     { role: 'system', content: buildSystemPrompt(user) },
     ...history,
@@ -358,7 +401,7 @@ async function runGroqLoop(
   for (let round = 0; round < 6; round++) {
     const response = await groq.chat.completions.create({
       model:       'llama-3.3-70b-versatile',
-      max_tokens:  1000,
+      max_tokens:  1024,
       tools:       HRBOT_TOOLS,
       tool_choice: 'auto',
       messages,
@@ -369,12 +412,12 @@ async function runGroqLoop(
 
     const { finish_reason, message: assistantMsg } = choice;
 
-    // Text-only reply — return it
+    // Text reply (confirmation question, clarification, or final answer)
     if (finish_reason === 'stop' || !assistantMsg.tool_calls?.length) {
       return assistantMsg.content?.trim() ?? '';
     }
 
-    // Tool calls — execute each and feed results back
+    // Tool calls — execute and feed results back
     if (finish_reason === 'tool_calls') {
       messages.push(assistantMsg as GroqMessage);
 
@@ -383,7 +426,9 @@ async function runGroqLoop(
         try {
           const parsed = JSON.parse(toolCall.function.arguments);
           if (parsed && typeof parsed === 'object') toolInput = parsed;
-        } catch { /* ignore */ }
+        } catch { /* malformed args — use empty */ }
+
+        console.log(`[Agent] Tool call: ${toolCall.function.name}`, toolInput);
 
         const toolOutput = await dispatchTool(
           toolCall.function.name,
@@ -428,6 +473,7 @@ const INTENT_MAP: Record<string, string> = {
   my_attendance:       'MY_ATTENDANCE',
   team_attendance:     'TEAM_ATTENDANCE',
   start_onboarding:    'START_ONBOARDING',
+  help:                'HELP',
 };
 
 async function dispatchTool(
@@ -477,7 +523,7 @@ async function dispatchTool(
     return result.reply;
   } catch (err) {
     console.error(`[Tool] ${toolName} failed:`, err);
-    return '❌ Something went wrong. Please try again.';
+    return '❌ Something went wrong with that action. Please try again.';
   }
 }
 

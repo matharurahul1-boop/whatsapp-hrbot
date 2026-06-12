@@ -375,7 +375,10 @@ async function runGroqLoop(
 
       for (const toolCall of assistantMsg.tool_calls!) {
         let toolInput: Record<string, string> = {};
-        try { toolInput = JSON.parse(toolCall.function.arguments); } catch { /* ignore */ }
+        try {
+          const parsed = JSON.parse(toolCall.function.arguments);
+          if (parsed && typeof parsed === 'object') toolInput = parsed;
+        } catch { /* ignore */ }
 
         const toolOutput = await dispatchTool(
           toolCall.function.name,

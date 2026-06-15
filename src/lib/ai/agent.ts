@@ -1,22 +1,27 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
-import OpenAI from 'openai';
+import Anthropic                from '@anthropic-ai/sdk';
+import { GoogleGenerativeAI }  from '@google/generative-ai';
+import OpenAI                  from 'openai';
 import { loadSession, saveMessage } from './memory';
-import { sendText } from '@/lib/whatsapp/client';
-import { EMPTY_CONTEXT } from './types';
+import { sendText }            from '@/lib/whatsapp/client';
+import { EMPTY_CONTEXT }       from './types';
 import type { AgentTurn, AgentUser } from './types';
 
 // ── AI backend ────────────────────────────────────────────────────────────────
-// Set USE_GEMINI=true once Google AI Studio billing is set up (unlocks 1M TPM).
-// Until then, OpenRouter free tier handles traffic fine for normal use.
+// USE_CLAUDE  = true  → Claude Haiku 4.5 (primary — fast, reliable tool use)
+// USE_GEMINI  = true  → Gemini 2.0 Flash (enable once Google billing is set up)
+// fallback           → OpenRouter free tier
+const USE_CLAUDE = true;
 const USE_GEMINI = false;
 
-const genAI  = new GoogleGenerativeAI(process.env.GEMINI_API_KEY ?? '');
-const openai  = new OpenAI({
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY ?? '' });
+const genAI     = new GoogleGenerativeAI(process.env.GEMINI_API_KEY ?? '');
+const openai    = new OpenAI({
   apiKey:  process.env.OPENROUTER_API_KEY ?? '',
   baseURL: 'https://openrouter.ai/api/v1',
   defaultHeaders: { 'HTTP-Referer': 'https://handysolver.com', 'X-Title': 'HRBot' },
 });
 
+const AI_MODEL_CLAUDE = 'claude-haiku-4-5-20251001';
 const AI_MODEL_GEMINI = 'gemini-2.0-flash';
 const AI_MODEL_OR     = 'openai/gpt-oss-20b:free';
 
@@ -576,7 +581,84 @@ async function runGroqLoop(
   // ── 3. AI loop ────────────────────────────────────────────────────────────
   const isDev = process.env.NODE_ENV !== 'production';
 
-  if (USE_GEMINI) {
+  // Shared schema normaliser: Gemini uses UPPERCASE types; Claude + OpenAI need lowercase
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function normalizeSchema(schema: any): any {
+    if (!schema || typeof schema !== 'object') return schema;
+    const out = { ...schema };
+    if (typeof out.type === 'string') out.type = out.type.toLowerCase();
+    if (out.properties) {
+      const props: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(out.properties)) props[k] = normalizeSchema(v);
+      out.properties = props;
+    }
+    if (out.items) out.items = normalizeSchema(out.items);
+    return out;
+  }
+
+  if (USE_CLAUDE) {
+    // ── Claude Haiku 4.5 — primary backend ────────────────────────────────
+    const claudeTools: Anthropic.Messages.Tool[] = HRBOT_TOOLS.map(t => ({
+      name:         t.name,
+      description:  t.description,
+      input_schema: normalizeSchema(t.parameters) as Anthropic.Messages.Tool['input_schema'],
+    }));
+
+    const claudeMessages: Anthropic.Messages.MessageParam[] = [
+      ...history.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+      { role: 'user' as const, content: effectiveMessage },
+    ];
+
+    try {
+      for (let round = 0; round < 6; round++) {
+        const response = await anthropic.messages.create({
+          model:      AI_MODEL_CLAUDE,
+          max_tokens: 512,
+          system:     buildSystemPrompt(user),
+          tools:      claudeTools,
+          messages:   claudeMessages,
+        });
+
+        const textBlocks   = response.content.filter((b): b is Anthropic.Messages.TextBlock    => b.type === 'text');
+        const toolBlocks   = response.content.filter((b): b is Anthropic.Messages.ToolUseBlock => b.type === 'tool_use');
+
+        if (toolBlocks.length === 0) {
+          return textBlocks.map(b => b.text).join('').trim();
+        }
+
+        // Push assistant turn with tool_use blocks
+        claudeMessages.push({ role: 'assistant', content: response.content });
+
+        // Execute each tool and collect results
+        const toolResults: Anthropic.Messages.ToolResultBlockParam[] = [];
+        for (const block of toolBlocks) {
+          console.log(`[Agent] Claude tool call: ${block.name}`, block.input);
+          const output = await dispatchTool(
+            block.name,
+            (block.input ?? {}) as Record<string, string>,
+            user,
+            orgId,
+          );
+          toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: output });
+        }
+
+        // Feed results back as a user turn
+        claudeMessages.push({ role: 'user', content: toolResults });
+      }
+
+      return 'I had trouble processing that — please try again.';
+
+    } catch (err: unknown) {
+      const status = (err as { status?: number }).status;
+      const errMsg = (err as { message?: string }).message ?? String(err);
+      console.error('[Agent] Claude error (status', status, '):', errMsg);
+      if (status === 429) {
+        return isDev ? `⏳ *[DEV] Claude 429:* ${errMsg}` : "I'm a bit busy right now. Please try again in a few seconds.";
+      }
+      return isDev ? `⚠️ *[DEV] Claude ${status}:* ${errMsg}` : '⚠️ Something went wrong. Please try again.';
+    }
+
+  } else if (USE_GEMINI) {
     // ── Gemini native SDK path ─────────────────────────────────────────────
     const model = genAI.getGenerativeModel({
       model:             AI_MODEL_GEMINI,
@@ -622,21 +704,7 @@ async function runGroqLoop(
     }
 
   } else {
-    // ── OpenRouter path (active while Gemini billing isn't set up) ─────────
-    // Gemini uses UPPERCASE type names; OpenAI/JSON-Schema needs lowercase.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    function normalizeSchema(schema: any): any {
-      if (!schema || typeof schema !== 'object') return schema;
-      const out = { ...schema };
-      if (typeof out.type === 'string') out.type = out.type.toLowerCase();
-      if (out.properties) {
-        const props: Record<string, unknown> = {};
-        for (const [k, v] of Object.entries(out.properties)) props[k] = normalizeSchema(v);
-        out.properties = props;
-      }
-      if (out.items) out.items = normalizeSchema(out.items);
-      return out;
-    }
+    // ── OpenRouter fallback ────────────────────────────────────────────────
     const orTools: OpenAI.Chat.ChatCompletionTool[] = HRBOT_TOOLS.map(t => ({
       type: 'function' as const,
       function: { name: t.name, description: t.description, parameters: normalizeSchema(t.parameters) },

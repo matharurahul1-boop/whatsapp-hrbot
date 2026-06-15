@@ -1,6 +1,6 @@
 import { createAdminClient }   from '@/lib/supabase/admin';
 import { writeAuditLog }       from '@/lib/utils/audit';
-import { formatDate, calcBusinessDays } from '@/lib/utils/date';
+import { formatDate, calcBusinessDays, todayISO } from '@/lib/utils/date';
 import { generateEmployeeId }  from '@/lib/utils/employee-id';
 import { n8n }                 from '@/lib/n8n/trigger';
 import { REPLIES, NOTIFICATIONS } from './prompts/responses';
@@ -55,7 +55,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
   async GREETING({ user_id, user_name, slots, org_id, user_role }): Promise<ToolResult> {
     const db    = createAdminClient();
     const lang  = (slots._lang as 'en' | 'hi') ?? 'en';
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayISO();
     const hour  = getISTHour();
     const firstName = (user_name ?? 'there').split(' ')[0];
 
@@ -265,7 +265,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
   async LIST_TASKS({ org_id, user_id, user_role, slots, user_name }): Promise<ToolResult> {
     const db    = createAdminClient();
     const lang  = (slots._lang as 'en' | 'hi') ?? 'en';
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayISO();
     const isPrivileged = ['manager', 'hr', 'admin', 'super_admin'].includes(user_role);
 
     let query = db
@@ -1015,7 +1015,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
   async CHECK_IN({ org_id, user_id, slots, user_name }): Promise<ToolResult> {
     const db      = createAdminClient();
     const lang    = (slots._lang as 'en' | 'hi') ?? 'en';
-    const today   = new Date().toISOString().split('T')[0];
+    const today   = todayISO();
     const now     = new Date().toISOString();
     const timeStr = new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
     const firstName = (user_name ?? 'there').split(' ')[0];
@@ -1053,7 +1053,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
   async CHECK_OUT({ org_id, user_id, slots, user_name }): Promise<ToolResult> {
     const db      = createAdminClient();
     const lang    = (slots._lang as 'en' | 'hi') ?? 'en';
-    const today   = new Date().toISOString().split('T')[0];
+    const today   = todayISO();
     const now     = new Date().toISOString();
     const timeStr = new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
     const firstName = (user_name ?? 'there').split(' ')[0];
@@ -1136,7 +1136,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       return { success: false, reply: REPLIES.permissionDenied('view team attendance', lang) };
     }
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayISO();
     const dateStr = new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', day: 'numeric', month: 'short' });
 
     // Managers see only their team; HR+ see the whole org

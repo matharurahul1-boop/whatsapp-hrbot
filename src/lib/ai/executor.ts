@@ -302,11 +302,12 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const { data: tasks } = await query;
 
     if (!tasks?.length) {
+      const noTasksName = slots.assignee_name && isPrivileged ? slots.assignee_name : null;
       return {
         success: true,
-        reply: lang === 'hi'
-          ? `📋 कोई पेंडिंग टास्क नहीं। शानदार काम! 🎉`
-          : `📋 No pending tasks — you're all caught up! 🎉`,
+        reply: noTasksName
+          ? `📋 No pending tasks found for *${noTasksName}*.`
+          : (lang === 'hi' ? `📋 कोई पेंडिंग टास्क नहीं। शानदार काम! 🎉` : `📋 No pending tasks — you're all caught up! 🎉`),
       };
     }
 

@@ -516,6 +516,20 @@ async function runGroqLoop(
     return dispatchTool(directTool, {}, user, orgId);
   }
 
+  // "List [Name]'s tasks" / "Show [Name]'s tasks" — privileged users only
+  const isPrivilegedUser = ['manager', 'hr', 'admin', 'super_admin'].includes(user.role);
+  const tasksByNameMatch = message.match(
+    /\b(?:list|show|get)\s+(?:of\s+)?([a-z][a-z\s]{1,30}?)(?:'s|'s|s)?\s+tasks?\b/i
+  );
+  if (tasksByNameMatch && isPrivilegedUser) {
+    const assigneeName = tasksByNameMatch[1].trim();
+    // Don't match generic terms like "all", "my", "pending"
+    if (!/^(all|my|our|the|any|pending|team|org|your)$/i.test(assigneeName)) {
+      console.log(`[Agent] Name-task quick-route: "${message}" → list_tasks(assignee_name="${assigneeName}")`);
+      return dispatchTool('list_tasks', { assignee_name: assigneeName }, user, orgId);
+    }
+  }
+
   // ── 2. Confirmation / context injection ──────────────────────────────────
   // a) If previous bot message was "Go ahead? (Yes / No)" → handle yes/no directly.
   // b) If user says "create the task" / "create it" without a pending confirmation

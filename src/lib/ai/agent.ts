@@ -316,20 +316,6 @@ const HRBOT_TOOLS: any[] = [
     description: 'List all active employees / users in the organisation. Managers, HR and admins only.',
     parameters: { type: 'OBJECT', properties: {} },
   },
-  {
-    name: 'start_onboarding',
-    description: 'Onboard a new employee (HR / admin only). Only call AFTER user confirms.',
-    parameters: {
-      type: 'OBJECT',
-      properties: {
-        employee_name: { type: 'STRING' },
-        wa_number:     { type: 'STRING', description: 'WhatsApp number with country code, e.g. +919876543210' },
-        department:    { type: 'STRING' },
-        designation:   { type: 'STRING' },
-      },
-      required: ['employee_name', 'wa_number'],
-    },
-  },
 ];
 
 // ─── System prompt ────────────────────────────────────────────────────────────
@@ -365,7 +351,7 @@ The tool text IS the complete reply.
 
 ## CRITICAL: Confirmation rule
 For every action tool (create_task, update_task, complete_task, delete_task, apply_leave, approve_leave,
-reject_leave, cancel_leave, start_onboarding, check_in, check_out):
+reject_leave, cancel_leave, check_in, check_out):
 1. First reply with one sentence describing what you'll do (bold the key values).
 2. End with "Go ahead? (Yes / No)"
 3. Only call the tool AFTER the user says Yes / Haan / Sure / Ok / Confirm / "Create the task" / "Do it" / "Go ahead".
@@ -659,7 +645,6 @@ const INTENT_MAP: Record<string, string> = {
   check_out:           'CHECK_OUT',
   my_attendance:       'MY_ATTENDANCE',
   team_attendance:     'TEAM_ATTENDANCE',
-  start_onboarding:    'START_ONBOARDING',
   list_users:          'LIST_USERS',
   help:                'HELP',
 };

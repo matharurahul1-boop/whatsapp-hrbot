@@ -389,11 +389,12 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const task = tasks?.[0];
     if (!task) return { success: false, reply: REPLIES.taskNotFound(slots.title!, lang) };
 
-    const { data: found } = await db
+    const { data: foundRows } = await db
       .from('users').select('id, full_name')
       .eq('organization_id', org_id)
       .ilike('full_name', `%${slots.assignee}%`)
-      .maybeSingle();
+      .limit(5);
+    const found = foundRows?.[0] ?? null;
 
     if (!found) {
       // Show who IS available so the user can pick
@@ -526,12 +527,13 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       patch.status = mapped;
       if (mapped === 'done') patch.completed_at = new Date().toISOString();
     } else if (field === 'assignee') {
-      const { data: found } = await db
+      const { data: foundRows } = await db
         .from('users')
         .select('id, full_name')
         .eq('organization_id', org_id)
         .ilike('full_name', `%${value}%`)
-        .maybeSingle();
+        .limit(5);
+      const found = foundRows?.[0] ?? null;
       if (!found) {
         const { data: avail } = await db
           .from('users').select('full_name')

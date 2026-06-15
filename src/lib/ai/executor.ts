@@ -435,18 +435,22 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     };
   },
 
-  async DELETE_TASK({ slots, org_id, user_id }): Promise<ToolResult> {
+  async DELETE_TASK({ slots, org_id, user_id, user_role }): Promise<ToolResult> {
     const db   = createAdminClient();
     const lang = (slots._lang as 'en' | 'hi') ?? 'en';
+    const isPrivileged = ['manager', 'hr', 'admin', 'super_admin'].includes(user_role);
 
-    const { data: tasks } = await db
+    let query = db
       .from('tasks')
       .select('id, title')
       .eq('organization_id', org_id)
-      .eq('assignee_id', user_id)
       .ilike('title', `%${slots.title}%`)
       .limit(1);
 
+    // Employees can only delete their own tasks; managers+ can delete any org task
+    if (!isPrivileged) query = query.eq('assignee_id', user_id);
+
+    const { data: tasks } = await query;
     const task = tasks?.[0];
     if (!task) return { success: false, reply: REPLIES.taskNotFound(slots.title!, lang) };
 
@@ -815,12 +819,23 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       return { success: false, reply: REPLIES.permissionDenied('approve leave', lang) };
     }
 
-    const { data: employee } = await db.from('users').select('id, full_name')
+    let empQuery = db.from('users').select('id, full_name, manager_id')
       .eq('organization_id', org_id)
       .ilike('full_name', `%${slots.employee_name}%`)
-      .maybeSingle();
+      .limit(5);
+
+    const { data: empRows } = await empQuery;
+    const employee = empRows?.[0] ?? null;
 
     if (!employee) return { success: false, reply: REPLIES.notFound(slots.employee_name!, lang) };
+
+    // Managers can only approve their own direct reports
+    if (user_role === 'manager' && employee.manager_id !== user_id) {
+      return { success: false, reply: lang === 'hi'
+        ? `❌ आप केवल अपने direct reports की leave approve कर सकते हैं।`
+        : `❌ You can only approve leave for your direct reports.`
+      };
+    }
 
     const { data: request } = await db
       .from('leave_requests')
@@ -876,12 +891,21 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       return { success: false, reply: REPLIES.permissionDenied('reject leave', lang) };
     }
 
-    const { data: employee } = await db.from('users').select('id, full_name')
+    const { data: empRows } = await db.from('users').select('id, full_name, manager_id')
       .eq('organization_id', org_id)
       .ilike('full_name', `%${slots.employee_name}%`)
-      .maybeSingle();
+      .limit(5);
+    const employee = empRows?.[0] ?? null;
 
     if (!employee) return { success: false, reply: REPLIES.notFound(slots.employee_name!, lang) };
+
+    // Managers can only reject their own direct reports
+    if (user_role === 'manager' && employee.manager_id !== user_id) {
+      return { success: false, reply: lang === 'hi'
+        ? `❌ आप केवल अपने direct reports की leave reject कर सकते हैं।`
+        : `❌ You can only reject leave for your direct reports.`
+      };
+    }
 
     const { data: request } = await db
       .from('leave_requests')

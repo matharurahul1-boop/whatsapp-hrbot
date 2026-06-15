@@ -187,6 +187,28 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const db   = createAdminClient();
     const lang = (slots._lang as 'en' | 'hi') ?? 'en';
 
+    // Duplicate guard — prevent the AI from re-creating an existing active task
+    const { data: dupTask } = await db
+      .from('tasks')
+      .select('id, assignee:users!tasks_assignee_id_fkey(full_name)')
+      .eq('organization_id', org_id)
+      .ilike('title', slots.title!)
+      .is('deleted_at', null)
+      .neq('status', 'done')
+      .neq('status', 'cancelled')
+      .limit(1)
+      .maybeSingle();
+
+    if (dupTask) {
+      const owner = (dupTask as any).assignee?.full_name ?? 'someone';
+      return {
+        success: false,
+        reply: lang === 'hi'
+          ? `⚠️ *"${slots.title}"* नाम का task पहले से मौजूद है (${owner} को assigned)। क्या आप उसे update करना चाहते हैं?`
+          : `⚠️ A task *"${slots.title}"* already exists (assigned to ${owner}). Did you mean to *update* it? Try: "update deadline of ${slots.title} to [date]"`,
+      };
+    }
+
     let assignedTo   = user_id;
     let assigneeName = lang === 'hi' ? 'आप' : 'You';
 

@@ -433,6 +433,13 @@ Read-only query:
 User: "list my tasks"
 You: [call list_tasks(), return result verbatim]
 
+Setting due date on an existing task:
+User: "What's the due date of X?"
+Bot: [call get_task_details → sees no deadline] "No due date set. Do you want to add one?"
+User: "Yes, for tomorrow"
+Bot: I'll update *X* — set *deadline* to *17 Jun 2026*. Go ahead? (Yes / No)
+← ALWAYS use update_task here. NEVER call create_task for an already-existing task.
+
 ## IMPORTANT: Never use example text as real data
 If the user says something like "e.g. Review quarterly report – 20 Jun" they are showing an EXAMPLE FORMAT, not providing the actual task details. Ask them for the real title and deadline.
 

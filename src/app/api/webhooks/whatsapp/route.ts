@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { waitUntil }                                      from '@vercel/functions';
 import { verifyWebhookSignature, verifyWebhookChallenge } from '@/lib/whatsapp/verify';
 import { sendText, markMessageRead }                      from '@/lib/whatsapp/client';
 import { createAdminClient }                              from '@/lib/supabase/admin';
@@ -107,20 +108,24 @@ async function handleOneMessage(
   // 2. Save to wa_logs
   await saveIncomingLog(msg, value, orgId, rawBody);
 
-  // 3. Mark as read (non-blocking)
-  markMessageRead(msg.id).catch(() => {})
+  // 3. Mark as read (non-blocking — fire and forget)
+  markMessageRead(msg.id).catch(() => {});
 
-  // 4. AI agent (non-blocking — don't let agent errors affect logging)
+  // 4. AI agent — use waitUntil so Vercel keeps the function alive after
+  //    returning 200 OK to Meta (background tasks are otherwise killed).
   const text = extractText(msg);
   if (text?.trim()) {
-    // Check if it's a policy question — route to Policy Bot first
     if (isPolicyQuestion(text)) {
-      dispatchPolicyBot(msg.from, text, orgId).catch(err =>
-        console.error('[WA PolicyBot] Error:', err)
+      waitUntil(
+        dispatchPolicyBot(msg.from, text, orgId).catch(err =>
+          console.error('[WA PolicyBot] Error:', err)
+        )
       );
     } else {
-      dispatchAgent(msg.from, text, orgId).catch(err =>
-        console.error('[WA Agent] Error:', err)
+      waitUntil(
+        dispatchAgent(msg.from, text, orgId).catch(err =>
+          console.error('[WA Agent] Error:', err)
+        )
       );
     }
   } else if (['image','document','audio','video','sticker'].includes(msg.type)) {

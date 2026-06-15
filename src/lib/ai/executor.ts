@@ -266,6 +266,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const db    = createAdminClient();
     const lang  = (slots._lang as 'en' | 'hi') ?? 'en';
     const today = new Date().toISOString().split('T')[0];
+    const isPrivileged = ['manager', 'hr', 'admin', 'super_admin'].includes(user_role);
 
     let query = db
       .from('tasks')
@@ -276,9 +277,27 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       .order('deadline', { ascending: true, nullsFirst: false })
       .limit(10);
 
-    if (user_role === 'employee') {
+    if (!isPrivileged) {
+      // Employees always see only their own tasks
       query = query.eq('assignee_id', user_id);
+    } else if (slots.assignee_name) {
+      // Manager/admin filtering by a specific person
+      const { data: targetRows } = await db
+        .from('users')
+        .select('id, full_name')
+        .eq('organization_id', org_id)
+        .ilike('full_name', `%${slots.assignee_name}%`)
+        .limit(5);
+      const target = targetRows?.[0];
+      if (!target) {
+        return { success: false, reply: lang === 'hi'
+          ? `❌ "${slots.assignee_name}" नाम का कोई user नहीं मिला।`
+          : `❌ No user found matching "${slots.assignee_name}".`
+        };
+      }
+      query = query.eq('assignee_id', target.id);
     }
+    // else: privileged user with no filter → show all org tasks
 
     const { data: tasks } = await query;
 
@@ -303,7 +322,12 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     };
 
     const lines: string[] = [];
-    const header = lang === 'hi' ? `📋 *आपके टास्क:*` : `📋 *Your tasks:*`;
+    const headerName = slots.assignee_name && isPrivileged
+      ? (tasks as any[])[0]?.assignee?.full_name ?? slots.assignee_name
+      : null;
+    const header = headerName
+      ? `📋 *${headerName}'s tasks:*`
+      : (lang === 'hi' ? `📋 *आपके टास्क:*` : `📋 *Your tasks:*`);
     lines.push(header);
 
     if (overdue.length > 0) {

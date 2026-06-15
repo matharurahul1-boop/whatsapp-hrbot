@@ -180,8 +180,13 @@ const HRBOT_TOOLS: any[] = [
   },
   {
     name: 'list_tasks',
-    description: "List the user's pending / active tasks.",
-    parameters: { type: 'OBJECT', properties: {} },
+    description: "List pending/active tasks. For managers/admins, pass assignee_name to show tasks for a specific person (e.g. 'Pranay', 'Tushar'). Without assignee_name, managers see ALL org tasks.",
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        assignee_name: { type: 'STRING', description: 'Filter by assignee full name or first name (managers/admins only).' },
+      },
+    },
   },
   {
     name: 'get_task_details',
@@ -399,6 +404,11 @@ reject_leave, cancel_leave, check_in, check_out):
 ## Read-only tools — call immediately, NO confirmation needed:
 daily_briefing, list_tasks, get_task_details, check_leave_balance, list_leaves, my_attendance${isPrivileged ? ', team_attendance, list_users' : ''}
 
+## Asking for tasks by person (managers/admins only)
+- "List Pranay's tasks" → call list_tasks(assignee_name="Pranay")
+- "Show Tushar's tasks" → call list_tasks(assignee_name="Tushar")
+- "List all tasks" / "show all org tasks" → call list_tasks() with NO assignee_name
+
 ## Examples
 
 Single-turn task creation:
@@ -408,7 +418,7 @@ User: "yes"
 You: [call create_task(title="Fix login bug", deadline="<tomorrow's date>", priority="high")]
 
 Multi-turn task creation:
-User: "I want to create a task"
+User: "I want to create a task" OR "let's create one" OR "create another one"
 You: Sure! What's the task *title* and *deadline*? 📝
 User: "Title is Automation tool and deadline is 19 June"
 You: I'll create task *Automation tool* due *June 19, 2026*. Go ahead? (Yes / No)
@@ -421,7 +431,10 @@ You: I'll update *Design Review* — set *assignee* to *Rahul*. Go ahead? (Yes /
 
 Read-only query:
 User: "list my tasks"
-You: [call list_tasks, return result verbatim]
+You: [call list_tasks(), return result verbatim]
+
+## IMPORTANT: Never use example text as real data
+If the user says something like "e.g. Review quarterly report – 20 Jun" they are showing an EXAMPLE FORMAT, not providing the actual task details. Ask them for the real title and deadline.
 
 ## Language
 Match the user — English, Hindi, or Hinglish.`;

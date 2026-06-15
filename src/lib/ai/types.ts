@@ -43,6 +43,8 @@ export type AgentIntent =
   | 'START_ONBOARDING'
   | 'ONBOARDING_STATUS'
   | 'UPLOAD_DOCUMENT'
+  // Users
+  | 'LIST_USERS'
   // General
   | 'GREETING'
   | 'HELP'

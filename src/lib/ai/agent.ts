@@ -1,13 +1,26 @@
-import Groq from 'groq-sdk';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import OpenAI from 'openai';
 import { loadSession, saveMessage } from './memory';
 import { sendText } from '@/lib/whatsapp/client';
 import { EMPTY_CONTEXT } from './types';
 import type { AgentTurn, AgentUser } from './types';
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+// ── AI backend ────────────────────────────────────────────────────────────────
+// Set USE_GEMINI=true once Google AI Studio billing is set up (unlocks 1M TPM).
+// Until then, OpenRouter free tier handles traffic fine for normal use.
+const USE_GEMINI = false;
 
-type GroqMessage = Groq.Chat.ChatCompletionMessageParam;
-type GroqTool    = Groq.Chat.ChatCompletionTool;
+const genAI  = new GoogleGenerativeAI(process.env.GEMINI_API_KEY ?? '');
+const openai  = new OpenAI({
+  apiKey:  process.env.OPENROUTER_API_KEY ?? '',
+  baseURL: 'https://openrouter.ai/api/v1',
+  defaultHeaders: { 'HTTP-Referer': 'https://handysolver.com', 'X-Title': 'HRBot' },
+});
+
+const AI_MODEL_GEMINI = 'gemini-2.0-flash';
+const AI_MODEL_OR     = 'openai/gpt-oss-20b:free';
+
+type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
 // ─── Deterministic quick-router ───────────────────────────────────────────────
 //
@@ -34,223 +47,287 @@ function quickRoute(message: string): string | null {
   return null;
 }
 
-// ─── Tool definitions (OpenAI / Groq function-calling format) ─────────────────
+// ─── Confirmation helpers ─────────────────────────────────────────────────────
+//
+// When the AI's last message ended with "Go ahead? (Yes / No)" and the user's
+// reply is any form of "yes" or "proceed", we inject an explicit instruction so
+// the model executes the pending tool instead of starting over.
 
-const HRBOT_TOOLS: GroqTool[] = [
+const YES_RE = /^(yes|yeah|yep|sure|ok|okay|go\s*ahead|proceed|confirm|create\s*(the\s*)?task|create\s*it|do\s*it|haan|haa|theek\s*hai|bilkul|kar\s*(do|dein?)|let['']?s\s*do\s*it|sounds?\s*good)\s*[!.]*$/i;
+const NO_RE  = /^(no|nahi|nope|cancel|stop|don['']?t|mat\s*karo|band\s*karo|ruk\s*jao|ruko|back)\s*[!.]*$/i;
+
+function isYes(msg: string): boolean { return YES_RE.test(msg.trim()); }
+function isNo (msg: string): boolean { return NO_RE.test(msg.trim()); }
+
+function lastBotMessage(history: ChatMessage[]): string {
+  for (let i = history.length - 1; i >= 0; i--) {
+    if (history[i].role === 'assistant') return history[i].content ?? '';
+  }
+  return '';
+}
+
+function isPendingConfirmation(history: ChatMessage[]): boolean {
+  const last = lastBotMessage(history);
+  return last.toLowerCase().includes('go ahead') || last.includes('(Yes / No)') || last.includes('(yes / no)');
+}
+
+// ─── Natural-date → YYYY-MM-DD ────────────────────────────────────────────────
+
+const MONTH_MAP: Record<string, string> = {
+  jan:'01', january:'01', feb:'02', february:'02', mar:'03', march:'03',
+  apr:'04', april:'04',  may:'05',  jun:'06',     june:'06', jul:'07',
+  july:'07', aug:'08',  august:'08', sep:'09',    september:'09', oct:'10',
+  october:'10', nov:'11', november:'11', dec:'12', december:'12',
+};
+
+function naturalDateToISO(text: string): string | null {
+  const t = text.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
+  const yr = new Date().getFullYear();
+  // "17th June" or "17 June"
+  let m = t.match(/(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]+)/i);
+  if (m) { const mo = MONTH_MAP[m[2].toLowerCase()]; if (mo) return `${yr}-${mo}-${m[1].padStart(2,'0')}`; }
+  // "June 17" or "June 17th"
+  m = t.match(/([a-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?/i);
+  if (m) { const mo = MONTH_MAP[m[1].toLowerCase()]; if (mo) return `${yr}-${mo}-${m[2].padStart(2,'0')}`; }
+  return null;
+}
+
+// ─── Parse confirmation message → call tool directly ─────────────────────────
+//
+// When the user says "yes", we extract the pending action from the bot's last
+// message and call the tool directly — no second Groq round-trip needed.
+
+async function executeFromConfirmation(
+  lastMsg: string,
+  user:    AgentUser,
+  orgId:   string,
+): Promise<string | null> {
+  const lower = lastMsg.toLowerCase();
+
+  // CREATE_TASK: "I'll create task *Title* ... Go ahead?"
+  if (/i.?ll\s+create\s+task/i.test(lastMsg)) {
+    const titleM    = lastMsg.match(/create\s+task\s+\*([^*]+)\*/i);
+    if (!titleM) return null;
+    const priorityM = lastMsg.match(/\*(urgent|high|medium|low)\*/i);
+    const deadlineM = lastMsg.match(/due\s+\*([^*]+)\*/i);
+    const args: Record<string, string> = { title: titleM[1].trim() };
+    if (priorityM) args.priority = priorityM[1].toLowerCase();
+    if (deadlineM) { const iso = naturalDateToISO(deadlineM[1]); if (iso) args.deadline = iso; }
+    return dispatchTool('create_task', args, user, orgId);
+  }
+
+  // CHECK_IN
+  if (lower.includes('check-in') || lower.includes('check in') || lower.includes('mark your attendance')) {
+    return dispatchTool('check_in', {}, user, orgId);
+  }
+
+  // CHECK_OUT
+  if (lower.includes('check-out') || lower.includes('check out') || lower.includes("mark your check-out")) {
+    return dispatchTool('check_out', {}, user, orgId);
+  }
+
+  // COMPLETE_TASK: "I'll mark *Title* as complete"
+  const completeM = lastMsg.match(/mark\s+\*([^*]+)\*\s+as\s+complet/i);
+  if (completeM) return dispatchTool('complete_task', { task_title: completeM[1].trim() }, user, orgId);
+
+  // DELETE_TASK: "I'll delete task *Title*"
+  const deleteM = lastMsg.match(/delete\s+task\s+\*([^*]+)\*/i);
+  if (deleteM) return dispatchTool('delete_task', { task_title: deleteM[1].trim() }, user, orgId);
+
+  // UPDATE_TASK: "I'll update *Title* — set *field* to *value*"
+  const updateM = lastMsg.match(/update\s+\*([^*]+)\*[\s—–-]+set\s+\*([^*]+)\*\s+to\s+\*([^*]+)\*/i);
+  if (updateM) {
+    return dispatchTool('update_task', {
+      task_title:   updateM[1].trim(),
+      update_field: updateM[2].trim().toLowerCase(),
+      update_value: updateM[3].trim(),
+    }, user, orgId);
+  }
+
+  // APPLY_LEAVE: "I'll apply *type* leave from *date*"
+  const leaveM = lastMsg.match(/apply\s+\*(casual|sick|annual|maternity)\*\s+leave/i);
+  if (leaveM) {
+    const startM = lastMsg.match(/from\s+\*([^*]+)\*/i);
+    const endM   = lastMsg.match(/to\s+\*([^*]+)\*/i);
+    if (startM) {
+      const args: Record<string, string> = {
+        leave_type: leaveM[1].toLowerCase(),
+        start_date: naturalDateToISO(startM[1]) ?? startM[1],
+      };
+      if (endM) args.end_date = naturalDateToISO(endM[1]) ?? endM[1];
+      return dispatchTool('apply_leave', args, user, orgId);
+    }
+  }
+
+  // APPROVE / REJECT LEAVE
+  const approveM = lastMsg.match(/approve\s+\*([^*]+)\*['']?s?\s+leave/i);
+  if (approveM) return dispatchTool('approve_leave', { employee_name: approveM[1].trim() }, user, orgId);
+  const rejectM  = lastMsg.match(/reject\s+\*([^*]+)\*['']?s?\s+leave/i);
+  if (rejectM)  return dispatchTool('reject_leave',  { employee_name: rejectM[1].trim()  }, user, orgId);
+
+  return null; // can't parse — fall back to Groq
+}
+
+// ─── Tool definitions (Gemini native FunctionDeclaration format) ───────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const HRBOT_TOOLS: any[] = [
   {
-    type: 'function',
-    function: {
-      name: 'daily_briefing',
-      description: "Show the user's daily status: attendance, task summary, pending items. Call ONLY for greetings (hi, hello, good morning, namaste, etc.).",
-      parameters: { type: 'object', properties: {} },
+    name: 'daily_briefing',
+    description: "Show the user's daily status: attendance, task summary, pending items. Call ONLY for greetings (hi, hello, good morning, namaste, etc.).",
+    parameters: { type: 'OBJECT', properties: {} },
+  },
+  {
+    name: 'list_tasks',
+    description: "List the user's pending / active tasks.",
+    parameters: { type: 'OBJECT', properties: {} },
+  },
+  {
+    name: 'get_task_details',
+    description: 'Show full details of a specific task.',
+    parameters: {
+      type: 'OBJECT',
+      properties: { task_title: { type: 'STRING', description: 'Task title or a part of it' } },
+      required: ['task_title'],
     },
   },
   {
-    type: 'function',
-    function: {
-      name: 'list_tasks',
-      description: "List the user's pending / active tasks.",
-      parameters: { type: 'object', properties: {} },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'get_task_details',
-      description: 'Show full details of a specific task.',
-      parameters: {
-        type: 'object',
-        properties: {
-          task_title: { type: 'string', description: 'Task title or a part of it' },
-        },
-        required: ['task_title'],
+    name: 'create_task',
+    description: 'Create a new task. ONLY call AFTER user confirms AND you have the task title. NEVER call without a title.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        title:    { type: 'STRING', description: 'Short, clear task title' },
+        assignee: { type: 'STRING', description: 'Assignee name or "me". Omit if self.' },
+        deadline: { type: 'STRING', description: 'Due date as YYYY-MM-DD' },
+        priority: { type: 'STRING', description: 'low | medium | high | urgent' },
       },
+      required: ['title'],
     },
   },
   {
-    type: 'function',
-    function: {
-      name: 'create_task',
-      description: 'Create a new task. Only call AFTER the user confirms.',
-      parameters: {
-        type: 'object',
-        properties: {
-          title:    { type: 'string',  description: 'Short, clear task title' },
-          assignee: { type: 'string',  description: 'Assignee name or "me". Omit if self.' },
-          deadline: { type: 'string',  description: 'Due date as YYYY-MM-DD' },
-          priority: { type: 'string',  enum: ['low', 'medium', 'high', 'urgent'] },
-        },
-        required: ['title'],
+    name: 'update_task',
+    description: "Update a task's deadline, priority, assignee, or status. Only call AFTER user confirms.",
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        task_title:   { type: 'STRING', description: 'Title (or part) of the task to update' },
+        update_field: { type: 'STRING', description: 'deadline | priority | assignee | status' },
+        update_value: { type: 'STRING', description: 'New value for the field' },
       },
+      required: ['task_title', 'update_field', 'update_value'],
     },
   },
   {
-    type: 'function',
-    function: {
-      name: 'update_task',
-      description: "Update a task's deadline, priority, assignee, or status. Only call AFTER user confirms.",
-      parameters: {
-        type: 'object',
-        properties: {
-          task_title:   { type: 'string', description: 'Title (or part) of the task to update' },
-          update_field: { type: 'string', enum: ['deadline', 'priority', 'assignee', 'status'] },
-          update_value: { type: 'string', description: 'New value for the field' },
-        },
-        required: ['task_title', 'update_field', 'update_value'],
+    name: 'complete_task',
+    description: 'Mark a task as completed. Only call AFTER user confirms.',
+    parameters: {
+      type: 'OBJECT',
+      properties: { task_title: { type: 'STRING', description: 'Task title or part of it' } },
+      required: ['task_title'],
+    },
+  },
+  {
+    name: 'delete_task',
+    description: 'Delete a task. Only call AFTER user confirms.',
+    parameters: {
+      type: 'OBJECT',
+      properties: { task_title: { type: 'STRING' } },
+      required: ['task_title'],
+    },
+  },
+  {
+    name: 'apply_leave',
+    description: 'Apply for leave. Only call AFTER user confirms.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        leave_type: { type: 'STRING', description: 'casual | sick | annual | maternity' },
+        start_date: { type: 'STRING', description: 'YYYY-MM-DD' },
+        end_date:   { type: 'STRING', description: 'YYYY-MM-DD — omit if single day' },
+        reason:     { type: 'STRING', description: 'Optional reason' },
       },
+      required: ['leave_type', 'start_date'],
     },
   },
   {
-    type: 'function',
-    function: {
-      name: 'complete_task',
-      description: 'Mark a task as completed. Only call AFTER user confirms.',
-      parameters: {
-        type: 'object',
-        properties: {
-          task_title: { type: 'string', description: 'Task title or part of it' },
-        },
-        required: ['task_title'],
+    name: 'check_leave_balance',
+    description: 'Show remaining leave balance.',
+    parameters: { type: 'OBJECT', properties: {} },
+  },
+  {
+    name: 'list_leaves',
+    description: 'List leave requests.',
+    parameters: { type: 'OBJECT', properties: {} },
+  },
+  {
+    name: 'approve_leave',
+    description: 'Approve a leave request (managers / HR only). Only call AFTER user confirms.',
+    parameters: {
+      type: 'OBJECT',
+      properties: { employee_name: { type: 'STRING' } },
+      required: ['employee_name'],
+    },
+  },
+  {
+    name: 'reject_leave',
+    description: 'Reject a leave request (managers / HR only). Only call AFTER user confirms.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        employee_name: { type: 'STRING' },
+        reason:        { type: 'STRING' },
       },
+      required: ['employee_name'],
     },
   },
   {
-    type: 'function',
-    function: {
-      name: 'delete_task',
-      description: 'Delete a task. Only call AFTER user confirms.',
-      parameters: {
-        type: 'object',
-        properties: {
-          task_title: { type: 'string' },
-        },
-        required: ['task_title'],
+    name: 'cancel_leave',
+    description: "Cancel the user's own leave request. Only call AFTER user confirms.",
+    parameters: {
+      type: 'OBJECT',
+      properties: { start_date: { type: 'STRING', description: 'YYYY-MM-DD start date of the leave to cancel' } },
+      required: ['start_date'],
+    },
+  },
+  {
+    name: 'check_in',
+    description: 'Mark attendance check-in for today. Only call AFTER user confirms.',
+    parameters: { type: 'OBJECT', properties: {} },
+  },
+  {
+    name: 'check_out',
+    description: 'Mark attendance check-out for today. Only call AFTER user confirms.',
+    parameters: { type: 'OBJECT', properties: {} },
+  },
+  {
+    name: 'my_attendance',
+    description: "Show the user's attendance report.",
+    parameters: { type: 'OBJECT', properties: {} },
+  },
+  {
+    name: 'team_attendance',
+    description: 'Show team attendance for today (managers / HR only).',
+    parameters: { type: 'OBJECT', properties: {} },
+  },
+  {
+    name: 'list_users',
+    description: 'List all active employees / users in the organisation. Managers, HR and admins only.',
+    parameters: { type: 'OBJECT', properties: {} },
+  },
+  {
+    name: 'start_onboarding',
+    description: 'Onboard a new employee (HR / admin only). Only call AFTER user confirms.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        employee_name: { type: 'STRING' },
+        wa_number:     { type: 'STRING', description: 'WhatsApp number with country code, e.g. +919876543210' },
+        department:    { type: 'STRING' },
+        designation:   { type: 'STRING' },
       },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'apply_leave',
-      description: 'Apply for leave. Only call AFTER user confirms.',
-      parameters: {
-        type: 'object',
-        properties: {
-          leave_type: { type: 'string', enum: ['casual', 'sick', 'annual', 'maternity'] },
-          start_date: { type: 'string', description: 'YYYY-MM-DD' },
-          end_date:   { type: 'string', description: 'YYYY-MM-DD — omit if single day' },
-          reason:     { type: 'string', description: 'Optional reason' },
-        },
-        required: ['leave_type', 'start_date'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'check_leave_balance',
-      description: 'Show remaining leave balance.',
-      parameters: { type: 'object', properties: {} },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'list_leaves',
-      description: 'List leave requests.',
-      parameters: { type: 'object', properties: {} },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'approve_leave',
-      description: 'Approve a leave request (managers / HR only). Only call AFTER user confirms.',
-      parameters: {
-        type: 'object',
-        properties: {
-          employee_name: { type: 'string' },
-        },
-        required: ['employee_name'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'reject_leave',
-      description: 'Reject a leave request (managers / HR only). Only call AFTER user confirms.',
-      parameters: {
-        type: 'object',
-        properties: {
-          employee_name: { type: 'string' },
-          reason:        { type: 'string' },
-        },
-        required: ['employee_name'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'cancel_leave',
-      description: "Cancel the user's own leave request. Only call AFTER user confirms.",
-      parameters: {
-        type: 'object',
-        properties: {
-          start_date: { type: 'string', description: 'YYYY-MM-DD start date of the leave to cancel' },
-        },
-        required: ['start_date'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'check_in',
-      description: 'Mark attendance check-in for today. Only call AFTER user confirms.',
-      parameters: { type: 'object', properties: {} },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'check_out',
-      description: 'Mark attendance check-out for today. Only call AFTER user confirms.',
-      parameters: { type: 'object', properties: {} },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'my_attendance',
-      description: "Show the user's attendance report.",
-      parameters: { type: 'object', properties: {} },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'team_attendance',
-      description: 'Show team attendance for today (managers / HR only).',
-      parameters: { type: 'object', properties: {} },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'start_onboarding',
-      description: 'Onboard a new employee (HR / admin only). Only call AFTER user confirms.',
-      parameters: {
-        type: 'object',
-        properties: {
-          employee_name: { type: 'string' },
-          wa_number:     { type: 'string', description: 'WhatsApp number with country code, e.g. +919876543210' },
-          department:    { type: 'string' },
-          designation:   { type: 'string' },
-        },
-        required: ['employee_name', 'wa_number'],
-      },
+      required: ['employee_name', 'wa_number'],
     },
   },
 ];
@@ -291,22 +368,37 @@ For every action tool (create_task, update_task, complete_task, delete_task, app
 reject_leave, cancel_leave, start_onboarding, check_in, check_out):
 1. First reply with one sentence describing what you'll do (bold the key values).
 2. End with "Go ahead? (Yes / No)"
-3. Only call the tool AFTER the user says Yes / Haan / Sure / Ok / Confirm.
+3. Only call the tool AFTER the user says Yes / Haan / Sure / Ok / Confirm / "Create the task" / "Do it" / "Go ahead".
 4. If user says No / Nahi / Cancel → say "Got it, cancelled. What else can I help with?"
+
+## CRITICAL: Never lose context mid-collection
+- If you just asked for task details and the user provided them, your IMMEDIATE next reply MUST be the confirmation message (e.g. "I'll create task *X* due *Y*. Go ahead? (Yes / No)"). NEVER say "What else can I help with?" at this point.
+- If the previous assistant message ended with "Go ahead? (Yes / No)" and the user's new message is a confirmation word (yes, ok, sure, create the task, create it, go ahead, haan, do it, etc.) → call the tool NOW. Do NOT ask for confirmation again.
 
 ## Read-only tools — call immediately, NO confirmation needed:
 daily_briefing, list_tasks, get_task_details, check_leave_balance, list_leaves, my_attendance, team_attendance
 
 ## Examples
+
+Single-turn task creation:
 User: "create a task Fix login bug due tomorrow priority high"
 You: I'll create task *Fix login bug* with *high* priority due *tomorrow*. Go ahead? (Yes / No)
-
 User: "yes"
-You: [call create_task]
+You: [call create_task(title="Fix login bug", deadline="<tomorrow's date>", priority="high")]
 
+Multi-turn task creation:
+User: "I want to create a task"
+You: Sure! What's the task *title* and *deadline*? 📝
+User: "Title is Automation tool and deadline is 19 June"
+You: I'll create task *Automation tool* due *June 19, 2026*. Go ahead? (Yes / No)
+User: "Create the task"  ← this IS the confirmation
+You: [call create_task(title="Automation tool", deadline="2026-06-19")]
+
+Field update:
 User: "update the assigned to of Design Review to Rahul"
 You: I'll update *Design Review* — set *assignee* to *Rahul*. Go ahead? (Yes / No)
 
+Read-only query:
 User: "list my tasks"
 You: [call list_tasks, return result verbatim]
 
@@ -348,7 +440,7 @@ export async function runMasterAgent(
   await saveMessage(conversation_id, orgId, 'user', 'inbound', message).catch(() => {});
 
   try {
-    const history: GroqMessage[] = (recent_messages ?? [])
+    const history: ChatMessage[] = (recent_messages ?? [])
       .filter((m: any) => m.role !== 'system' && m.content?.trim())
       .map((m: any) => ({
         role:    (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
@@ -369,17 +461,21 @@ export async function runMasterAgent(
     };
   } catch (err) {
     console.error('[Agent] Unexpected error:', err);
-    const errReply = '⚠️ Something went wrong. Please try again in a moment.';
+    const isDev = process.env.NODE_ENV !== 'production';
+    const detail = isDev
+      ? `\n\n🐛 *[DEV]* ${err instanceof Error ? err.message : JSON.stringify(err)}`
+      : '';
+    const errReply = `⚠️ Something went wrong. Please try again in a moment.${detail}`;
     await saveMessage(conversation_id, orgId, 'assistant', 'outbound', errReply).catch(() => {});
     return { reply: errReply, new_context: EMPTY_CONTEXT };
   }
 }
 
-// ─── Groq tool-use loop ───────────────────────────────────────────────────────
+// ─── Gemini tool-use loop ─────────────────────────────────────────────────────
 
 async function runGroqLoop(
   message: string,
-  history: GroqMessage[],
+  history: ChatMessage[],
   user:    AgentUser,
   orgId:   string,
 ): Promise<string> {
@@ -391,65 +487,156 @@ async function runGroqLoop(
     return dispatchTool(directTool, {}, user, orgId);
   }
 
-  // ── 2. AI loop for everything else ────────────────────────────────────────
-  const messages: GroqMessage[] = [
-    { role: 'system', content: buildSystemPrompt(user) },
-    ...history,
-    { role: 'user', content: message },
-  ];
+  // ── 2. Confirmation / context injection ──────────────────────────────────
+  // a) If previous bot message was "Go ahead? (Yes / No)" → handle yes/no directly.
+  // b) If user says "create the task" / "create it" without a pending confirmation
+  //    but history contains task details → inject context so AI looks at history.
+  let effectiveMessage = message;
 
-  for (let round = 0; round < 6; round++) {
-    const response = await groq.chat.completions.create({
-      model:       'llama-3.3-70b-versatile',
-      max_tokens:  1024,
-      tools:       HRBOT_TOOLS,
-      tool_choice: 'auto',
-      messages,
-    });
+  const CREATE_SHORTCUT = /^(create\s*(the\s*)?task|create\s*it|done\s*create|proceed\s*create)\s*[!.]*$/i;
 
-    const choice = response.choices[0];
-    if (!choice) break;
-
-    const { finish_reason, message: assistantMsg } = choice;
-
-    // Text reply (confirmation question, clarification, or final answer)
-    if (finish_reason === 'stop' || !assistantMsg.tool_calls?.length) {
-      return assistantMsg.content?.trim() ?? '';
-    }
-
-    // Tool calls — execute and feed results back
-    if (finish_reason === 'tool_calls') {
-      messages.push(assistantMsg as GroqMessage);
-
-      for (const toolCall of assistantMsg.tool_calls!) {
-        let toolInput: Record<string, string> = {};
-        try {
-          const parsed = JSON.parse(toolCall.function.arguments);
-          if (parsed && typeof parsed === 'object') toolInput = parsed;
-        } catch { /* malformed args — use empty */ }
-
-        console.log(`[Agent] Tool call: ${toolCall.function.name}`, toolInput);
-
-        const toolOutput = await dispatchTool(
-          toolCall.function.name,
-          toolInput,
-          user,
-          orgId,
-        );
-
-        messages.push({
-          role:         'tool',
-          tool_call_id: toolCall.id,
-          content:      toolOutput,
-        });
+  if (isPendingConfirmation(history)) {
+    if (isYes(message)) {
+      const lastMsg = lastBotMessage(history);
+      console.log(`[Agent] Confirmation ("${message}") — attempting direct tool execution`);
+      const directResult = await executeFromConfirmation(lastMsg, user, orgId);
+      if (directResult !== null) {
+        console.log('[Agent] Direct execution succeeded — skipping Groq');
+        return directResult;
       }
-      continue;
+      // Fallback: inject hint and let Groq handle it
+      console.log('[Agent] Direct parse failed — falling back to Groq with hint');
+      effectiveMessage = `${message}\n[INSTRUCTION: The user just confirmed the action you described in your previous message. Call the appropriate tool NOW with the exact details from that message. Do NOT ask for confirmation again.]`;
+    } else if (isNo(message)) {
+      console.log(`[Agent] Cancellation detected ("${message}")`);
+      return 'Got it, cancelled. What else can I help with? 😊';
     }
-
-    break;
+  } else if (CREATE_SHORTCUT.test(message.trim()) && history.length >= 2) {
+    // User said "Create the task" but bot's last message wasn't a confirmation prompt.
+    // Look in history for task details and tell AI to extract + confirm them.
+    console.log(`[Agent] Create-shortcut detected ("${message}") with history — injecting context hint`);
+    effectiveMessage = `${message}\n[INSTRUCTION: Look through the conversation history above. Find the task title (and deadline / priority if mentioned). If you have a title, issue a confirmation message: "I'll create task *<title>* [due *<date>*]. Go ahead? (Yes / No)". If you don't have enough details, ask for the title.]`;
   }
 
-  return 'I had trouble processing that — please try again.';
+  // ── 3. AI loop ────────────────────────────────────────────────────────────
+  const isDev = process.env.NODE_ENV !== 'production';
+
+  if (USE_GEMINI) {
+    // ── Gemini native SDK path ─────────────────────────────────────────────
+    const model = genAI.getGenerativeModel({
+      model:             AI_MODEL_GEMINI,
+      systemInstruction: buildSystemPrompt(user),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      tools:             [{ functionDeclarations: HRBOT_TOOLS }] as any,
+      generationConfig:  { maxOutputTokens: 512 },
+    });
+
+    const geminiHistory = history.map(m => ({
+      role:  m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: m.content }],
+    }));
+
+    const chat = model.startChat({ history: geminiHistory });
+
+    try {
+      let result = await chat.sendMessage(effectiveMessage);
+
+      for (let round = 0; round < 6; round++) {
+        const calls = result.response.functionCalls() ?? [];
+        if (calls.length === 0) return result.response.text().trim() || '';
+
+        const functionResponses = [];
+        for (const call of calls) {
+          console.log(`[Agent] Gemini tool call: ${call.name}`, call.args);
+          const output = await dispatchTool(call.name, (call.args ?? {}) as Record<string, string>, user, orgId);
+          functionResponses.push({ functionResponse: { name: call.name, response: { output } } });
+        }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        result = await chat.sendMessage(functionResponses as any);
+      }
+      return 'I had trouble processing that — please try again.';
+
+    } catch (err: unknown) {
+      const status = (err as { status?: number }).status;
+      const errMsg = (err as { message?: string }).message ?? String(err);
+      console.error('[Agent] Gemini error (status', status, '):', errMsg);
+      if (status === 429) {
+        return isDev ? `⏳ *[DEV] Gemini 429:* ${errMsg}` : "I'm a bit busy right now. Please try again in a few seconds.";
+      }
+      return isDev ? `⚠️ *[DEV] Gemini ${status}:* ${errMsg}` : '⚠️ Something went wrong. Please try again.';
+    }
+
+  } else {
+    // ── OpenRouter path (active while Gemini billing isn't set up) ─────────
+    // Gemini uses UPPERCASE type names; OpenAI/JSON-Schema needs lowercase.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    function normalizeSchema(schema: any): any {
+      if (!schema || typeof schema !== 'object') return schema;
+      const out = { ...schema };
+      if (typeof out.type === 'string') out.type = out.type.toLowerCase();
+      if (out.properties) {
+        const props: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(out.properties)) props[k] = normalizeSchema(v);
+        out.properties = props;
+      }
+      if (out.items) out.items = normalizeSchema(out.items);
+      return out;
+    }
+    const orTools: OpenAI.Chat.ChatCompletionTool[] = HRBOT_TOOLS.map(t => ({
+      type: 'function' as const,
+      function: { name: t.name, description: t.description, parameters: normalizeSchema(t.parameters) },
+    }));
+
+    const orMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+      { role: 'system', content: buildSystemPrompt(user) },
+      ...history.map(m => ({ role: m.role, content: m.content } as OpenAI.Chat.ChatCompletionMessageParam)),
+      { role: 'user', content: effectiveMessage },
+    ];
+
+    try {
+      let resp = await openai.chat.completions.create({
+        model: AI_MODEL_OR,
+        messages: orMessages,
+        tools: orTools,
+        max_tokens: 512,
+      });
+
+      for (let round = 0; round < 6; round++) {
+        const choice = resp.choices[0];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const toolCalls = (choice.message.tool_calls ?? []) as any[];
+
+        if (toolCalls.length === 0) return choice.message.content?.trim() || '';
+
+        orMessages.push({ role: 'assistant', content: choice.message.content ?? null, tool_calls: toolCalls });
+
+        for (const tc of toolCalls) {
+          console.log(`[Agent] OR tool call: ${tc.function.name}`, tc.function.arguments);
+          let args: Record<string, string> = {};
+          try { args = JSON.parse(tc.function.arguments); } catch { /* empty args */ }
+          const output = await dispatchTool(tc.function.name, args, user, orgId);
+          orMessages.push({ role: 'tool', tool_call_id: tc.id, content: output });
+        }
+
+        resp = await openai.chat.completions.create({
+          model: AI_MODEL_OR,
+          messages: orMessages,
+          tools: orTools,
+          max_tokens: 512,
+        });
+      }
+      return 'I had trouble processing that — please try again.';
+
+    } catch (err: unknown) {
+      const status = (err as { status?: number }).status;
+      const errMsg = (err as { message?: string }).message ?? String(err);
+      console.error('[Agent] OpenRouter error (status', status, '):', errMsg);
+      if (status === 429) {
+        return isDev ? `⏳ *[DEV] OR 429:* ${errMsg}` : "I'm a bit busy right now. Please try again in a few seconds.";
+      }
+      return isDev ? `⚠️ *[DEV] OR ${status}:* ${errMsg}` : '⚠️ Something went wrong. Please try again.';
+    }
+  }
 }
 
 // ─── Tool dispatcher ──────────────────────────────────────────────────────────
@@ -473,6 +660,7 @@ const INTENT_MAP: Record<string, string> = {
   my_attendance:       'MY_ATTENDANCE',
   team_attendance:     'TEAM_ATTENDANCE',
   start_onboarding:    'START_ONBOARDING',
+  list_users:          'LIST_USERS',
   help:                'HELP',
 };
 

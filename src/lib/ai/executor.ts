@@ -1,4 +1,3 @@
-import Anthropic                from '@anthropic-ai/sdk';
 import { createAdminClient }   from '@/lib/supabase/admin';
 import { writeAuditLog }       from '@/lib/utils/audit';
 import { formatDate, calcBusinessDays } from '@/lib/utils/date';
@@ -12,8 +11,6 @@ import {
   notifyWelcome,
 } from '@/lib/whatsapp/notify';
 import type { ToolInput, ToolResult, AgentIntent, SlotValues } from './types';
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // ─── Tool Executor Registry ───────────────────────────────────────────────────
 
@@ -178,62 +175,10 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     return { success: true, reply: msg };
   },
 
-  // ── UNKNOWN — Claude AI general handler ────────────────────────────────────
-  async UNKNOWN({ slots, user_id, org_id, user_role, user_name, user_department, raw_message }): Promise<ToolResult> {
-    const lang    = (slots._lang as 'en' | 'hi') ?? 'en';
-    const message = raw_message?.trim() ?? '';
-
-    if (!message) {
-      return { success: true, reply: REPLIES.help(user_role, lang) };
-    }
-
-    const systemPrompt = `You are HRBot — a professional, friendly AI HR assistant for a company, responding via WhatsApp.
-
-Employee context:
-- Name: ${user_name ?? 'Employee'}
-- Role: ${user_role}
-- Department: ${user_department ?? 'Not specified'}
-- Today: ${new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-
-WhatsApp formatting rules — use these:
-- *bold* for important words
-- _italic_ for hints/tips
-- Line breaks for readability
-- Relevant emojis (1-2 per message max)
-
-Capabilities you have (tell them to type these):
-- "checkin" / "checkout" — attendance
-- "my tasks" — view pending tasks
-- "create task [title]" — create a task
-- "apply [type] leave [date]" — apply for leave
-- "my leave balance" — check leave days
-- "help" — full command list
-
-Rules:
-- Be concise: max 4 sentences or equivalent
-- For specific actions, tell them to type the command
-- Do NOT make up company data (leave balances, policies, team names)
-- If you don't know, say so and suggest they contact HR
-- Respond in ${lang === 'hi' ? 'Hindi' : 'English'}`;
-
-    try {
-      const response = await anthropic.messages.create({
-        model:      'claude-3-5-haiku-20241022',
-        max_tokens: 350,
-        temperature: 0.6,
-        system:     systemPrompt,
-        messages:   [{ role: 'user', content: message }],
-      });
-
-      const reply = response.content[0].type === 'text'
-        ? response.content[0].text.trim()
-        : REPLIES.help(user_role, lang);
-
-      return { success: true, reply };
-    } catch (err) {
-      console.error('[Executor] UNKNOWN/AI handler failed:', err);
-      return { success: true, reply: REPLIES.help(user_role, lang) };
-    }
+  // ── UNKNOWN — fallback to help menu (Groq now handles free-form queries in agent.ts)
+  async UNKNOWN({ slots, user_role }): Promise<ToolResult> {
+    const lang = (slots._lang as 'en' | 'hi') ?? 'en';
+    return { success: true, reply: REPLIES.help(user_role, lang) };
   },
 
   // ── TASK TOOLS ──────────────────────────────────────────────────────────────
@@ -450,7 +395,20 @@ Rules:
       .ilike('full_name', `%${slots.assignee}%`)
       .maybeSingle();
 
-    if (!found) return { success: false, reply: REPLIES.notFound(slots.assignee!, lang) };
+    if (!found) {
+      // Show who IS available so the user can pick
+      const { data: available } = await db
+        .from('users').select('full_name')
+        .eq('organization_id', org_id).eq('is_active', true).is('deleted_at', null)
+        .neq('id', user_id).limit(10);
+      const names = (available ?? []).map(u => `· ${u.full_name}`).join('\n') || '(none)';
+      return {
+        success: false,
+        reply: lang === 'hi'
+          ? `❌ *${slots.assignee}* नहीं मिला।\n\nउपलब्ध assignees:\n${names}`
+          : `❌ *${slots.assignee}* not found.\n\nAvailable assignees:\n${names}`,
+      };
+    }
 
     // Fetch updated task details for the notification
     const { data: fullTask } = await db.from('tasks').select('priority, deadline').eq('id', task.id).single() as any;
@@ -574,7 +532,19 @@ Rules:
         .eq('organization_id', org_id)
         .ilike('full_name', `%${value}%`)
         .maybeSingle();
-      if (!found) return { success: false, reply: REPLIES.notFound(value, lang) };
+      if (!found) {
+        const { data: avail } = await db
+          .from('users').select('full_name')
+          .eq('organization_id', org_id).eq('is_active', true).is('deleted_at', null)
+          .neq('id', user_id).limit(10);
+        const names = (avail ?? []).map(u => `· ${u.full_name}`).join('\n') || '(none)';
+        return {
+          success: false,
+          reply: lang === 'hi'
+            ? `❌ *${value}* नहीं मिला।\n\nउपलब्ध assignees:\n${names}`
+            : `❌ *${value}* not found.\n\nAvailable assignees:\n${names}`,
+        };
+      }
       patch.assignee_id = found.id;
     }
 
@@ -1159,6 +1129,43 @@ Rules:
     return TOOL_MAP.WHO_ABSENT!({ org_id, slots, user_id, user_role, manager_id, user_name: '', user_department: null, intent: 'TEAM_ATTENDANCE' });
   },
 
+  // ── LIST USERS ───────────────────────────────────────────────────────────────
+
+  async LIST_USERS({ org_id, user_id, user_role, slots }): Promise<ToolResult> {
+    const db   = createAdminClient();
+    const lang = (slots._lang as 'en' | 'hi') ?? 'en';
+
+    if (!['manager', 'hr', 'admin', 'super_admin'].includes(user_role)) {
+      return {
+        success: false,
+        reply: lang === 'hi'
+          ? '❌ यह जानकारी केवल managers और HR देख सकते हैं।'
+          : '❌ Only managers and HR can view the full user list.',
+      };
+    }
+
+    const { data: users } = await db
+      .from('users')
+      .select('full_name, role, department, designation, wa_number')
+      .eq('organization_id', org_id)
+      .is('deleted_at', null)
+      .order('full_name', { ascending: true })
+      .limit(20);
+
+    if (!users?.length) {
+      return { success: true, reply: lang === 'hi' ? 'कोई उपयोगकर्ता नहीं मिला।' : 'No users found in your organisation.' };
+    }
+
+    const lines = [lang === 'hi' ? `👥 *संस्था के सदस्य (${users.length}):*` : `👥 *Organisation Members (${users.length}):*`, ''];
+    users.forEach((u, i) => {
+      const dept = u.department ? ` — ${u.department}` : '';
+      const desg = u.designation ? ` (${u.designation})` : '';
+      lines.push(`${i + 1}. *${u.full_name}*${desg}${dept}`);
+    });
+
+    return { success: true, reply: lines.join('\n') };
+  },
+
   // ── ONBOARDING TOOLS ────────────────────────────────────────────────────────
 
   async START_ONBOARDING({ slots, org_id, user_id }): Promise<ToolResult> {
@@ -1166,7 +1173,10 @@ Rules:
     const lang = (slots._lang as 'en' | 'hi') ?? 'en';
 
     const empName  = slots.employee_name!;
-    const waNumber = slots.wa_number!.replace(/\s/g, '');
+    if (!slots.wa_number) {
+      return { success: false, reply: "Please provide the employee's WhatsApp number (with country code, e.g. +919876543210)." };
+    }
+    const waNumber = slots.wa_number.replace(/\s/g, '');
 
     const { data: newAuthUser, error: authError } = await db.auth.admin.createUser({
       email:         `${waNumber.replace('+', '')}@wa.placeholder`,

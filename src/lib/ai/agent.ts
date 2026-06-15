@@ -31,7 +31,7 @@ type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
 const QUICK_ROUTES: Array<{ re: RegExp; tool: string }> = [
   { re: /^(hi+|hey+|hello+|good\s*(morning|afternoon|evening|night)|namaste|namaskar|hlo+|hii+|greetings?)\s*[!.]*$/i, tool: 'daily_briefing' },
-  { re: /^(list\s*tasks?|my\s*tasks?|show\s*tasks?|tasks?|pending\s*tasks?)$/i,                                        tool: 'list_tasks'     },
+  { re: /^(list\s*(all\s*)?tasks?|my\s*tasks?|show\s*(all\s*)?tasks?|tasks?|pending\s*tasks?|(give\s*me\s*)?(the\s*)?list(\s*of\s*(all\s*)?tasks?)?)$/i, tool: 'list_tasks' },
   { re: /^(leave\s*balance|my\s*leave\s*balance|leaves?\s*left|check\s*leave)$/i,                                      tool: 'check_leave_balance' },
   { re: /^(my\s*attendance|attendance\s*report|show\s*attendance|attendance)$/i,                                        tool: 'my_attendance'  },
   { re: /^(list\s*leaves?|my\s*leaves?|leave\s*requests?|leaves?)$/i,                                                  tool: 'list_leaves'    },
@@ -136,12 +136,13 @@ async function executeFromConfirmation(
   if (deleteM) return dispatchTool('delete_task', { task_title: deleteM[1].trim() }, user, orgId);
 
   // UPDATE_TASK: "I'll update *Title* — set *field* to *value*"
-  const updateM = lastMsg.match(/update\s+\*([^*]+)\*[\s—–-]+set\s+\*([^*]+)\*\s+to\s+\*([^*]+)\*/i);
+  // Also handles "set its title to *value*" (field not bolded)
+  const updateM = lastMsg.match(/update\s+\*([^*]+)\*[\s—–-]+set\s+(?:\*([^*]+)\*|(?:its\s+)?(\w+))\s+to\s+\*([^*]+)\*/i);
   if (updateM) {
     return dispatchTool('update_task', {
       task_title:   updateM[1].trim(),
-      update_field: updateM[2].trim().toLowerCase(),
-      update_value: updateM[3].trim(),
+      update_field: (updateM[2] ?? updateM[3] ?? '').trim().toLowerCase(),
+      update_value: updateM[4].trim(),
     }, user, orgId);
   }
 
@@ -213,12 +214,12 @@ const HRBOT_TOOLS: any[] = [
   },
   {
     name: 'update_task',
-    description: "Update a task's deadline, priority, assignee, or status. Only call AFTER user confirms.",
+    description: "Update a task's title, deadline, priority, assignee, or status. Only call AFTER user confirms.",
     parameters: {
       type: 'OBJECT',
       properties: {
-        task_title:   { type: 'STRING', description: 'Title (or part) of the task to update' },
-        update_field: { type: 'STRING', description: 'deadline | priority | assignee | status' },
+        task_title:   { type: 'STRING', description: 'Current title (or part) of the task to update' },
+        update_field: { type: 'STRING', description: 'title | deadline | priority | assignee | status' },
         update_value: { type: 'STRING', description: 'New value for the field' },
       },
       required: ['task_title', 'update_field', 'update_value'],
@@ -425,9 +426,13 @@ You: I'll create task *Automation tool* due *June 19, 2026*. Go ahead? (Yes / No
 User: "Create the task"  ← this IS the confirmation
 You: [call create_task(title="Automation tool", deadline="2026-06-19")]
 
-Field update:
+Field update (ALWAYS bold both the task name AND the field name):
 User: "update the assigned to of Design Review to Rahul"
 You: I'll update *Design Review* — set *assignee* to *Rahul*. Go ahead? (Yes / No)
+User: "change the title of Fix Bug to Fix Login Bug"
+You: I'll update *Fix Bug* — set *title* to *Fix Login Bug*. Go ahead? (Yes / No)
+User: "update deadline of Fix Bug to tomorrow"
+You: I'll update *Fix Bug* — set *deadline* to *17 Jun 2026*. Go ahead? (Yes / No)
 
 Read-only query:
 User: "list my tasks"

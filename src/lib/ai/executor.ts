@@ -541,7 +541,12 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       };
     }
 
-    if (field === 'deadline') {
+    if (field === 'title') {
+      if (!value) {
+        return { success: false, reply: lang === 'hi' ? `❌ नया title बताएं।` : `❌ Please provide the new title.` };
+      }
+      patch.title = value;
+    } else if (field === 'deadline') {
       const parts = value.split(' ');
       patch.deadline = parts[0];
       if (parts[1]) patch.due_time = parts[1];
@@ -617,14 +622,15 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       record_id: task.id, new_data: patch, source: 'whatsapp',
     });
 
-    // Use the normalized/mapped value in the reply so the user sees what was
-    // actually stored (e.g. "urgent" not "critical").
-    const displayValue = String(Object.values(patch)[0] ?? value);
+    // Use the stored value in the reply (e.g. "urgent" not "critical", new title not old title).
+    const displayValue = String(patch.title ?? patch.priority ?? patch.status ?? patch.assignee_id ?? patch.deadline ?? value);
+    const displayField = field === 'assignee' ? 'assignee' : field;
+    const displayTitle = field === 'title' ? (value) : task.title;
     return {
       success: true,
       reply: lang === 'hi'
-        ? `✅ *"${task.title}"* — ${field} अपडेट हो गया!`
-        : `✅ *"${task.title}"* — ${field} updated to *${displayValue}*!`,
+        ? `✅ *"${displayTitle}"* — ${displayField} अपडेट हो गया!`
+        : `✅ *"${displayTitle}"* — *${displayField}* updated to *${field === 'title' ? value : displayValue}*!`,
     };
   },
 

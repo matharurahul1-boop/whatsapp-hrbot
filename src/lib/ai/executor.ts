@@ -1144,13 +1144,14 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       };
     }
 
-    const { data: users } = await db
+    const { data: users, error: usersErr } = await db
       .from('users')
       .select('full_name, role, department, designation, wa_number')
       .eq('organization_id', org_id)
       .is('deleted_at', null)
       .order('full_name', { ascending: true })
       .limit(20);
+    console.log(`[LIST_USERS] org_id=${org_id} → ${users?.length ?? 0} rows`, usersErr?.message ?? '');
 
     if (!users?.length) {
       return { success: true, reply: lang === 'hi' ? 'कोई उपयोगकर्ता नहीं मिला।' : 'No users found in your organisation.' };

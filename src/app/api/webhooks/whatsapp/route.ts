@@ -91,17 +91,24 @@ async function handleOneMessage(
 ): Promise<void> {
   console.log(`[WA Webhook] Incoming message from ${msg.from}, type=${msg.type}, id=${msg.id}`);
 
-  // 1. Save to wa_logs — returns false if this message was already processed (webhook retry)
-  const isNew = await saveIncomingLog(msg, value, orgId, rawBody);
+  // 1. Dedup: check if this message_id was already processed (webhook retry guard)
+  const db = createAdminClient();
+  const { data: existing } = await db
+    .from('wa_logs')
+    .select('id')
+    .eq('meta_message_id', msg.id)
+    .maybeSingle();
 
-  // 2. Mark as read (non-blocking)
-  markMessageRead(msg.id).catch(() => {});
-
-  // 3. Skip agent for duplicate webhook deliveries from WhatsApp
-  if (!isNew) {
-    console.log(`[WA Webhook] Duplicate message ${msg.id} — skipping agent dispatch`);
+  if (existing) {
+    console.log(`[WA Webhook] ⏭️ Duplicate message ${msg.id} — skipping`);
     return;
   }
+
+  // 2. Save to wa_logs
+  await saveIncomingLog(msg, value, orgId, rawBody);
+
+  // 3. Mark as read (non-blocking)
+  markMessageRead(msg.id).catch(() => {})
 
   // 4. AI agent (non-blocking — don't let agent errors affect logging)
   const text = extractText(msg);
@@ -125,13 +132,12 @@ async function handleOneMessage(
 }
 
 // ── Save incoming message to wa_logs ─────────────────────────────────────
-// Returns true if this is a new message, false if it's a webhook retry (duplicate).
 async function saveIncomingLog(
   msg:     WAMessage,
   value:   WAValue,
   orgId:   string,
   rawBody: string
-): Promise<boolean> {
+): Promise<void> {
   const db       = createAdminClient();
   const contacts = value.contacts ?? [];
   const waNumber = msg.from.replace(/^\+/, '');
@@ -173,19 +179,15 @@ async function saveIncomingLog(
     orgId,
   }));
 
-  const { data: inserted, error } = await db
+  const { error } = await db
     .from('wa_logs')
-    .upsert(row, { onConflict: 'meta_message_id', ignoreDuplicates: true })
-    .select('meta_message_id');
+    .insert(row);
 
   if (error) {
     console.error('[WA Webhook] ❌ wa_logs insert FAILED:', error.code, error.message, error.details);
-    return true; // treat as new so the agent still runs on first attempt
+  } else {
+    console.log(`[WA Webhook] ✅ wa_logs saved — ${waNumber} → "${row.message_text}"`);
   }
-
-  const isNew = (inserted?.length ?? 0) > 0;
-  console.log(`[WA Webhook] ${isNew ? '✅ new' : '⏭️ duplicate'} — ${waNumber} → "${row.message_text}"`);
-  return isNew;
 }
 
 // ── Update delivery status ────────────────────────────────────────────────

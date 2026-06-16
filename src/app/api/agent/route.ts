@@ -3,6 +3,8 @@ import { runMasterAgent } from '@/lib/ai/agent';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 
+export const maxDuration = 60;
+
 // Called by n8n or internal services
 export async function POST(req: NextRequest) {
   const appSecret = process.env.APP_SECRET;

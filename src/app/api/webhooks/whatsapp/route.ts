@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { waitUntil }                                      from '@vercel/functions';
+
+export const maxDuration = 60;
 import { verifyWebhookSignature, verifyWebhookChallenge } from '@/lib/whatsapp/verify';
 import { sendText, markMessageRead }                      from '@/lib/whatsapp/client';
 import { createAdminClient }                              from '@/lib/supabase/admin';

@@ -1,26 +1,34 @@
 import Anthropic                from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI }  from '@google/generative-ai';
 import OpenAI                  from 'openai';
+import Groq                    from 'groq-sdk';
 import { loadSession, saveMessage } from './memory';
 import { sendText }            from '@/lib/whatsapp/client';
 import { EMPTY_CONTEXT }       from './types';
 import type { AgentTurn, AgentUser } from './types';
 
 // ── AI backend ────────────────────────────────────────────────────────────────
-// USE_CLAUDE  = true  → Claude Haiku 4.5 (primary — fast, reliable tool use)
-// USE_GEMINI  = true  → Gemini 2.0 Flash (enable once Google billing is set up)
+// USE_GROQ    = true  → Groq Llama 3.3 70B (primary — free tier, fast tool use)
+// USE_CLAUDE  = false → Claude Haiku 4.5 (requires paid credits)
+// USE_GEMINI  = false → Gemini 2.0 Flash (enable once Google billing is set up)
 // fallback           → OpenRouter free tier
-const USE_CLAUDE = true;
+const USE_GROQ   = true;
+const USE_CLAUDE = false;
 const USE_GEMINI = false;
 
+// Multiple Groq keys for rate-limit rotation (comma-separated in GROQ_API_KEY)
+const GROQ_KEYS    = (process.env.GROQ_API_KEY || 'not-configured').split(',').map(k => k.trim()).filter(Boolean);
+const groqClients  = GROQ_KEYS.map(k => new Groq({ apiKey: k }));
+let   groqKeyIndex = 0; // round-robins across serverless warm instances
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY ?? '' });
 const genAI     = new GoogleGenerativeAI(process.env.GEMINI_API_KEY ?? '');
 const openai    = new OpenAI({
-  apiKey:  process.env.OPENROUTER_API_KEY ?? '',
+  apiKey:  process.env.OPENROUTER_API_KEY || 'not-configured',
   baseURL: 'https://openrouter.ai/api/v1',
   defaultHeaders: { 'HTTP-Referer': 'https://handysolver.com', 'X-Title': 'HRBot' },
 });
 
+const AI_MODEL_GROQ   = 'llama-3.3-70b-versatile';
 const AI_MODEL_CLAUDE = 'claude-haiku-4-5-20251001';
 const AI_MODEL_GEMINI = 'gemini-2.0-flash';
 const AI_MODEL_OR     = 'openai/gpt-oss-20b:free';
@@ -45,7 +53,7 @@ const QUICK_ROUTES: Array<{ re: RegExp; tool: string }> = [
 ];
 
 function quickRoute(message: string): string | null {
-  const t = message.trim();
+  const t = message.trim().replace(/[?.!,;]+$/, '');
   for (const { re, tool } of QUICK_ROUTES) {
     if (re.test(t)) return tool;
   }
@@ -596,7 +604,81 @@ async function runGroqLoop(
     return out;
   }
 
-  if (USE_CLAUDE) {
+  if (USE_GROQ) {
+    // ── Groq Llama 3.3 70B — primary backend (free tier) ──────────────────
+    const groqTools: Groq.Chat.ChatCompletionTool[] = HRBOT_TOOLS.map(t => ({
+      type: 'function' as const,
+      function: { name: t.name, description: t.description, parameters: normalizeSchema(t.parameters) },
+    }));
+
+    const groqMessages: Groq.Chat.ChatCompletionMessageParam[] = [
+      { role: 'system', content: buildSystemPrompt(user) },
+      ...history.map(m => ({ role: m.role, content: m.content } as Groq.Chat.ChatCompletionMessageParam)),
+      { role: 'user', content: effectiveMessage },
+    ];
+
+    // Try each Groq key in rotation; on 429 move to the next key
+    for (let keyTry = 0; keyTry < groqClients.length; keyTry++) {
+      const clientIdx = (groqKeyIndex + keyTry) % groqClients.length;
+      const client    = groqClients[clientIdx];
+
+      try {
+        let resp = await client.chat.completions.create({
+          model:      AI_MODEL_GROQ,
+          messages:   [...groqMessages],
+          tools:      groqTools,
+          max_tokens: 512,
+        });
+
+        // Advance the round-robin index so the next request starts on the next key
+        groqKeyIndex = (clientIdx + 1) % groqClients.length;
+
+        for (let round = 0; round < 6; round++) {
+          const choice    = resp.choices[0];
+          const toolCalls = (choice.message.tool_calls ?? []) as Groq.Chat.ChatCompletionMessageToolCall[];
+
+          if (toolCalls.length === 0) return choice.message.content?.trim() || '';
+
+          groqMessages.push({ role: 'assistant', content: choice.message.content ?? null, tool_calls: toolCalls });
+
+          for (const tc of toolCalls) {
+            console.log(`[Agent] Groq[${clientIdx}] tool call: ${tc.function.name}`, tc.function.arguments);
+            let args: Record<string, string> = {};
+            try { args = JSON.parse(tc.function.arguments); } catch { /* empty args */ }
+            const output = await dispatchTool(tc.function.name, args, user, orgId);
+            groqMessages.push({ role: 'tool', tool_call_id: tc.id, content: output });
+          }
+
+          resp = await client.chat.completions.create({
+            model:      AI_MODEL_GROQ,
+            messages:   groqMessages,
+            tools:      groqTools,
+            max_tokens: 512,
+          });
+        }
+
+        return 'I had trouble processing that — please try again.';
+
+      } catch (err: unknown) {
+        const status = (err as { status?: number }).status;
+        const errMsg = (err as { message?: string }).message ?? String(err);
+
+        if (status === 429 && keyTry < groqClients.length - 1) {
+          console.warn(`[Agent] Groq key[${clientIdx}] rate-limited — rotating to next key`);
+          continue; // try next key
+        }
+
+        console.error(`[Agent] Groq[${clientIdx}] error (status ${status}):`, errMsg);
+        if (status === 429) {
+          return isDev ? `⏳ *[DEV] Groq 429 (all keys):* ${errMsg}` : "I'm a bit busy right now. Please try again in a few seconds.";
+        }
+        return isDev ? `⚠️ *[DEV] Groq ${status}:* ${errMsg}` : '⚠️ Something went wrong. Please try again.';
+      }
+    }
+
+    return '⚠️ Something went wrong. Please try again.';
+
+  } else if (USE_CLAUDE) {
     // ── Claude Haiku 4.5 — primary backend ────────────────────────────────
     const claudeTools: Anthropic.Messages.Tool[] = HRBOT_TOOLS.map(t => ({
       name:         t.name,

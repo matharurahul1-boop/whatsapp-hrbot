@@ -67,7 +67,12 @@ export default async function TasksPage() {
       </div>
 
       {/* Kanban board */}
-      <TaskKanban tasks={tasks} userId={user.id} userRole={role} />
+      <TaskKanban
+        tasks={tasks}
+        userId={user.id}
+        userRole={role}
+        employees={isManager ? employees : []}
+      />
     </div>
   );
 }

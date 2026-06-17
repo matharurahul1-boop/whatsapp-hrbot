@@ -28,18 +28,24 @@ interface Task {
   created_by: string;
 }
 
+interface Employee { id: string; full_name: string; }
+
 interface TaskKanbanProps {
-  tasks:    Task[];
-  userId:   string;
-  userRole: string;
+  tasks:     Task[];
+  userId:    string;
+  userRole:  string;
+  employees: Employee[];
 }
 
 const PRIORITIES = ['', 'urgent', 'high', 'medium', 'low'];
 
-export default function TaskKanban({ tasks, userId, userRole }: TaskKanbanProps) {
-  const [search,         setSearch]         = useState('');
-  const [priorityFilter, setPriorityFilter] = useState('');
-  const [showFilters,    setShowFilters]    = useState(false);
+export default function TaskKanban({ tasks, userId, userRole, employees }: TaskKanbanProps) {
+  const [search,          setSearch]          = useState('');
+  const [priorityFilter,  setPriorityFilter]  = useState('');
+  const [assigneeFilter,  setAssigneeFilter]  = useState('');
+  const [showFilters,     setShowFilters]     = useState(false);
+
+  const isManager = ['super_admin', 'admin', 'hr', 'manager'].includes(userRole);
 
   const canEdit = (t: Task) =>
     ['super_admin','admin','hr','manager'].includes(userRole) ||
@@ -50,8 +56,9 @@ export default function TaskKanban({ tasks, userId, userRole }: TaskKanbanProps)
     let r = tasks;
     if (search)         r = r.filter(t => t.title.toLowerCase().includes(search.toLowerCase()));
     if (priorityFilter) r = r.filter(t => t.priority === priorityFilter);
+    if (assigneeFilter) r = r.filter(t => t.assignee?.id === assigneeFilter);
     return r;
-  }, [tasks, search, priorityFilter]);
+  }, [tasks, search, priorityFilter, assigneeFilter]);
 
   const byStatus = (s: TaskStatus) => filtered.filter(t => t.status === s);
   const total    = tasks.length;
@@ -80,6 +87,20 @@ export default function TaskKanban({ tasks, userId, userRole }: TaskKanbanProps)
           />
         </div>
 
+        {/* Employee dropdown — managers/admins only */}
+        {isManager && employees.length > 0 && (
+          <select
+            value={assigneeFilter}
+            onChange={e => setAssigneeFilter(e.target.value)}
+            className="h-9 rounded-xl border border-surface-300/50 bg-surface-200/60 px-3 text-xs text-surface-800 focus:outline-none focus:ring-2 focus:ring-brand-500/40 transition-all"
+          >
+            <option value="">All Employees</option>
+            {employees.map(emp => (
+              <option key={emp.id} value={emp.id}>{emp.full_name}</option>
+            ))}
+          </select>
+        )}
+
         <Button
           variant="secondary"
           size="md"
@@ -90,10 +111,20 @@ export default function TaskKanban({ tasks, userId, userRole }: TaskKanbanProps)
           {priorityFilter && <Badge variant="brand" className="ml-1 h-4 px-1.5 text-2xs">{priorityFilter}</Badge>}
         </Button>
 
-        {/* Count */}
-        <span className="ml-auto text-xs text-surface-600 shrink-0">
-          {active !== total ? `${active} of ${total}` : `${total}`} tasks
-        </span>
+        {/* Count + clear filters */}
+        <div className="ml-auto flex items-center gap-2 shrink-0">
+          {(assigneeFilter || priorityFilter || search) && (
+            <button
+              onClick={() => { setAssigneeFilter(''); setPriorityFilter(''); setSearch(''); }}
+              className="text-2xs text-brand-400 hover:text-brand-300 transition-colors underline underline-offset-2"
+            >
+              Clear all
+            </button>
+          )}
+          <span className="text-xs text-surface-600">
+            {active !== total ? `${active} of ${total}` : `${total}`} tasks
+          </span>
+        </div>
       </div>
 
       {/* ── Filter bar ── */}

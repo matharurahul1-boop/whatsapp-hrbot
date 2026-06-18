@@ -63,7 +63,7 @@ export default async function TasksPage() {
             {tasks.length} task{tasks.length !== 1 ? 's' : ''} total
           </p>
         </div>
-        {isManager && <CreateTaskModal employees={employees} />}
+        <CreateTaskModal employees={employees} />
       </div>
 
       {/* Kanban board */}

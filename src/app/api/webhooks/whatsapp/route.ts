@@ -3,7 +3,7 @@ import { waitUntil }                                      from '@vercel/function
 
 export const maxDuration = 60;
 import { verifyWebhookSignature, verifyWebhookChallenge } from '@/lib/whatsapp/verify';
-import { sendText, markMessageRead, downloadMediaContent } from '@/lib/whatsapp/client';
+import { sendText, sendButtons, markMessageRead, downloadMediaContent } from '@/lib/whatsapp/client';
 import { createAdminClient }                              from '@/lib/supabase/admin';
 import { runMasterAgent }                                 from '@/lib/ai/agent';
 import type { WAWebhookPayload, WAMessage, WAValue }      from '@/types/whatsapp.types';
@@ -268,7 +268,12 @@ async function dispatchAgent(from: string, text: string, orgId: string): Promise
       }
 
       console.log(`[WA Agent] n8n reply for ${from}: "${reply.slice(0, 80)}…"`);
-      await sendText(from, reply, orgId);
+      const confirmButtons = json?.confirmButtons;
+      if (Array.isArray(confirmButtons) && confirmButtons.length > 0) {
+        await sendButtons(from, reply, confirmButtons, orgId);
+      } else {
+        await sendText(from, reply, orgId);
+      }
 
     } catch (err: unknown) {
       const isTimeout = err instanceof Error && err.name === 'AbortError';

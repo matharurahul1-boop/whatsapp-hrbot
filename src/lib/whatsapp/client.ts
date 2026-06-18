@@ -395,6 +395,26 @@ export async function downloadMedia(
   return res.json();
 }
 
+export async function downloadMediaContent(
+  mediaId: string,
+  orgId?: string
+): Promise<{ buffer: ArrayBuffer; mimeType: string }> {
+  const { accessToken } = await resolveMetaCreds(orgId);
+
+  const urlRes = await fetch(`${META_API_BASE}/${mediaId}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!urlRes.ok) throw new Error(`Failed to get media URL for: ${mediaId}`);
+  const { url, mime_type } = await urlRes.json() as { url: string; mime_type: string };
+
+  const contentRes = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!contentRes.ok) throw new Error(`Failed to download media: ${contentRes.status}`);
+
+  return { buffer: await contentRes.arrayBuffer(), mimeType: mime_type };
+}
+
 export async function markMessageRead(messageId: string, orgId?: string): Promise<void> {
   try {
     const { phoneNumberId, accessToken } = await resolveMetaCreds(orgId);

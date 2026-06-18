@@ -3,7 +3,7 @@ import { waitUntil }                                      from '@vercel/function
 
 export const maxDuration = 60;
 import { verifyWebhookSignature, verifyWebhookChallenge } from '@/lib/whatsapp/verify';
-import { sendText, markMessageRead }                      from '@/lib/whatsapp/client';
+import { sendText, markMessageRead, downloadMediaContent } from '@/lib/whatsapp/client';
 import { createAdminClient }                              from '@/lib/supabase/admin';
 import { runMasterAgent }                                 from '@/lib/ai/agent';
 import type { WAWebhookPayload, WAMessage, WAValue }      from '@/types/whatsapp.types';
@@ -130,9 +130,15 @@ async function handleOneMessage(
         )
       );
     }
-  } else if (['image','document','audio','video','sticker'].includes(msg.type)) {
+  } else if (msg.type === 'audio') {
+    waitUntil(
+      handleAudioMessage(msg.from, msg.audio?.id ?? '', orgId).catch(err =>
+        console.error('[WA Audio] Error:', err)
+      )
+    );
+  } else if (['image','document','video','sticker'].includes(msg.type)) {
     sendText(msg.from,
-      '📎 I received your file, but I can only process text messages right now.',
+      '📎 I received your file. I can only process text and voice messages.',
       orgId
     ).catch(() => {});
   }
@@ -335,6 +341,84 @@ async function dispatchPolicyBot(from: string, question: string, orgId: string):
     console.error(`[WA PolicyBot] Error for ${from}:`, err);
     await sendText(from, '❓ I had trouble looking up that policy. Please contact HR directly.', orgId).catch(() => {});
   }
+}
+
+// ── Audio transcription via Groq Whisper ──────────────────────────────────
+
+async function transcribeAudio(mediaId: string, orgId: string): Promise<string | null> {
+  const { buffer, mimeType } = await downloadMediaContent(mediaId, orgId);
+
+  const ext = mimeType.startsWith('audio/ogg')  ? '.ogg'
+             : mimeType.startsWith('audio/mp4')  ? '.m4a'
+             : mimeType.startsWith('audio/mpeg') ? '.mp3'
+             : mimeType.startsWith('audio/wav')  ? '.wav'
+             : '.ogg';
+
+  const tryKey = async (apiKey: string): Promise<string | null | 'rate_limited'> => {
+    const form = new FormData();
+    form.append('file', new Blob([buffer], { type: mimeType }), `audio${ext}`);
+    form.append('model', 'whisper-large-v3-turbo');
+    form.append('language', 'en');
+
+    const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+      method:  'POST',
+      headers: { Authorization: `Bearer ${apiKey}` },
+      body:    form,
+    });
+
+    if (res.status === 429) return 'rate_limited';
+    if (!res.ok) throw new Error(`Groq Whisper ${res.status}: ${await res.text()}`);
+
+    const data = await res.json();
+    return (data.text as string)?.trim() || null;
+  };
+
+  const gk1 = process.env.GROQ_API_KEY;
+  const gk2 = process.env.GROQ_API_KEY_2;
+
+  if (gk1) {
+    const r = await tryKey(gk1);
+    if (r !== 'rate_limited') return r;
+    console.warn('[WA Audio] GK1 rate-limited, trying GK2');
+  }
+  if (gk2) {
+    const r = await tryKey(gk2);
+    if (r !== 'rate_limited') return r;
+    console.warn('[WA Audio] GK2 also rate-limited');
+  }
+
+  throw new Error('All Groq keys rate-limited for Whisper');
+}
+
+async function handleAudioMessage(from: string, mediaId: string, orgId: string): Promise<void> {
+  if (!mediaId) {
+    await sendText(from, '❌ Could not read your voice message. Please try again.', orgId).catch(() => {});
+    return;
+  }
+
+  console.log(`[WA Audio] Transcribing ${mediaId} for ${from}`);
+
+  let transcript: string | null;
+  try {
+    transcript = await transcribeAudio(mediaId, orgId);
+  } catch (err) {
+    console.error('[WA Audio] Transcription failed:', err);
+    await sendText(from, '❌ Could not transcribe your voice message. Please send a text message instead.', orgId).catch(() => {});
+    return;
+  }
+
+  if (!transcript) {
+    await sendText(from, '❌ Your voice message was empty or unclear. Please try again.', orgId).catch(() => {});
+    return;
+  }
+
+  console.log(`[WA Audio] Transcript for ${from}: "${transcript.slice(0, 100)}"`);
+
+  // Echo a short confirmation so the user knows what was heard
+  const preview = transcript.length > 120 ? transcript.slice(0, 120) + '…' : transcript;
+  await sendText(from, `🎙️ Heard: "${preview}"`, orgId).catch(() => {});
+
+  await dispatchAgent(from, transcript, orgId);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────

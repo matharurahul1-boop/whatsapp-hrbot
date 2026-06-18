@@ -3,7 +3,7 @@ import { waitUntil }                                      from '@vercel/function
 
 export const maxDuration = 60;
 import { verifyWebhookSignature, verifyWebhookChallenge } from '@/lib/whatsapp/verify';
-import { sendText, sendButtons, sendList, markMessageRead } from '@/lib/whatsapp/client';
+import { sendText, markMessageRead }                      from '@/lib/whatsapp/client';
 import { createAdminClient }                              from '@/lib/supabase/admin';
 import { runMasterAgent }                                 from '@/lib/ai/agent';
 import type { WAWebhookPayload, WAMessage, WAValue }      from '@/types/whatsapp.types';
@@ -262,16 +262,7 @@ async function dispatchAgent(from: string, text: string, orgId: string): Promise
       }
 
       console.log(`[WA Agent] n8n reply for ${from}: "${reply.slice(0, 80)}…"`);
-
-      // Use interactive message (buttons/list) if n8n signalled it
-      const interactive = json?.interactive;
-      if (interactive?.type === 'buttons' && Array.isArray(interactive.buttons)) {
-        await sendButtons(from, interactive.body ?? reply, interactive.buttons, orgId, interactive.header);
-      } else if (interactive?.type === 'list' && Array.isArray(interactive.sections)) {
-        await sendList(from, interactive.body ?? reply, interactive.buttonLabel ?? 'Select', interactive.sections, orgId, interactive.header);
-      } else {
-        await sendText(from, reply, orgId);
-      }
+      await sendText(from, reply, orgId);
 
     } catch (err: unknown) {
       const isTimeout = err instanceof Error && err.name === 'AbortError';
@@ -360,13 +351,9 @@ async function resolveOrg(phoneNumberId: string) {
 }
 
 function extractText(msg: WAMessage): string | null {
-  if (msg.type === 'text')   return msg.text?.body ?? null;
-  if (msg.type === 'button') return msg.button?.payload ?? null;
-  if (msg.type === 'interactive') {
-    const br = msg.interactive?.button_reply;
-    const lr = msg.interactive?.list_reply;
-    // Prefer id (machine-readable) over title for guided-flow state machine
-    return br?.id ?? lr?.id ?? br?.title ?? lr?.title ?? null;
-  }
+  if (msg.type === 'text')        return msg.text?.body ?? null;
+  if (msg.type === 'button')      return msg.button?.payload ?? null;
+  if (msg.type === 'interactive')
+    return msg.interactive?.button_reply?.title ?? msg.interactive?.list_reply?.title ?? null;
   return null;
 }

@@ -266,7 +266,7 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
                     No tasks
                   </div>
                 ) : cards.map(task => (
-                  <TaskCard key={task.id} task={task} canEdit={canEdit(task)} />
+                  <TaskCard key={task.id} task={task} canEdit={canEdit(task)} employees={employees} />
                 ))}
               </div>
             </div>

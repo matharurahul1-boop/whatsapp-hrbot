@@ -71,7 +71,7 @@ export default async function TasksPage() {
         tasks={tasks}
         userId={user.id}
         userRole={role}
-        employees={isManager ? employees : []}
+        employees={employees}
       />
     </div>
   );

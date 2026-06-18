@@ -29,6 +29,7 @@ export default async function DashboardPage() {
     .single();
 
   if (!profile) redirect('/login');
+  if (profile.role === 'employee') redirect('/tasks');
 
   const orgId = profile.organization_id;
   const isAdmin = ['super_admin', 'admin', 'hr', 'manager'].includes(profile.role);

@@ -35,7 +35,7 @@ export default async function TasksPage() {
     .limit(100);
 
   if (role === 'employee') {
-    taskQuery = taskQuery.or(`assignee_id.eq.${user.id},created_by.eq.${user.id}`);
+    taskQuery = taskQuery.eq('assignee_id', user.id);
   }
 
   const [tasksRes, empRes] = await Promise.all([

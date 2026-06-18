@@ -21,6 +21,7 @@ export default async function LeavePage() {
     .single();
 
   if (!profile) redirect('/login');
+  if (profile.role === 'employee') redirect('/tasks');
 
   const { organization_id: orgId, role } = profile;
   const year      = new Date().getFullYear();

@@ -8,6 +8,7 @@ import { Avatar } from '@/components/ui/Avatar';
 import {
   Dialog, DialogContent, DialogHeader,
   DialogTitle, DialogBody, DialogFooter,
+  ConfirmDialog,
 } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input, Textarea, SelectNative } from '@/components/ui/Input';
@@ -51,10 +52,11 @@ interface TaskCardProps {
 
 export default function TaskCard({ task, canEdit, employees }: TaskCardProps) {
   const router = useRouter();
-  const [editOpen,  setEditOpen]  = useState(false);
-  const [updating,  setUpdating]  = useState(false);
-  const [deleting,  setDeleting]  = useState(false);
-  const [status,    setStatus]    = useState<TaskStatus>(task.status as TaskStatus);
+  const [editOpen,      setEditOpen]      = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [updating,      setUpdating]      = useState(false);
+  const [deleting,      setDeleting]      = useState(false);
+  const [status,        setStatus]        = useState<TaskStatus>(task.status as TaskStatus);
 
   const [form, setForm] = useState({
     title:       task.title,
@@ -117,6 +119,7 @@ export default function TaskCard({ task, canEdit, employees }: TaskCardProps) {
   async function handleDelete() {
     setDeleting(true);
     await fetch(`/api/tasks/${task.id}`, { method: 'DELETE' });
+    setConfirmDelete(false);
     setEditOpen(false);
     router.refresh();
   }
@@ -198,7 +201,7 @@ export default function TaskCard({ task, canEdit, employees }: TaskCardProps) {
                   <DropdownMenu.Separator className="my-1 h-px bg-surface-300/80" />
 
                   <DropdownMenu.Item
-                    onSelect={handleDelete}
+                    onSelect={() => setConfirmDelete(true)}
                     className="flex items-center gap-2.5 px-2.5 py-2 text-xs text-danger rounded-lg cursor-pointer hover:bg-danger/10 outline-none"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -248,6 +251,16 @@ export default function TaskCard({ task, canEdit, employees }: TaskCardProps) {
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        title="Delete Task"
+        description={`"${task.title}" will be permanently deleted.`}
+        confirmLabel="Delete"
+        variant="danger"
+        onConfirm={handleDelete}
+      />
 
       {/* Edit modal */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
@@ -318,8 +331,7 @@ export default function TaskCard({ task, canEdit, employees }: TaskCardProps) {
                 variant="ghost"
                 size="md"
                 type="button"
-                onClick={handleDelete}
-                loading={deleting}
+                onClick={() => setConfirmDelete(true)}
                 className="text-danger hover:text-danger hover:bg-danger/10 mr-auto"
               >
                 <Trash2 className="h-3.5 w-3.5 mr-1.5" />

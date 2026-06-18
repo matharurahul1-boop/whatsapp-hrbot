@@ -21,7 +21,6 @@ export default async function AttendancePage() {
     .single();
 
   if (!profile) redirect('/login');
-  if (profile.role === 'employee') redirect('/tasks');
 
   const { organization_id: orgId, role } = profile;
   const isManager  = ['super_admin', 'admin', 'hr', 'manager'].includes(role);

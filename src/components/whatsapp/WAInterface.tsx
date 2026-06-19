@@ -727,7 +727,7 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
     <div
       className="flex rounded-xl overflow-hidden shadow-2xl"
       style={{
-        height:     'calc(100vh - 120px)',
+        height:     '100%',
         background: '#111B21',
         border:     '1px solid #2A3942',
       }}

@@ -380,6 +380,20 @@ img, svg { -webkit-touch-callout: none; }
   }
 }
 
+/* ── WhatsApp full-height shell ──────────────────────────────────── */
+/* Mobile/tablet: subtract header (56px) + bottom nav (54px) + safe area */
+.wa-height-shell {
+  height: calc(100vh - 110px);
+  height: calc(100dvh - 110px - env(safe-area-inset-bottom, 0px));
+}
+/* Desktop (lg+): no bottom nav — just subtract the header */
+@media (min-width: 1024px) {
+  .wa-height-shell {
+    height: calc(100vh - 56px);
+    height: calc(100dvh - 56px);
+  }
+}
+
 /* ── Keyframes ─────────────────────────────────────────────────────── */
 @keyframes fadeIn {
   from { opacity: 0; }

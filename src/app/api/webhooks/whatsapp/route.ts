@@ -230,13 +230,13 @@ async function updateDeliveryStatus(
 }
 
 // ── AI agent dispatch ─────────────────────────────────────────────────────
-async function dispatchAgent(from: string, text: string, orgId: string): Promise<void> {
+async function dispatchAgent(from: string, text: string, orgId: string, isAudio = false): Promise<void> {
   const n8nUrl = process.env.N8N_WEBHOOK_URL;
 
   if (n8nUrl) {
     // ── n8n AI agent path ────────────────────────────────────────────────
     try {
-      console.log(`[WA Agent] Forwarding to n8n: from=${from}, orgId=${orgId}`);
+      console.log(`[WA Agent] Forwarding to n8n: from=${from}, orgId=${orgId}, isAudio=${isAudio}`);
 
       const controller = new AbortController();
       const timeout    = setTimeout(() => controller.abort(), 29_000); // 29s — stay under Meta's 30s window
@@ -244,7 +244,7 @@ async function dispatchAgent(from: string, text: string, orgId: string): Promise
       const n8nRes = await fetch(n8nUrl, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ from, message: text, org_id: orgId }),
+        body:    JSON.stringify({ from, message: text, org_id: orgId, is_audio: isAudio }),
         signal:  controller.signal,
       }).finally(() => clearTimeout(timeout));
 
@@ -423,7 +423,7 @@ async function handleAudioMessage(from: string, mediaId: string, orgId: string):
   const preview = transcript.length > 120 ? transcript.slice(0, 120) + '…' : transcript;
   await sendText(from, `🎙️ Heard: "${preview}"`, orgId).catch(() => {});
 
-  await dispatchAgent(from, transcript, orgId);
+  await dispatchAgent(from, transcript, orgId, true);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────

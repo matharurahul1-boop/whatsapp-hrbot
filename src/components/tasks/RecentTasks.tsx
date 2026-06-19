@@ -43,7 +43,7 @@ export default async function RecentTasks({
 
   return (
     <Card noPad>
-      <div className="px-5 pt-5 pb-3 flex items-center justify-between">
+      <div className="px-3 sm:px-5 pt-5 pb-3 flex items-center justify-between">
         <CardTitle>Upcoming Tasks</CardTitle>
         <Link href="/tasks">
           <Button variant="ghost" size="sm" rightIcon={<ArrowRight className="h-3 w-3" />}>
@@ -66,7 +66,7 @@ export default async function RecentTasks({
             const assignee = t.assignee as { id?: string; full_name?: string; avatar_url?: string } | null;
             const overdue  = t.deadline && new Date(t.deadline) < new Date();
             return (
-              <li key={t.id} className="flex items-center gap-3 px-5 py-3 hover:bg-surface-200/30 transition-colors">
+              <li key={t.id} className="flex items-center gap-2 sm:gap-3 px-3 sm:px-5 py-3 hover:bg-surface-200/30 transition-colors">
                 <span className={cn('h-2 w-2 rounded-full shrink-0', PRIORITY_COLORS[t.priority] ?? 'bg-surface-500')} />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-surface-900 truncate">{t.title}</p>

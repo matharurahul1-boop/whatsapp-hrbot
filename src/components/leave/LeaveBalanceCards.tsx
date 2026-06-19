@@ -31,7 +31,7 @@ export default function LeaveBalanceCards({ balances }: { balances: Balance[] })
 
             <div>
               <div className="flex items-end gap-1">
-                <span className={`text-3xl font-bold tabular leading-none ${empty ? 'text-danger' : low ? 'text-warning' : 'text-surface-950'}`}>
+                <span className={`text-2xl sm:text-3xl font-bold tabular leading-none ${empty ? 'text-danger' : low ? 'text-warning' : 'text-surface-950'}`}>
                   {b.remaining_days}
                 </span>
                 <span className="text-xs text-surface-600 mb-0.5">/ {b.entitled_days} days</span>

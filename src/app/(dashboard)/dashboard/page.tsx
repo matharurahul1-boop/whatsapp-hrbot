@@ -72,7 +72,7 @@ export default async function DashboardPage() {
     <div className="space-y-8 max-w-7xl mx-auto animate-fade-up">
       {/* ── Header ── */}
       <div>
-        <h2 className="text-2xl font-bold text-surface-950">
+        <h2 className="text-xl sm:text-2xl font-bold text-surface-950">
           {greeting}, {firstName} 👋
         </h2>
         <p className="text-sm text-surface-700 mt-1">

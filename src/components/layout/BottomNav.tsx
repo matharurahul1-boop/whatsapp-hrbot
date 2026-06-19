@@ -118,7 +118,7 @@ export default function BottomNav({ role }: { role: UserRole }) {
               {/* Cloud popup */}
               {open && (
                 <div
-                  className="absolute bottom-[calc(100%+10px)] right-0 min-w-[192px] rounded-2xl border border-surface-300/50 shadow-modal"
+                  className="absolute bottom-[calc(100%+10px)] right-0 min-w-[192px] max-w-[calc(100vw-1rem)] rounded-2xl border border-surface-300/50 shadow-modal"
                   style={{
                     background:           'rgba(17,17,35,0.98)',
                     backdropFilter:       'blur(24px)',

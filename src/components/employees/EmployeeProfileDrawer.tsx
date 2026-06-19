@@ -161,7 +161,7 @@ export default function EmployeeProfileDrawer({ employee, onClose, canEdit, onUp
       {/* Drawer */}
       <div
         className={cn(
-          'fixed inset-y-0 right-0 z-50 w-96 flex flex-col bg-surface-100 border-l border-surface-300 shadow-modal',
+          'fixed inset-y-0 right-0 z-50 w-full sm:w-96 flex flex-col bg-surface-100 border-l border-surface-300 shadow-modal',
           'transition-transform duration-250 ease-out',
           employee ? 'translate-x-0' : 'translate-x-full'
         )}

@@ -67,7 +67,7 @@ export default function InvitePanel({ orgId }: { orgId: string }) {
               {/* Role select */}
               <div>
                 <p className="label">Select role</p>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   {ROLE_OPTIONS.map(opt => {
                     const active = role === opt.value;
                     return (

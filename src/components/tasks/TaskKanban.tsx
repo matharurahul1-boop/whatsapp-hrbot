@@ -356,7 +356,7 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
       {/* ── Toolbar ── */}
       <div className="flex items-center gap-3 flex-wrap">
         {/* Search */}
-        <div className="flex-1 min-w-[180px] max-w-xs">
+        <div className="flex-1 min-w-0 sm:min-w-[160px] max-w-xs">
           <Input
             placeholder="Search tasks…"
             value={search}

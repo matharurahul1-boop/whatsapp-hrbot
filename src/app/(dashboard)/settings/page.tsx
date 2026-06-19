@@ -242,7 +242,7 @@ export default function SettingsPage() {
           description="Your personal information shown across the app"
           icon={<User className="h-4 w-4" />}
         >
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field label="Full name">
               <TextInput value={fullName} onChange={setFullName} placeholder="Ashish Kumar" />
             </Field>
@@ -250,7 +250,7 @@ export default function SettingsPage() {
               <TextInput value={email} onChange={() => {}} disabled placeholder="you@company.com" />
             </Field>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field label="Department">
               <TextInput value={department} onChange={setDepartment} placeholder="Engineering" />
             </Field>
@@ -349,7 +349,7 @@ export default function SettingsPage() {
               </div>
 
               {/* Manual fields */}
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="col-span-1">
                   <Field label="Template name" hint="Must match exactly in Meta">
                     <TextInput value={waMsgTemplate} onChange={setWaMsgTemplate} placeholder="hrbot_message" />

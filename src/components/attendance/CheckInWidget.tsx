@@ -90,7 +90,7 @@ export default function CheckInWidget({ todayRecord, firstName }: CheckInWidgetP
           </div>
 
           {/* Status row */}
-          <div className="flex items-center gap-4 mt-3 text-xs text-surface-600">
+          <div className="flex items-center flex-wrap gap-x-4 gap-y-1 mt-3 text-xs text-surface-600">
             <span className="flex items-center gap-1.5">
               <LogIn className="h-3.5 w-3.5" />
               In: <strong className="text-surface-900">{formatTime(record?.check_in_time ?? null)}</strong>

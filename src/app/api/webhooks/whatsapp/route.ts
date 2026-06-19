@@ -3,7 +3,7 @@ import { waitUntil }                                      from '@vercel/function
 
 export const maxDuration = 60;
 import { verifyWebhookSignature, verifyWebhookChallenge } from '@/lib/whatsapp/verify';
-import { sendText, sendButtons, markMessageRead, downloadMediaContent } from '@/lib/whatsapp/client';
+import { sendText, sendButtons, sendList, markMessageRead, downloadMediaContent } from '@/lib/whatsapp/client';
 import { createAdminClient }                              from '@/lib/supabase/admin';
 import { runMasterAgent }                                 from '@/lib/ai/agent';
 import type { WAWebhookPayload, WAMessage, WAValue }      from '@/types/whatsapp.types';
@@ -280,7 +280,10 @@ async function dispatchAgent(from: string, text: string, orgId: string, isAudio 
 
       console.log(`[WA Agent] n8n reply for ${from}: "${reply.slice(0, 80)}…"`);
       const confirmButtons = json?.confirmButtons;
-      if (Array.isArray(confirmButtons) && confirmButtons.length > 0) {
+      const listItems      = json?.listItems;
+      if (Array.isArray(listItems) && listItems.length > 0) {
+        await sendList(from, reply, json?.listButtonLabel ?? 'Select', listItems, orgId);
+      } else if (Array.isArray(confirmButtons) && confirmButtons.length > 0) {
         await sendButtons(from, reply, confirmButtons, orgId);
       } else {
         await sendText(from, reply, orgId);
@@ -454,6 +457,6 @@ function extractText(msg: WAMessage): string | null {
   if (msg.type === 'text')        return msg.text?.body ?? null;
   if (msg.type === 'button')      return msg.button?.payload ?? null;
   if (msg.type === 'interactive')
-    return msg.interactive?.button_reply?.title ?? msg.interactive?.list_reply?.title ?? null;
+    return msg.interactive?.button_reply?.id ?? msg.interactive?.list_reply?.id ?? null;
   return null;
 }

@@ -7,6 +7,7 @@ import { sendText, sendButtons, markMessageRead, downloadMediaContent } from '@/
 import { createAdminClient }                              from '@/lib/supabase/admin';
 import { runMasterAgent }                                 from '@/lib/ai/agent';
 import type { WAWebhookPayload, WAMessage, WAValue }      from '@/types/whatsapp.types';
+import { rateLimit }                                      from '@/lib/rate-limit';
 
 // ── GET — webhook verification challenge ─────────────────────────────────
 export async function GET(req: NextRequest) {
@@ -30,6 +31,16 @@ export async function POST(req: NextRequest) {
     console.warn('[WA Webhook] ❌ Signature mismatch');
     return new NextResponse('Unauthorized', { status: 401 });
   }
+
+  // Per-sender rate limit: 20 messages / minute to prevent abuse
+  try {
+    const body   = JSON.parse(rawBody);
+    const from   = body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.from as string | undefined;
+    if (from && !rateLimit(from, 20, 60_000)) {
+      console.warn(`[WA Webhook] ⚠️ Rate limited: ${from}`);
+      return new NextResponse('Too Many Requests', { status: 429 });
+    }
+  } catch { /* non-message events (status updates) skip rate limit */ }
 
   console.log('[WA Webhook] ✅ Request verified — processing...');
 

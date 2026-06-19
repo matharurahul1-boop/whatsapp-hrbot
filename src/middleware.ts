@@ -38,6 +38,12 @@ export async function middleware(request: NextRequest) {
     '/api/agent',            // called by n8n / services with Bearer APP_SECRET
     '/api/escalate-leaves',  // called by cron with x-escalation-secret header
     '/api/reminders/run',    // called by cron with Bearer APP_SECRET
+    // PWA assets — must be public so browsers can install without being logged in
+    '/manifest.webmanifest',
+    '/sw.js',
+    '/icon-192',
+    '/icon-512',
+    '/apple-icon',
   ];
   const isPublic = publicPrefixes.some(p => pathname.startsWith(p));
 

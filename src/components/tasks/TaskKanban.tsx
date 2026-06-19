@@ -17,12 +17,19 @@ import { formatDate } from '@/lib/utils/date';
 type TaskStatus = 'todo' | 'in_progress' | 'done' | 'cancelled';
 type ViewMode   = 'kanban' | 'list';
 
-const COLUMNS: { id: TaskStatus; label: string; color: string; dot: string; bg: string }[] = [
-  { id: 'todo',        label: 'To Do',       color: 'text-surface-700', dot: 'bg-surface-500', bg: 'bg-surface-300/40'  },
-  { id: 'in_progress', label: 'In Progress',  color: 'text-info',        dot: 'bg-info',        bg: 'bg-info/10'         },
-  { id: 'done',        label: 'Done',         color: 'text-success',     dot: 'bg-success',     bg: 'bg-success/10'      },
-  { id: 'cancelled',   label: 'Cancelled',    color: 'text-danger',      dot: 'bg-danger',      bg: 'bg-danger/10'       },
+const COLUMNS: { id: TaskStatus; label: string; color: string; dot: string; bg: string; accent: string; iconColor: string }[] = [
+  { id: 'todo',        label: 'To Do',       color: 'text-surface-600', dot: 'bg-surface-400', bg: 'bg-surface-300/40', accent: 'border-t-surface-400', iconColor: 'text-surface-500' },
+  { id: 'in_progress', label: 'In Progress',  color: 'text-info',        dot: 'bg-info',        bg: 'bg-info/10',        accent: 'border-t-info',        iconColor: 'text-info'        },
+  { id: 'done',        label: 'Done',         color: 'text-success',     dot: 'bg-success',     bg: 'bg-success/10',     accent: 'border-t-success',     iconColor: 'text-success'     },
+  { id: 'cancelled',   label: 'Cancelled',    color: 'text-danger',      dot: 'bg-danger',      bg: 'bg-danger/10',      accent: 'border-t-danger',      iconColor: 'text-danger'      },
 ];
+
+const STAT_ICONS: Record<TaskStatus, React.ElementType> = {
+  todo:        Circle,
+  in_progress: PlayCircle,
+  done:        CheckCircle2,
+  cancelled:   XCircle,
+};
 
 const PRI_CFG: Record<string, { label: string; dot: string; border: string; text: string; bg: string }> = {
   urgent: { label: 'Urgent', dot: 'bg-danger',   border: 'border-l-danger',   text: 'text-danger',   bg: 'bg-danger/10'   },
@@ -308,26 +315,32 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {COLUMNS.map(col => {
           const count = tasks.filter(t => t.status === col.id).length;
+          const pct   = total > 0 ? Math.round((count / total) * 100) : 0;
+          const Icon  = STAT_ICONS[col.id];
           return (
-            <button
+            <div
               key={col.id}
-              type="button"
-              onClick={() => {
-                // clicking a stat chip filters by that status — no dedicated filter yet, show in kanban
-              }}
               className={cn(
-                'flex items-center gap-3 p-3 rounded-2xl border transition-all text-left',
-                'bg-surface-200/40 border-surface-300/40 hover:border-surface-400/60 hover:bg-surface-200/70'
+                'relative rounded-2xl border border-surface-300/40 border-t-2 p-4 transition-all',
+                'bg-surface-200/40 hover:bg-surface-200/70',
+                col.accent
               )}
             >
-              <span className={cn('flex h-9 w-9 items-center justify-center rounded-xl shrink-0', col.bg)}>
-                <span className={cn('h-2.5 w-2.5 rounded-full', col.dot)} />
-              </span>
-              <div>
-                <p className="text-xl font-bold text-surface-900 leading-none">{count}</p>
-                <p className={cn('text-xs font-medium mt-0.5', col.color)}>{col.label}</p>
+              <div className="flex items-start justify-between mb-3">
+                <span className={cn('flex h-10 w-10 items-center justify-center rounded-xl', col.bg)}>
+                  <Icon className={cn('h-5 w-5', col.iconColor)} />
+                </span>
+                <span className="text-xs font-semibold text-surface-500 tabular-nums">{pct}%</span>
               </div>
-            </button>
+              <p className="text-3xl font-bold text-surface-900 leading-none tabular-nums">{count}</p>
+              <p className={cn('text-xs font-semibold mt-1.5 uppercase tracking-wide', col.color)}>{col.label}</p>
+              <div className="mt-3 h-1 w-full rounded-full bg-surface-300/50 overflow-hidden">
+                <div
+                  className={cn('h-1 rounded-full transition-all duration-500', col.dot)}
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+            </div>
           );
         })}
       </div>

@@ -8,6 +8,7 @@ import { Avatar } from '@/components/ui/Avatar';
 import { cn } from '@/lib/utils/cn';
 import { useTheme } from '@/components/layout/ThemeProvider';
 import { useSidebar } from '@/components/layout/SidebarProvider';
+import InstallButton from '@/components/layout/InstallButton';
 
 interface HeaderProps {
   userName:  string;
@@ -132,6 +133,9 @@ export default function Header({ userName, userRole, avatarUrl }: HeaderProps) {
 
       {/* Right — theme toggle + notifications + user + logout */}
       <div className="flex items-center gap-1.5 shrink-0">
+
+        {/* PWA Install */}
+        <InstallButton />
 
         {/* Theme toggle */}
         <button

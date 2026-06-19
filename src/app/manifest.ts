@@ -17,7 +17,6 @@ export default function manifest(): MetadataRoute.Manifest {
       { src: '/icon-512',   sizes: '512x512', type: 'image/png', purpose: 'maskable' },
       { src: '/apple-icon', sizes: '180x180', type: 'image/png'                       },
     ],
-    screenshots: [],
     shortcuts: [
       { name: 'Tasks',      short_name: 'Tasks', url: '/tasks',      icons: [{ src: '/icon-192.svg', sizes: '192x192' }] },
       { name: 'Leave',      short_name: 'Leave', url: '/leave',      icons: [{ src: '/icon-192.svg', sizes: '192x192' }] },

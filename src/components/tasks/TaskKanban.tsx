@@ -279,7 +279,7 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
   const [priorityFilter, setPriorityFilter] = useState('');
   const [assigneeFilter, setAssigneeFilter] = useState('');
   const [showFilters,    setShowFilters]    = useState(false);
-  const [view,           setView]           = useState<ViewMode>('kanban');
+  const [view,           setView]           = useState<ViewMode>('list');
   const [, forceRefresh] = useState(0);
 
   const isManager = ['super_admin', 'admin', 'hr', 'manager'].includes(userRole);
@@ -403,20 +403,6 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
           <div className="flex items-center gap-0.5 p-0.5 rounded-xl bg-surface-200/60 border border-surface-300/50">
             <button
               type="button"
-              onClick={() => setView('kanban')}
-              title="Kanban view"
-              className={cn(
-                'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all',
-                view === 'kanban'
-                  ? 'bg-surface-100 text-surface-900 shadow-sm border border-surface-300/50'
-                  : 'text-surface-500 hover:text-surface-700'
-              )}
-            >
-              <LayoutGrid className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Kanban</span>
-            </button>
-            <button
-              type="button"
               onClick={() => setView('list')}
               title="List view"
               className={cn(
@@ -428,6 +414,20 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
             >
               <List className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">List</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setView('kanban')}
+              title="Kanban view"
+              className={cn(
+                'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all',
+                view === 'kanban'
+                  ? 'bg-surface-100 text-surface-900 shadow-sm border border-surface-300/50'
+                  : 'text-surface-500 hover:text-surface-700'
+              )}
+            >
+              <LayoutGrid className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Kanban</span>
             </button>
           </div>
         </div>

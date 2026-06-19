@@ -8,6 +8,7 @@ import { SidebarProvider } from '@/components/layout/SidebarProvider';
 import { SidebarShell } from '@/components/layout/SidebarShell';
 import { SidebarToggle } from '@/components/layout/SidebarToggle';
 import { ContentShell } from '@/components/layout/ContentShell';
+import BottomNav from '@/components/layout/BottomNav';
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
@@ -46,12 +47,16 @@ export default async function DashboardLayout({ children }: { children: React.Re
               avatarUrl={profile.avatar_url ?? null}
             />
             <main className="flex-1 overflow-hidden flex flex-col">
-              <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6 lg:p-8 max-w-screen-2xl mx-auto w-full">
+              {/* Extra bottom padding on mobile so content clears the bottom nav */}
+              <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 pb-24 md:p-6 md:pb-6 lg:p-8 max-w-screen-2xl mx-auto w-full">
                 <ContentShell>{children}</ContentShell>
               </div>
             </main>
           </SidebarShell>
         </div>
+
+        {/* Mobile bottom navigation — hidden on desktop (lg+) */}
+        <BottomNav role={profile.role} />
       </SidebarProvider>
     </ThemeProvider>
   );

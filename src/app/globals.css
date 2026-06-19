@@ -316,6 +316,12 @@
   .no-scrollbar::-webkit-scrollbar { display: none; }
   .tabular          { font-variant-numeric: tabular-nums; }
 
+  /* iOS safe area padding */
+  .pb-safe  { padding-bottom: env(safe-area-inset-bottom); }
+  .pt-safe  { padding-top:    env(safe-area-inset-top);    }
+  .pl-safe  { padding-left:   env(safe-area-inset-left);   }
+  .pr-safe  { padding-right:  env(safe-area-inset-right);  }
+
   .shimmer {
     position: relative;
     overflow: hidden;
@@ -326,6 +332,51 @@
     inset: 0;
     background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.04) 50%, transparent 100%);
     animation: shimmer 1.5s infinite;
+  }
+}
+
+/* ── Mobile / PWA global tweaks ────────────────────────────────────── */
+
+/* Disable double-tap zoom on interactive elements */
+button, a, [role="button"] {
+  touch-action: manipulation;
+}
+
+/* Prevent iOS callout on long-press */
+img, svg { -webkit-touch-callout: none; }
+
+/* Smoother scrolling on iOS */
+.overflow-y-auto, .overflow-y-scroll {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Kanban horizontal scroll on mobile — snap to columns */
+@media (max-width: 767px) {
+  .kanban-board {
+    scroll-snap-type: x mandatory;
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+  .kanban-col {
+    scroll-snap-align: start;
+    width: 85vw;
+    min-width: 85vw;
+  }
+}
+
+/* Stat cards — single column on very small screens */
+@media (max-width: 479px) {
+  .page-title { @apply text-lg; }
+}
+
+/* iOS standalone: top inset for Dynamic Island / notch */
+@media all and (display-mode: standalone) {
+  body {
+    padding-top: env(safe-area-inset-top);
+  }
+  .topbar {
+    padding-top: env(safe-area-inset-top);
+    height: calc(3.5rem + env(safe-area-inset-top));
   }
 }
 

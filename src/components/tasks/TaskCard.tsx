@@ -48,9 +48,10 @@ interface TaskCardProps {
   };
   canEdit: boolean;
   employees: Employee[];
+  listMode?: boolean;
 }
 
-export default function TaskCard({ task, canEdit, employees }: TaskCardProps) {
+export default function TaskCard({ task, canEdit, employees, listMode = false }: TaskCardProps) {
   const router = useRouter();
   const [editOpen,      setEditOpen]      = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -140,6 +141,85 @@ export default function TaskCard({ task, canEdit, employees }: TaskCardProps) {
     if (!res.ok) setStatus(prev);
     setUpdating(false);
     router.refresh();
+  }
+
+  // List mode — render only the action button + modals (no card wrapper)
+  if (listMode) {
+    return (
+      <>
+        {canEdit && (
+          <DropdownMenu.Root>
+            <DropdownMenu.Trigger asChild>
+              <button
+                className="p-1.5 rounded-lg text-surface-500 hover:text-surface-900 hover:bg-surface-300/60 transition-all"
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </button>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content
+                className="z-50 min-w-[160px] rounded-xl bg-surface-100 border border-surface-300 shadow-modal p-1.5 animate-[scaleIn_0.12s_ease-out]"
+                align="end" sideOffset={4}
+              >
+                <DropdownMenu.Item
+                  onSelect={() => { setForm({ title: task.title, description: task.description ?? '', assignee_id: task.assignee?.id ?? '', deadline: task.deadline ? task.deadline.slice(0, 16) : '', priority: task.priority, status: status }); setEditOpen(true); }}
+                  className="flex items-center gap-2.5 px-2.5 py-2 text-xs text-surface-700 rounded-lg cursor-pointer hover:bg-surface-200/80 outline-none"
+                >
+                  Edit Task
+                </DropdownMenu.Item>
+                <DropdownMenu.Separator className="my-1 h-px bg-surface-300/80" />
+                <DropdownMenu.Item
+                  onSelect={() => setConfirmDelete(true)}
+                  className="flex items-center gap-2.5 px-2.5 py-2 text-xs text-danger rounded-lg cursor-pointer hover:bg-danger/10 outline-none"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Delete Task
+                </DropdownMenu.Item>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
+        )}
+        <ConfirmDialog
+          open={confirmDelete} onOpenChange={setConfirmDelete}
+          title="Delete Task"
+          description={`"${task.title}" will be permanently deleted.`}
+          confirmLabel="Delete" variant="danger" onConfirm={handleDelete}
+        />
+        <Dialog open={editOpen} onOpenChange={setEditOpen}>
+          <DialogContent size="md">
+            <DialogHeader><DialogTitle>Update Task</DialogTitle></DialogHeader>
+            <form onSubmit={handleSave}>
+              <DialogBody className="space-y-4">
+                <Input label="Title *" value={form.title} onChange={e => setField('title', e.target.value)} autoFocus />
+                <Textarea label="Description" placeholder="Optional details…" value={form.description} onChange={e => setField('description', e.target.value)} rows={3} />
+                <div className="grid grid-cols-2 gap-4">
+                  <SelectNative label="Status" value={form.status} onChange={e => setField('status', e.target.value)}>
+                    {(Object.entries(STATUS_CFG) as [TaskStatus, typeof STATUS_CFG[TaskStatus]][]).map(([s, c]) => (
+                      <option key={s} value={s}>{c.label}</option>
+                    ))}
+                  </SelectNative>
+                  <SelectNative label="Priority" value={form.priority} onChange={e => setField('priority', e.target.value)} options={PRIORITIES} />
+                </div>
+                {employees.length > 0 && (
+                  <SelectNative label="Assign to" value={form.assignee_id} onChange={e => setField('assignee_id', e.target.value)}>
+                    <option value="">Unassigned</option>
+                    {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.full_name}</option>)}
+                  </SelectNative>
+                )}
+                <Input label="Deadline" type="datetime-local" value={form.deadline} onChange={e => setField('deadline', e.target.value)} />
+              </DialogBody>
+              <DialogFooter>
+                <Button variant="ghost" size="md" type="button" onClick={() => setConfirmDelete(true)} className="text-danger hover:text-danger hover:bg-danger/10 mr-auto">
+                  <Trash2 className="h-3.5 w-3.5 mr-1.5" />Delete
+                </Button>
+                <Button variant="ghost" size="md" type="button" onClick={() => setEditOpen(false)} disabled={updating}>Cancel</Button>
+                <Button variant="primary" size="md" type="submit" loading={updating}>Save</Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      </>
+    );
   }
 
   return (

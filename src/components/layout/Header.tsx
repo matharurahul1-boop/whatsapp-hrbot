@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import { Bell, LogOut, X, Menu, ChevronRight, Home, Sun, Moon } from 'lucide-react';
+import { Bell, LogOut, X, ChevronRight, Home, Sun, Moon } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Avatar } from '@/components/ui/Avatar';
 import { cn } from '@/lib/utils/cn';
@@ -41,7 +41,7 @@ export default function Header({ userName, userRole, avatarUrl }: HeaderProps) {
   const supabase = createClient();
   const { theme, toggleTheme } = useTheme();
 
-  const { mobileOpen, openMobile, closeMobile } = useSidebar();
+  const { closeMobile } = useSidebar();
 
   const notifRef    = useRef<HTMLDivElement>(null);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -101,16 +101,8 @@ export default function Header({ userName, userRole, avatarUrl }: HeaderProps) {
 
   return (
     <header className="topbar shrink-0">
-      {/* Left — hamburger + breadcrumbs */}
+      {/* Left — breadcrumbs */}
       <div className="flex items-center gap-2 min-w-0 flex-1">
-        {/* Mobile-only hamburger (desktop uses the one in the sidebar brand section) */}
-        <button
-          onClick={() => mobileOpen ? closeMobile() : openMobile()}
-          className="lg:hidden flex h-8 w-8 items-center justify-center rounded-lg text-surface-600 hover:bg-surface-300 hover:text-surface-950 transition-colors shrink-0"
-        >
-          {mobileOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
-        </button>
-
         {/* Breadcrumbs */}
         <nav className="flex items-center gap-1 text-sm min-w-0 overflow-hidden">
           <a href="/dashboard" className="shrink-0 text-surface-600 hover:text-surface-900 transition-colors p-1 rounded-lg hover:bg-surface-200">

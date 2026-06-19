@@ -48,7 +48,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
             />
             <main className="flex-1 overflow-hidden flex flex-col">
               {/* Extra bottom padding on mobile so content clears the bottom nav */}
-              <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 pb-24 md:p-6 md:pb-6 lg:p-8 max-w-screen-2xl mx-auto w-full">
+              <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 pb-24 md:p-6 md:pb-24 lg:p-8 lg:pb-8 max-w-screen-2xl mx-auto w-full">
                 <ContentShell>{children}</ContentShell>
               </div>
             </main>

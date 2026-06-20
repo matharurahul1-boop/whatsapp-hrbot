@@ -725,7 +725,7 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
   return (
     // Full height minus the dashboard header
     <div
-      className="flex rounded-xl overflow-hidden shadow-2xl"
+      className="flex md:rounded-xl overflow-hidden shadow-2xl"
       style={{
         height:     '100%',
         background: '#111B21',

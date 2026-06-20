@@ -46,12 +46,13 @@ interface TaskCardProps {
     deadline: string | null; description: string | null;
     assignee: { id: string; full_name: string; avatar_url: string | null } | null;
   };
-  canEdit: boolean;
-  employees: Employee[];
-  listMode?: boolean;
+  canEdit:        boolean;
+  employees:      Employee[];
+  listMode?:      boolean;
+  onStatusChange?: (id: string, status: string) => void;
 }
 
-export default function TaskCard({ task, canEdit, employees, listMode = false }: TaskCardProps) {
+export default function TaskCard({ task, canEdit, employees, listMode = false, onStatusChange }: TaskCardProps) {
   const router = useRouter();
   const [editOpen,      setEditOpen]      = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -109,6 +110,7 @@ export default function TaskCard({ task, canEdit, employees, listMode = false }:
       });
       if (res.ok) {
         setStatus(form.status);
+        onStatusChange?.(task.id, form.status);
         setEditOpen(false);
         router.refresh();
       }
@@ -139,6 +141,7 @@ export default function TaskCard({ task, canEdit, employees, listMode = false }:
       body:    JSON.stringify({ status: next }),
     });
     if (!res.ok) setStatus(prev);
+    else onStatusChange?.(task.id, next);
     setUpdating(false);
     router.refresh();
   }
@@ -158,9 +161,13 @@ export default function TaskCard({ task, canEdit, employees, listMode = false }:
             </DropdownMenu.Trigger>
             <DropdownMenu.Portal>
               <DropdownMenu.Content
-                className="z-50 min-w-[160px] rounded-xl bg-surface-100 border border-surface-300 shadow-modal p-1.5 animate-[scaleIn_0.12s_ease-out]"
+                className="z-50 min-w-[200px] max-w-[280px] rounded-xl bg-surface-100 border border-surface-300 shadow-modal p-1.5 animate-[scaleIn_0.12s_ease-out]"
                 align="end" sideOffset={4}
               >
+                {/* Task title shown in full */}
+                <div className="px-2.5 py-2 mb-1 border-b border-surface-300/60">
+                  <p className="text-xs font-semibold text-surface-900 leading-snug">{task.title}</p>
+                </div>
                 <DropdownMenu.Item
                   onSelect={() => { setForm({ title: task.title, description: task.description ?? '', assignee_id: task.assignee?.id ?? '', deadline: task.deadline ? task.deadline.slice(0, 16) : '', priority: task.priority, status: status }); setEditOpen(true); }}
                   className="flex items-center gap-2.5 px-2.5 py-2 text-xs text-surface-700 rounded-lg cursor-pointer hover:bg-surface-200/80 outline-none"
@@ -267,10 +274,14 @@ export default function TaskCard({ task, canEdit, employees, listMode = false }:
 
               <DropdownMenu.Portal>
                 <DropdownMenu.Content
-                  className="z-50 min-w-[160px] rounded-xl bg-surface-100 border border-surface-300 shadow-modal p-1.5 animate-[scaleIn_0.12s_ease-out]"
+                  className="z-50 min-w-[200px] max-w-[280px] rounded-xl bg-surface-100 border border-surface-300 shadow-modal p-1.5 animate-[scaleIn_0.12s_ease-out]"
                   align="end" sideOffset={4}
                   onClick={e => e.stopPropagation()}
                 >
+                  {/* Task title shown in full */}
+                  <div className="px-2.5 py-2 mb-1 border-b border-surface-300/60">
+                    <p className="text-xs font-semibold text-surface-900 leading-snug">{task.title}</p>
+                  </div>
                   <DropdownMenu.Item
                     onSelect={() => setEditOpen(true)}
                     className="flex items-center gap-2.5 px-2.5 py-2 text-xs text-surface-700 rounded-lg cursor-pointer hover:bg-surface-200/80 outline-none"

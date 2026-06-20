@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo, useRef, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Search, SlidersHorizontal, X, ChevronDown, Users, Check,
   LayoutGrid, List, Clock, AlertTriangle, CheckCircle2,
@@ -162,8 +163,8 @@ function EmployeeDropdown({
 
 /* ── Inline list-row quick toggle (mirrors TaskCard quickToggle) ── */
 function ListRow({
-  task, canEdit, employees, onRefresh,
-}: { task: Task; canEdit: boolean; employees: Employee[]; onRefresh: () => void }) {
+  task, canEdit, employees, onStatusChange,
+}: { task: Task; canEdit: boolean; employees: Employee[]; onStatusChange: (id: string, status: string) => void }) {
   const [status,   setStatus]   = useState<TaskStatus>(task.status as TaskStatus);
   const [updating, setUpdating] = useState(false);
 
@@ -184,8 +185,8 @@ function ListRow({
       body:    JSON.stringify({ status: next }),
     });
     if (!res.ok) setStatus(prev);
+    else onStatusChange(task.id, next);
     setUpdating(false);
-    onRefresh();
   }
 
   return (
@@ -275,12 +276,22 @@ function ListRow({
 }
 
 export default function TaskKanban({ tasks, userId, userRole, employees }: TaskKanbanProps) {
+  const router = useRouter();
   const [search,         setSearch]         = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
   const [assigneeFilter, setAssigneeFilter] = useState('');
   const [showFilters,    setShowFilters]    = useState(false);
   const [view,           setView]           = useState<ViewMode>('list');
-  const [, forceRefresh] = useState(0);
+  const [localTasks,     setLocalTasks]     = useState(tasks);
+
+  // Sync when server re-fetches new task data
+  useEffect(() => { setLocalTasks(tasks); }, [tasks]);
+
+  // Immediately move a task to its new status section, then server-sync
+  function updateTaskStatus(taskId: string, newStatus: string) {
+    setLocalTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
+    router.refresh();
+  }
 
   const isManager = ['super_admin', 'admin', 'hr', 'manager'].includes(userRole);
 
@@ -290,20 +301,20 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
     t.created_by === userId;
 
   const now = new Date();
-  const overdueCount = tasks.filter(t =>
+  const overdueCount = localTasks.filter(t =>
     t.deadline && t.status !== 'done' && t.status !== 'cancelled' && new Date(t.deadline) < now
   ).length;
 
   const filtered = useMemo(() => {
-    let r = tasks;
+    let r = localTasks;
     if (search)         r = r.filter(t => t.title.toLowerCase().includes(search.toLowerCase()));
     if (priorityFilter) r = r.filter(t => t.priority === priorityFilter);
     if (assigneeFilter) r = r.filter(t => t.assignee?.id === assigneeFilter);
     return r;
-  }, [tasks, search, priorityFilter, assigneeFilter]);
+  }, [localTasks, search, priorityFilter, assigneeFilter]);
 
   const byStatus = (s: TaskStatus) => filtered.filter(t => t.status === s);
-  const total    = tasks.length;
+  const total    = localTasks.length;
   const active   = filtered.length;
 
   const hasFilter = !!(assigneeFilter || priorityFilter || search);
@@ -314,7 +325,7 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
       {/* ── Stats bar ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {COLUMNS.map(col => {
-          const count = tasks.filter(t => t.status === col.id).length;
+          const count = localTasks.filter(t => t.status === col.id).length;
           const pct   = total > 0 ? Math.round((count / total) * 100) : 0;
           const Icon  = STAT_ICONS[col.id];
           return (
@@ -354,9 +365,9 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
       )}
 
       {/* ── Toolbar ── */}
-      <div className="flex items-center gap-3 flex-wrap">
-        {/* Search */}
-        <div className="flex-1 min-w-0 sm:min-w-[160px] max-w-xs">
+      <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+        {/* Search — full width on mobile so placeholder is visible */}
+        <div className="basis-full sm:basis-auto sm:flex-1 sm:min-w-[160px] sm:max-w-xs">
           <Input
             placeholder="Search tasks…"
             value={search}
@@ -477,7 +488,7 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
                       No tasks
                     </div>
                   ) : cards.map(task => (
-                    <TaskCard key={task.id} task={task} canEdit={canEdit(task)} employees={employees} />
+                    <TaskCard key={task.id} task={task} canEdit={canEdit(task)} employees={employees} onStatusChange={updateTaskStatus} />
                   ))}
                 </div>
               </div>
@@ -522,7 +533,7 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
                       task={task}
                       canEdit={canEdit(task)}
                       employees={employees}
-                      onRefresh={() => forceRefresh(n => n + 1)}
+                      onStatusChange={updateTaskStatus}
                     />
                   ))}
                 </div>

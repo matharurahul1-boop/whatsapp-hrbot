@@ -1624,7 +1624,7 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
               )}
 
               <div
-                className="flex items-end gap-2 px-3 py-2 rounded-2xl"
+                className="flex items-center gap-2 px-3 py-2 rounded-2xl"
                 style={{
                   background:  isRecording ? '#1A0A0A' : '#202C33',
                   border:      isRecording ? '1px solid #EF4444' : '1px solid transparent',
@@ -1633,7 +1633,7 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
               >
                 {/* Emoji button — hidden while recording */}
                 {!isRecording && !isTranscribing && (
-                  <button className="p-1.5 rounded-full hover:bg-white/10 transition-colors shrink-0 mb-0.5">
+                  <button className="p-1.5 rounded-full hover:bg-white/10 transition-colors shrink-0">
                     <Smile size={22} style={{ color: '#8696A0' }} />
                   </button>
                 )}
@@ -1690,7 +1690,7 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
                   <button
                     onClick={handleSend}
                     disabled={sending}
-                    className="p-2 rounded-full transition-all shrink-0 mb-0.5 flex items-center justify-center"
+                    className="p-2 rounded-full transition-all shrink-0 flex items-center justify-center"
                     style={{
                       background: sending ? '#1A3D32' : '#00A884',
                       opacity:    sending ? 0.7 : 1,
@@ -1705,7 +1705,7 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
                 ) : isTranscribing ? (
                   /* Transcribing spinner */
                   <div
-                    className="flex items-center justify-center shrink-0 mb-0.5 rounded-full"
+                    className="flex items-center justify-center shrink-0 rounded-full"
                     style={{ width: 36, height: 36, background: '#1A3D32' }}
                     title="Transcribing…"
                   >
@@ -1715,7 +1715,7 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
                   /* Stop recording button — red pulsing */
                   <button
                     onClick={stopRecording}
-                    className="shrink-0 mb-0.5 flex items-center justify-center rounded-full transition-all"
+                    className="shrink-0 flex items-center justify-center rounded-full transition-all"
                     style={{ width: 36, height: 36, background: '#EF4444' }}
                     title="Stop recording"
                   >
@@ -1725,7 +1725,7 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
                   /* Idle mic button */
                   <button
                     onClick={startRecording}
-                    className="p-2 rounded-full hover:bg-white/10 transition-colors shrink-0 mb-0.5"
+                    className="p-2 rounded-full hover:bg-white/10 transition-colors shrink-0"
                     title="Voice message (any language → English)"
                   >
                     <Mic size={22} style={{ color: '#8696A0' }} />

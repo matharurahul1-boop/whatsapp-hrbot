@@ -199,7 +199,7 @@ export default function Header({ userName, userRole, avatarUrl }: HeaderProps) {
                   >
                     {!n.is_read && <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-brand-500 shrink-0" />}
                     <div className={cn('flex-1 min-w-0', n.is_read && 'pl-3.5')}>
-                      <p className="text-xs font-semibold text-surface-900 truncate">{n.title}</p>
+                      <p className="text-xs font-semibold text-surface-900 leading-snug">{n.title}</p>
                       <p className="text-xs text-surface-600 mt-0.5 line-clamp-2">{n.body}</p>
                       <p className="text-2xs text-surface-500 mt-1">{timeAgo(n.created_at)}</p>
                     </div>

@@ -7,6 +7,7 @@ import {
   ChevronDown, CheckCircle2, AlertCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
+import { ExpandText } from '@/components/ui/ExpandText';
 
 interface PolicyDoc {
   id:         string;
@@ -327,7 +328,7 @@ export default function PolicyBotPage() {
                     <FileText className="h-4 w-4 text-blue-400" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-surface-950 truncate">{doc.title}</p>
+                    <ExpandText className="text-sm font-medium text-surface-950 block">{doc.title}</ExpandText>
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className={cn('badge text-2xs', CATEGORY_COLORS[doc.category] ?? CATEGORY_COLORS.general)}>
                         <Tag className="h-2.5 w-2.5" />
@@ -338,7 +339,7 @@ export default function PolicyBotPage() {
                       </span>
                     </div>
                     {doc.file_name && (
-                      <p className="text-2xs text-surface-600 truncate mt-0.5">{doc.file_name}</p>
+                      <ExpandText className="text-2xs text-surface-600 block mt-0.5">{doc.file_name}</ExpandText>
                     )}
                   </div>
                   <button

@@ -133,9 +133,9 @@ export default function EmployeeGrid({ employees: initialEmployees, canEdit }: E
                 </div>
 
                 <div className="min-w-0 w-full">
-                  <p className="text-sm font-semibold text-surface-950 truncate">{emp.full_name}</p>
+                  <p className="text-sm font-semibold text-surface-950 leading-snug break-words">{emp.full_name}</p>
                   {emp.designation && (
-                    <p className="text-xs text-surface-600 truncate mt-0.5">{emp.designation}</p>
+                    <p className="text-xs text-surface-600 mt-0.5 break-words">{emp.designation}</p>
                   )}
                 </div>
 

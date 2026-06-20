@@ -26,7 +26,7 @@ export default function LeaveBalanceCards({ balances }: { balances: Balance[] })
                 className="h-2.5 w-2.5 rounded-full shrink-0"
                 style={{ backgroundColor: color }}
               />
-              <span className="text-xs font-semibold text-surface-700 truncate">{b.leave_type}</span>
+              <span className="text-xs font-semibold text-surface-700 leading-tight">{b.leave_type}</span>
             </div>
 
             <div>

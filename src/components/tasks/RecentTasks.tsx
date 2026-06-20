@@ -68,7 +68,7 @@ export default async function RecentTasks({
             return (
               <li key={t.id} className="flex items-center gap-2 sm:gap-3 px-3 sm:px-5 py-3 hover:bg-surface-200/30 transition-colors">
                 <span className={cn('h-2 w-2 rounded-full shrink-0', PRIORITY_COLORS[t.priority] ?? 'bg-surface-500')} />
-                <div className="flex-1 min-w-0">
+                <div className="flex-1 min-w-0 overflow-hidden">
                   <p className="text-sm font-medium text-surface-900 truncate">{t.title}</p>
                   {t.deadline ? (
                     <p className={cn('text-xs mt-0.5 truncate', overdue ? 'text-danger font-medium' : 'text-surface-600')}>

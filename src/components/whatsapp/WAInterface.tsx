@@ -1118,7 +1118,7 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
                     </span>
                   )}
                 </div>
-                <p className="text-xs truncate" style={{ color: '#8696A0' }}>
+                <p className="text-xs" style={{ color: '#8696A0' }}>
                   {isSelfConvo
                     ? '🤖 AI replies to your messages'
                     : `+${activeConvo.wa_number}`}

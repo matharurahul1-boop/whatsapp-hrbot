@@ -71,17 +71,17 @@ export default async function RecentTasks({
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-surface-900 truncate">{t.title}</p>
                   {t.deadline ? (
-                    <p className={cn('text-xs mt-0.5', overdue ? 'text-danger font-medium' : 'text-surface-600')}>
+                    <p className={cn('text-xs mt-0.5 truncate', overdue ? 'text-danger font-medium' : 'text-surface-600')}>
                       {overdue ? '⚠ Overdue · ' : ''}{formatDate(t.deadline)}
                     </p>
                   ) : (
-                    <p className="text-xs text-surface-500 mt-0.5">No deadline</p>
+                    <p className="text-xs text-surface-500 mt-0.5 truncate">No deadline</p>
                   )}
                 </div>
                 {assignee && (
                   <Avatar src={assignee.avatar_url} name={assignee.full_name} size="xs" />
                 )}
-                <StatusBadge status={t.status} />
+                <StatusBadge status={t.status} className="shrink-0 whitespace-nowrap" />
               </li>
             );
           })}

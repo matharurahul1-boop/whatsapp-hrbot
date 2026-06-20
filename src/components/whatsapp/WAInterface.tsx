@@ -1091,44 +1091,44 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
           <>
             {/* ── Chat header ── */}
             <div
-              className="flex items-center gap-3 px-4 py-2.5 shrink-0"
+              className="flex items-center gap-2 px-3 py-2 shrink-0"
               style={{ background: '#202C33', borderBottom: '1px solid #2A3942' }}
             >
               {/* Mobile back button */}
               <button
                 onClick={() => setMobileShowChat(false)}
-                className="md:hidden p-1 rounded-full hover:bg-white/10 mr-1"
+                className="md:hidden p-1 rounded-full hover:bg-white/10 shrink-0"
               >
                 <ArrowLeft size={20} style={{ color: '#AEBAC1' }} />
               </button>
 
-              <Avatar name={activeConvo.name} src={activeConvo.avatar} size={40} />
+              <Avatar name={activeConvo.name} src={activeConvo.avatar} size={38} />
 
               <div className="flex-1 min-w-0 cursor-pointer">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 min-w-0">
                   <p className="text-sm font-semibold truncate" style={{ color: '#E9EDEF' }}>
                     {activeConvo.name}
                   </p>
                   {isSelfConvo && (
                     <span
-                      className="text-2xs font-semibold px-1.5 py-0.5 rounded-full shrink-0"
-                      style={{ background: '#00A88422', color: '#00A884', border: '1px solid #00A88444' }}
+                      className="text-[10px] font-bold shrink-0 px-1 py-0.5 rounded"
+                      style={{ background: '#00A88430', color: '#00A884' }}
                     >
-                      🤖 Bot Mode
+                      BOT
                     </span>
                   )}
                 </div>
                 <p className="text-xs truncate" style={{ color: '#8696A0' }}>
                   {isSelfConvo
-                    ? 'Messages you send here go to the AI bot'
-                    : `+${activeConvo.wa_number} · ${activeConvo.messages.filter(m => m.direction === 'incoming').length} received · ${activeConvo.messages.filter(m => m.direction === 'outgoing').length} sent`}
+                    ? '🤖 AI replies to your messages'
+                    : `+${activeConvo.wa_number}`}
                 </p>
               </div>
 
-              {/* Sentiment badge in header */}
+              {/* Sentiment badge — hidden on mobile to save space */}
               {sentimentMap[activeConvo.wa_number] && (
                 <div
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium shrink-0"
+                  className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium shrink-0"
                   style={{
                     background: SENTIMENT_COLOR[sentimentMap[activeConvo.wa_number].sentiment] + '22',
                     color:      SENTIMENT_COLOR[sentimentMap[activeConvo.wa_number].sentiment],
@@ -1137,7 +1137,7 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
                   title={sentimentMap[activeConvo.wa_number].reason}
                 >
                   <span>{sentimentMap[activeConvo.wa_number].emoji}</span>
-                  <span className="capitalize hidden sm:inline">{sentimentMap[activeConvo.wa_number].sentiment}</span>
+                  <span className="capitalize">{sentimentMap[activeConvo.wa_number].sentiment}</span>
                 </div>
               )}
 
@@ -1243,10 +1243,10 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
                   )}
                 </div>
 
-                {/* ── Summarize button ── */}
+                {/* ── Summarize button — hidden on mobile to keep header clean ── */}
                 <button
                   onClick={() => activeConvo && fetchSummary(activeConvo)}
-                  className="p-2 rounded-full hover:bg-white/10 transition-colors"
+                  className="hidden sm:block p-2 rounded-full hover:bg-white/10 transition-colors"
                   title="AI Summary"
                   disabled={loadingSummary}
                 >

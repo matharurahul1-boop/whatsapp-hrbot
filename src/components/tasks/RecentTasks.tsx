@@ -61,14 +61,14 @@ export default async function RecentTasks({
           <p className="empty-state-desc">All caught up! Create a new task to get started.</p>
         </div>
       ) : (
-        <ul className="divide-y divide-surface-300/40 overflow-x-hidden">
+        <ul className="divide-y divide-surface-300/40">
           {tasks.map(t => {
             const assignee = t.assignee as { id?: string; full_name?: string; avatar_url?: string } | null;
             const overdue  = t.deadline && new Date(t.deadline) < new Date();
             return (
-              <li key={t.id} className="flex items-center gap-2 px-3 py-3 overflow-x-hidden hover:bg-surface-200/30 transition-colors">
-                <span className={cn('h-2 w-2 rounded-full shrink-0', PRIORITY_COLORS[t.priority] ?? 'bg-surface-500')} />
-                <div className="flex-1 min-w-0 overflow-hidden">
+              <li key={t.id} className="task-row px-3 py-3 hover:bg-surface-200/30 transition-colors">
+                <span className={cn('h-2 w-2 rounded-full', PRIORITY_COLORS[t.priority] ?? 'bg-surface-500')} />
+                <div className="min-w-0">
                   <p className="text-sm font-medium text-surface-900 truncate">{t.title}</p>
                   {t.deadline ? (
                     <p className={cn('text-xs mt-0.5 truncate', overdue ? 'text-danger font-medium' : 'text-surface-600')}>
@@ -78,12 +78,11 @@ export default async function RecentTasks({
                     <p className="text-xs text-surface-500 mt-0.5 truncate">No deadline</p>
                   )}
                 </div>
-                {/* Right section: grouped so the whole block is one shrink-0 flex item */}
-                <div className="shrink-0 flex items-center gap-2">
+                <div className="flex items-center gap-2">
                   {assignee && (
                     <Avatar src={assignee.avatar_url} name={assignee.full_name} size="xs" />
                   )}
-                  <StatusBadge status={t.status} className="whitespace-nowrap" />
+                  <StatusBadge status={t.status} />
                 </div>
               </li>
             );

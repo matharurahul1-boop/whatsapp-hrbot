@@ -1,4 +1,4 @@
-const CACHE   = 'hrbot-v2';
+const CACHE   = 'hrbot-v3';
 const PRECACHE = ['/offline', '/icon-192.svg', '/icon-512.svg', '/manifest.webmanifest'];
 
 // ── Install: precache offline page + icons ────────────────────────────────

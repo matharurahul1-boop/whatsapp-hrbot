@@ -57,11 +57,14 @@
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
     scroll-behavior: smooth;
+    overflow-x: hidden; /* prevent any element from causing page-level horizontal scroll */
   }
 
   body {
     @apply bg-surface-50 text-surface-950 font-sans;
     min-height: 100dvh;
+    max-width: 100vw;
+    overflow-x: hidden;
   }
 
   *, *::before, *::after { box-sizing: border-box; }
@@ -275,6 +278,14 @@
   .empty-state-icon  { @apply w-12 h-12 rounded-2xl bg-surface-200 flex items-center justify-center text-surface-600; }
   .empty-state-title { @apply text-sm font-semibold text-surface-800; }
   .empty-state-desc  { @apply text-xs text-surface-600 max-w-xs; }
+
+  /* ── Task list row — grid ensures right column never overflows ── */
+  .task-row {
+    display: grid;
+    grid-template-columns: 8px minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: 8px;
+  }
 
   /* ── Page layout ── */
   .page-header {

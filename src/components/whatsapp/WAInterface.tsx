@@ -1118,7 +1118,7 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
                     </span>
                   )}
                 </div>
-                <p className="text-xs" style={{ color: '#8696A0' }}>
+                <p className="text-xs truncate" style={{ color: '#8696A0' }}>
                   {isSelfConvo
                     ? 'Messages you send here go to the AI bot'
                     : `+${activeConvo.wa_number} · ${activeConvo.messages.filter(m => m.direction === 'incoming').length} received · ${activeConvo.messages.filter(m => m.direction === 'outgoing').length} sent`}
@@ -1599,6 +1599,13 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
                         title="Refresh suggestions"
                       >
                         <RefreshCw size={11} style={{ color: '#8696A0' }} />
+                      </button>
+                      <button
+                        onClick={() => setSuggestions([])}
+                        className="p-1.5 rounded-full hover:bg-white/10 transition-colors"
+                        title="Dismiss"
+                      >
+                        <X size={11} style={{ color: '#8696A0' }} />
                       </button>
                     </>
                   )}

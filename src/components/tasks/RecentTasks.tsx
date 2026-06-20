@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { Avatar } from '@/components/ui/Avatar';
 import { ArrowRight, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
+import { ExpandText } from '@/components/ui/ExpandText';
 
 const PRIORITY_COLORS: Record<string, string> = {
   urgent: 'bg-danger shadow-[0_0_6px_0_rgba(239,68,68,0.4)]',
@@ -69,7 +70,7 @@ export default async function RecentTasks({
               <li key={t.id} className="task-row px-3 py-3 hover:bg-surface-200/30 transition-colors">
                 <span className={cn('h-2 w-2 rounded-full', PRIORITY_COLORS[t.priority] ?? 'bg-surface-500')} />
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-surface-900 truncate">{t.title}</p>
+                  <ExpandText className="text-sm font-medium text-surface-900 block">{t.title}</ExpandText>
                   {t.deadline ? (
                     <p className={cn('text-xs mt-0.5 truncate', overdue ? 'text-danger font-medium' : 'text-surface-600')}>
                       {overdue ? '⚠ Overdue · ' : ''}{formatDate(t.deadline)}

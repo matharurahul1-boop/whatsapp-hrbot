@@ -10,6 +10,7 @@ import {
   Sparkles, Zap, UserPlus, Users, Trash2, MessageCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
+import { ExpandText } from '@/components/ui/ExpandText';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -993,7 +994,7 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
                     <p className="text-sm font-medium truncate" style={{ color: '#E9EDEF' }}>{contact.name}</p>
                     <p className="text-xs truncate" style={{ color: '#8696A0' }}>+{contact.wa_number}</p>
                     {contact.notes && (
-                      <p className="text-xs truncate mt-0.5 italic" style={{ color: '#4A5568' }}>{contact.notes}</p>
+                      <ExpandText className="text-xs block mt-0.5 italic" style={{ color: '#4A5568' }}>{contact.notes}</ExpandText>
                     )}
                   </div>
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
@@ -1106,9 +1107,9 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
 
               <div className="flex-1 min-w-0 cursor-pointer">
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <p className="text-sm font-semibold truncate" style={{ color: '#E9EDEF' }}>
+                  <ExpandText className="text-sm font-semibold block" style={{ color: '#E9EDEF' }}>
                     {activeConvo.name}
-                  </p>
+                  </ExpandText>
                   {isSelfConvo && (
                     <span
                       className="text-[10px] font-bold shrink-0 px-1 py-0.5 rounded"

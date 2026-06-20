@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Avatar } from '@/components/ui/Avatar';
 import TaskCard from './TaskCard';
+import { ExpandText } from '@/components/ui/ExpandText';
 import { cn } from '@/lib/utils/cn';
 import { formatDate } from '@/lib/utils/date';
 
@@ -215,14 +216,16 @@ function ListRow({
 
       {/* Title + description */}
       <div className="flex-1 min-w-0">
-        <p className={cn(
-          'text-sm font-medium text-surface-900 truncate',
-          (status === 'done' || status === 'cancelled') && 'line-through text-surface-500 opacity-70'
-        )}>
+        <ExpandText
+          className={cn(
+            'text-sm font-medium text-surface-900 block',
+            (status === 'done' || status === 'cancelled') && 'line-through text-surface-500 opacity-70'
+          )}
+        >
           {task.title}
-        </p>
+        </ExpandText>
         {task.description && (
-          <p className="text-xs text-surface-500 truncate mt-0.5">{task.description}</p>
+          <ExpandText className="text-xs text-surface-500 block mt-0.5">{task.description}</ExpandText>
         )}
       </div>
 

@@ -113,8 +113,9 @@ export async function POST(req: NextRequest) {
 
   const { data: task, error } = await db.from('tasks').insert({
     ...parsed.data,
+    reminders:       parsed.data.reminders ?? ['1_hour'],
     organization_id: profile.organization_id,
-    created_by: user.id,
+    created_by:      user.id,
   }).select().single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

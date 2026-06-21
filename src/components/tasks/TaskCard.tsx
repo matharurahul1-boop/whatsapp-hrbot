@@ -75,7 +75,7 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
     deadline:    task.deadline ? task.deadline.slice(0, 16) : '',
     priority:    task.priority,
     status:      task.status as TaskStatus,
-    reminders:   task.reminders ?? [] as string[],
+    reminders:   task.reminders?.length ? task.reminders : ['1_hour'],
   });
 
   const overdue = task.deadline && status !== 'done' && new Date(task.deadline) < new Date();
@@ -94,7 +94,7 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
       deadline:    task.deadline ? task.deadline.slice(0, 16) : '',
       priority:    task.priority,
       status:      status,
-      reminders:   task.reminders ?? [],
+      reminders:   task.reminders?.length ? task.reminders : ['1_hour'],
     });
     setEditOpen(true);
   }
@@ -180,7 +180,7 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
                   <p className="text-xs font-semibold text-surface-900 leading-snug">{task.title}</p>
                 </div>
                 <DropdownMenu.Item
-                  onSelect={() => { setForm({ title: task.title, description: task.description ?? '', assignee_id: task.assignee?.id ?? '', deadline: task.deadline ? task.deadline.slice(0, 16) : '', priority: task.priority, status: status, reminders: task.reminders ?? [] }); setEditOpen(true); }}
+                  onSelect={() => { setForm({ title: task.title, description: task.description ?? '', assignee_id: task.assignee?.id ?? '', deadline: task.deadline ? task.deadline.slice(0, 16) : '', priority: task.priority, status: status, reminders: task.reminders?.length ? task.reminders : ['1_hour'] }); setEditOpen(true); }}
                   className="flex items-center gap-2.5 px-2.5 py-2 text-xs text-surface-700 rounded-lg cursor-pointer hover:bg-surface-200/80 outline-none"
                 >
                   Edit Task

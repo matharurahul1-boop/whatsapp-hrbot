@@ -9,6 +9,14 @@ import {
 import { Button } from '@/components/ui/Button';
 import { Input, Textarea, SelectNative } from '@/components/ui/Input';
 import { Plus } from 'lucide-react';
+import { cn } from '@/lib/utils/cn';
+
+const REMINDER_OPTS = [
+  { value: '1_hour',  label: '1 h before'  },
+  { value: '2_hours', label: '2 h before'  },
+  { value: '4_hours', label: '4 h before'  },
+  { value: '1_day',   label: '1 day before' },
+] as const;
 
 interface Employee {
   id:        string;
@@ -38,6 +46,7 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
     assignee_id: '',
     deadline:    '',
     priority:    'medium',
+    reminders:   ['1_hour'] as string[],
   });
 
   function set(field: string, value: string) {
@@ -58,9 +67,10 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
 
     setLoading(true);
     try {
-      const body: Record<string, string> = {
-        title:    form.title.trim(),
-        priority: form.priority,
+      const body: Record<string, unknown> = {
+        title:     form.title.trim(),
+        priority:  form.priority,
+        reminders: form.reminders,
       };
       if (form.description) body.description = form.description;
       if (form.assignee_id) body.assignee_id = form.assignee_id;
@@ -79,7 +89,7 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
       }
 
       setOpen(false);
-      setForm({ title: '', description: '', assignee_id: '', deadline: '', priority: 'medium' });
+      setForm({ title: '', description: '', assignee_id: '', deadline: '', priority: 'medium', reminders: ['1_hour'] });
       router.refresh();
     } finally {
       setLoading(false);
@@ -152,6 +162,38 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
                 value={form.deadline}
                 onChange={e => set('deadline', e.target.value)}
               />
+
+              <div>
+                <label className="block text-xs font-medium text-surface-700 mb-1.5">
+                  Reminders <span className="text-surface-400 font-normal">(select one or more)</span>
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {REMINDER_OPTS.map(opt => {
+                    const active = form.reminders.includes(opt.value);
+                    return (
+                      <button key={opt.value} type="button"
+                        onClick={() => setForm(f => ({
+                          ...f,
+                          reminders: active
+                            ? f.reminders.filter(r => r !== opt.value)
+                            : [...f.reminders, opt.value],
+                        }))}
+                        className={cn(
+                          'px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors',
+                          active
+                            ? 'border-brand-500 bg-brand-500/10 text-brand-500'
+                            : 'border-surface-300 text-surface-600 hover:bg-surface-200'
+                        )}
+                      >{opt.label}</button>
+                    );
+                  })}
+                </div>
+                {form.deadline && form.reminders.length > 0 && (
+                  <p className="text-[11px] text-surface-400 mt-1.5">
+                    Sent via your channel preference in Settings → Notifications
+                  </p>
+                )}
+              </div>
             </DialogBody>
 
             <DialogFooter>

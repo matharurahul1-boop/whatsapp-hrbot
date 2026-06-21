@@ -74,7 +74,7 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
       };
       if (form.description) body.description = form.description;
       if (form.assignee_id) body.assignee_id = form.assignee_id;
-      if (form.deadline)    body.deadline    = new Date(form.deadline).toISOString();
+      if (form.deadline)    body.deadline    = form.deadline;
 
       const res = await fetch('/api/tasks', {
         method:  'POST',
@@ -158,7 +158,7 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
 
               <Input
                 label="Deadline"
-                type="datetime-local"
+                type="date"
                 value={form.deadline}
                 onChange={e => set('deadline', e.target.value)}
               />

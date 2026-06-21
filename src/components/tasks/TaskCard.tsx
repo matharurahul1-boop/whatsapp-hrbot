@@ -24,10 +24,8 @@ const STATUS_CFG: Record<TaskStatus, { label: string; icon: React.ReactNode; pil
   cancelled:   { label: 'Cancelled',   icon: <XCircle      className="h-3 w-3" />, pill: 'bg-danger/10 text-danger'           },
 };
 
-// Convert a UTC ISO string from the DB to local YYYY-MM-DDTHH:MM for datetime-local inputs
-function toLocalDatetimeInput(utcISO: string): string {
-  const d = new Date(utcISO);
-  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+function todayIST(): string {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 }
 
 const PRI_DOT: Record<string, string> = {
@@ -86,13 +84,13 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
     title:       task.title,
     description: task.description ?? '',
     assignee_id: task.assignee?.id ?? '',
-    deadline:    task.deadline ? toLocalDatetimeInput(task.deadline) : '',
+    deadline:    task.deadline ?? '',
     priority:    task.priority,
     status:      task.status as TaskStatus,
     reminders:   task.reminders?.length ? task.reminders : ['1_hour'],
   });
 
-  const overdue = savedDeadline && status !== 'done' && new Date(savedDeadline) < new Date();
+  const overdue = savedDeadline && status !== 'done' && savedDeadline < todayIST();
   const cfg     = STATUS_CFG[status] ?? STATUS_CFG.todo;
 
   function setField(field: string, value: string) {
@@ -105,7 +103,7 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
       title:       task.title,
       description: task.description ?? '',
       assignee_id: task.assignee?.id ?? '',
-      deadline:    savedDeadline ? toLocalDatetimeInput(savedDeadline) : '',
+      deadline:    savedDeadline ?? '',
       priority:    task.priority,
       status:      status,
       reminders:   savedReminders,
@@ -127,7 +125,7 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
       };
       if (form.description) body.description = form.description;
       if (form.assignee_id) body.assignee_id = form.assignee_id;
-      if (form.deadline)    body.deadline    = new Date(form.deadline).toISOString();
+      if (form.deadline)    body.deadline    = form.deadline;
 
       const res = await fetch(`/api/tasks/${task.id}`, {
         method:  'PATCH',
@@ -136,7 +134,7 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
       });
       if (res.ok) {
         // Update saved values immediately so re-opening edit shows correct data
-        setSavedDeadline(form.deadline ? new Date(form.deadline).toISOString() : null);
+        setSavedDeadline(form.deadline || null);
         setSavedReminders(form.reminders);
         setStatus(form.status);
         onStatusChange?.(task.id, form.status);
@@ -256,7 +254,7 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
                     {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.full_name}</option>)}
                   </SelectNative>
                 )}
-                <Input label="Deadline" type="datetime-local" value={form.deadline} onChange={e => setField('deadline', e.target.value)} />
+                <Input label="Deadline" type="date" value={form.deadline} onChange={e => setField('deadline', e.target.value)} />
 
                 {/* Reminders — only shown when a deadline with time is set */}
                 {form.deadline && (
@@ -497,7 +495,7 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
 
               <Input
                 label="Deadline"
-                type="datetime-local"
+                type="date"
                 value={form.deadline}
                 onChange={e => setField('deadline', e.target.value)}
               />

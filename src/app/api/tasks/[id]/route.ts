@@ -10,7 +10,7 @@ const UpdateTaskSchema = z.object({
   title:       z.string().min(1).max(200).optional(),
   description: z.string().max(2000).optional(),
   assignee_id: z.string().uuid().nullable().optional(),
-  deadline:    z.string().datetime().nullable().optional(),
+  deadline:    z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   priority:    z.enum(['low','medium','high','urgent']).optional(),
   status:      z.enum(['todo','in_progress','done','cancelled']).optional(),
   reminders:   z.array(z.string()).nullable().optional(),

@@ -7,6 +7,7 @@ import {
   Save, Loader2, CheckCircle2, AlertCircle,
   Eye, EyeOff, Copy, Check,
 } from 'lucide-react';
+import { cn } from '@/lib/utils/cn';
 
 // ── tiny helpers ─────────────────────────────────────────────────────────────
 function Section({ title, description, icon, children }: {

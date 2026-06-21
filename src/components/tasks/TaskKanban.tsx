@@ -54,6 +54,7 @@ interface Task {
   priority:    string;
   deadline:    string | null;
   description: string | null;
+  reminders:   string[] | null;
   assignee:    { id: string; full_name: string; avatar_url: string | null } | null;
   created_by:  string;
 }

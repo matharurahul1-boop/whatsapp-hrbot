@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { MoreHorizontal, Trash2, CheckCircle2, Circle, Loader2, Clock, XCircle, PlayCircle } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
@@ -75,13 +75,11 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
   const [status,        setStatus]        = useState<TaskStatus>(task.status as TaskStatus);
 
   // Track saved deadline/reminders locally so re-opening edit immediately
-  // shows the latest saved values without waiting for router.refresh()
+  // shows the latest saved values without waiting for router.refresh().
+  // Initialized from props on first render; updated manually in handleSave.
+  // No useEffect sync — the server refresh overwrites these with stale data.
   const [savedDeadline,  setSavedDeadline]  = useState<string | null>(task.deadline);
   const [savedReminders, setSavedReminders] = useState<string[]>(task.reminders?.length ? task.reminders : ['1_hour']);
-
-  // Sync from parent when server refetch eventually propagates
-  useEffect(() => { setSavedDeadline(task.deadline); },  [task.deadline]);
-  useEffect(() => { setSavedReminders(task.reminders?.length ? task.reminders : ['1_hour']); }, [task.reminders]);
 
   const [form, setForm] = useState({
     title:       task.title,

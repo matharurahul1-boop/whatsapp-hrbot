@@ -26,7 +26,7 @@ export default async function TasksPage() {
   let taskQuery = db
     .from('tasks')
     .select(`
-      id, title, description, status, priority, deadline, created_by,
+      id, title, description, status, priority, deadline, reminders, created_by,
       assignee:users!tasks_assignee_id_fkey(id, full_name, avatar_url)
     `)
     .eq('organization_id', orgId)

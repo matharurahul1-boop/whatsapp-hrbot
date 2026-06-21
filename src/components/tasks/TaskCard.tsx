@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { MoreHorizontal, Trash2, CheckCircle2, Circle, Loader2, Clock, XCircle, PlayCircle } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
@@ -74,6 +74,15 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
   const [deleting,      setDeleting]      = useState(false);
   const [status,        setStatus]        = useState<TaskStatus>(task.status as TaskStatus);
 
+  // Track saved deadline/reminders locally so re-opening edit immediately
+  // shows the latest saved values without waiting for router.refresh()
+  const [savedDeadline,  setSavedDeadline]  = useState<string | null>(task.deadline);
+  const [savedReminders, setSavedReminders] = useState<string[]>(task.reminders?.length ? task.reminders : ['1_hour']);
+
+  // Sync from parent when server refetch eventually propagates
+  useEffect(() => { setSavedDeadline(task.deadline); },  [task.deadline]);
+  useEffect(() => { setSavedReminders(task.reminders?.length ? task.reminders : ['1_hour']); }, [task.reminders]);
+
   const [form, setForm] = useState({
     title:       task.title,
     description: task.description ?? '',
@@ -84,7 +93,7 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
     reminders:   task.reminders?.length ? task.reminders : ['1_hour'],
   });
 
-  const overdue = task.deadline && status !== 'done' && new Date(task.deadline) < new Date();
+  const overdue = savedDeadline && status !== 'done' && new Date(savedDeadline) < new Date();
   const cfg     = STATUS_CFG[status] ?? STATUS_CFG.todo;
 
   function setField(field: string, value: string) {
@@ -92,15 +101,14 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
   }
 
   function openEdit(e?: React.MouseEvent) {
-    // reset form to current task values each time we open
     setForm({
       title:       task.title,
       description: task.description ?? '',
       assignee_id: task.assignee?.id ?? '',
-      deadline:    task.deadline ? toLocalDatetimeInput(task.deadline) : '',
+      deadline:    savedDeadline ? toLocalDatetimeInput(savedDeadline) : '',
       priority:    task.priority,
       status:      status,
-      reminders:   task.reminders?.length ? task.reminders : ['1_hour'],
+      reminders:   savedReminders,
     });
     setEditOpen(true);
   }
@@ -126,6 +134,9 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
         body:    JSON.stringify(body),
       });
       if (res.ok) {
+        // Update saved values immediately so re-opening edit shows correct data
+        setSavedDeadline(form.deadline ? new Date(form.deadline).toISOString() : null);
+        setSavedReminders(form.reminders);
         setStatus(form.status);
         onStatusChange?.(task.id, form.status);
         setEditOpen(false);
@@ -186,7 +197,7 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
                   <p className="text-xs font-semibold text-surface-900 leading-snug">{task.title}</p>
                 </div>
                 <DropdownMenu.Item
-                  onSelect={() => { setForm({ title: task.title, description: task.description ?? '', assignee_id: task.assignee?.id ?? '', deadline: task.deadline ? toLocalDatetimeInput(task.deadline) : '', priority: task.priority, status: status, reminders: task.reminders?.length ? task.reminders : ['1_hour'] }); setEditOpen(true); }}
+                  onSelect={() => openEdit()}
                   className="flex items-center gap-2.5 px-2.5 py-2 text-xs text-surface-700 rounded-lg cursor-pointer hover:bg-surface-200/80 outline-none"
                 >
                   Edit Task

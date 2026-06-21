@@ -154,6 +154,7 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
   // ── Call dropdowns ────────────────────────────────────────────────────
   const [showCallMenu,    setShowCallMenu]    = useState(false);
   const [showVideoMenu,   setShowVideoMenu]   = useState(false);
+  const [showMoreMenu,    setShowMoreMenu]    = useState(false);
   // ── Voice recording ───────────────────────────────────────────────────
   const [isRecording,     setIsRecording]     = useState(false);
   const [isTranscribing,  setIsTranscribing]  = useState(false);
@@ -1147,7 +1148,7 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
                 {/* ── Voice Call button + dropdown ── */}
                 <div className="relative hidden sm:block">
                   <button
-                    onClick={() => { setShowCallMenu(v => !v); setShowVideoMenu(false); }}
+                    onClick={() => { setShowCallMenu(v => !v); setShowVideoMenu(false); setShowMoreMenu(false); }}
                     className="p-2 rounded-full hover:bg-white/10 transition-colors"
                     title="Call"
                   >
@@ -1201,7 +1202,7 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
                 {/* ── Video Call button + dropdown ── */}
                 <div className="relative hidden sm:block">
                   <button
-                    onClick={() => { setShowVideoMenu(v => !v); setShowCallMenu(false); }}
+                    onClick={() => { setShowVideoMenu(v => !v); setShowCallMenu(false); setShowMoreMenu(false); }}
                     className="p-2 rounded-full hover:bg-white/10 transition-colors"
                     title="Video call"
                   >
@@ -1259,23 +1260,75 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
 
                 {/* ── In-chat Search button ── */}
                 <button
-                  onClick={() => { setShowChatSearch(v => !v); setShowCallMenu(false); setShowVideoMenu(false); }}
+                  onClick={() => { setShowChatSearch(v => !v); setShowCallMenu(false); setShowVideoMenu(false); setShowMoreMenu(false); }}
                   className="p-2 rounded-full hover:bg-white/10 transition-colors"
                   title="Search in conversation"
                 >
                   <Search size={18} style={{ color: showChatSearch ? '#00A884' : '#AEBAC1' }} />
                 </button>
 
-                <button className="p-2 rounded-full hover:bg-white/10 transition-colors">
-                  <MoreVertical size={18} style={{ color: '#AEBAC1' }} />
-                </button>
+                {/* ── More options button + dropdown ── */}
+                <div className="relative">
+                  <button
+                    onClick={() => { setShowMoreMenu(v => !v); setShowCallMenu(false); setShowVideoMenu(false); }}
+                    className="p-2 rounded-full hover:bg-white/10 transition-colors"
+                    title="More options"
+                  >
+                    <MoreVertical size={18} style={{ color: showMoreMenu ? '#00A884' : '#AEBAC1' }} />
+                  </button>
+
+                  {showMoreMenu && (
+                    <div
+                      className="absolute right-0 top-11 z-50 rounded-xl overflow-hidden shadow-2xl min-w-[210px]"
+                      style={{ background: '#233138', border: '1px solid #2A3942' }}
+                    >
+                      <div className="px-4 py-2.5 border-b" style={{ borderColor: '#2A3942' }}>
+                        <p className="text-xs font-semibold" style={{ color: '#8696A0' }}>OPTIONS</p>
+                        <p className="text-xs mt-0.5 font-medium" style={{ color: '#E9EDEF' }}>{activeConvo!.name}</p>
+                      </div>
+
+                      {/* AI Summary — especially useful on mobile where Sparkles is hidden */}
+                      <button
+                        onClick={() => { activeConvo && fetchSummary(activeConvo); setShowMoreMenu(false); }}
+                        disabled={loadingSummary}
+                        className="w-full flex items-center gap-3 px-4 py-3 text-sm hover:bg-white/5 transition-colors text-left disabled:opacity-50"
+                        style={{ color: '#E9EDEF' }}
+                      >
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: '#6B46C120' }}>
+                          <Sparkles size={15} color="#A78BFA" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-sm">AI Summary</p>
+                          <p className="text-xs" style={{ color: '#8696A0' }}>Summarise conversation</p>
+                        </div>
+                      </button>
+
+                      {/* Copy WA number (not shown for bot/self convo) */}
+                      {!isSelfConvo && (
+                        <button
+                          onClick={() => { navigator.clipboard.writeText(activeConvo!.wa_number); setShowMoreMenu(false); }}
+                          className="w-full flex items-center gap-3 px-4 py-3 text-sm hover:bg-white/5 transition-colors text-left"
+                          style={{ color: '#E9EDEF' }}
+                        >
+                          <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: '#2A3942' }}>
+                            <MessageCircle size={15} color="#8696A0" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-sm">Copy Number</p>
+                            <p className="text-xs" style={{ color: '#8696A0' }}>+{activeConvo!.wa_number}</p>
+                          </div>
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Click-outside overlay to close dropdowns */}
-              {(showCallMenu || showVideoMenu) && (
+              {(showCallMenu || showVideoMenu || showMoreMenu) && (
                 <div
                   className="fixed inset-0 z-40"
-                  onClick={() => { setShowCallMenu(false); setShowVideoMenu(false); }}
+                  onClick={() => { setShowCallMenu(false); setShowVideoMenu(false); setShowMoreMenu(false); }}
                 />
               )}
             </div>

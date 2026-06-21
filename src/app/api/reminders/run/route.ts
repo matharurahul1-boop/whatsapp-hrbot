@@ -197,23 +197,31 @@ export async function GET(req: NextRequest) {
   let processed = 0;
 
   for (const [offsetKey, offsetMs] of Object.entries(REMINDER_OFFSETS)) {
-    const windowStart = new Date(now.getTime() + offsetMs - WINDOW_MS).toISOString();
-    const windowEnd   = new Date(now.getTime() + offsetMs + WINDOW_MS).toISOString();
+    // Target moment = now + offset. Work in IST for date/time matching.
+    const targetMs   = now.getTime() + offsetMs;
+    const targetDate = new Date(targetMs).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }); // YYYY-MM-DD IST
 
-    // Tasks whose deadline falls in this window AND have this reminder offset set
+    // Fetch tasks due on targetDate that have due_time set AND have this reminder
     const { data: tasks } = await db
       .from('tasks')
       .select(`
-        id, title, deadline, reminders, organization_id,
+        id, title, deadline, due_time, reminders, organization_id,
         assignee:users!tasks_assignee_id_fkey(id, full_name, wa_number, metadata)
       `)
-      .gte('deadline', windowStart)
-      .lte('deadline', windowEnd)
+      .eq('deadline', targetDate)
+      .not('due_time', 'is', null)
       .contains('reminders', [offsetKey])
       .not('status', 'in', '("done","completed","cancelled")')
       .is('deleted_at', null);
 
-    for (const task of (tasks ?? [])) {
+    // Filter by time window in JS (due_time is IST; compute exact UTC moment and compare)
+    const inWindow = (tasks ?? []).filter(task => {
+      const deadlineUTC = new Date(`${task.deadline}T${(task as any).due_time.slice(0, 5)}+05:30`);
+      const reminderUTC = deadlineUTC.getTime() - offsetMs;
+      return Math.abs(now.getTime() - reminderUTC) <= WINDOW_MS;
+    });
+
+    for (const task of inWindow) {
       const assignee = (task as any).assignee;
       if (!assignee) continue;
 

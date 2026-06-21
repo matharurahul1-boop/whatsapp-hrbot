@@ -45,6 +45,7 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
     description: '',
     assignee_id: '',
     deadline:    '',
+    due_time:    '',
     priority:    'medium',
     reminders:   ['1_hour'] as string[],
   });
@@ -74,7 +75,10 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
       };
       if (form.description) body.description = form.description;
       if (form.assignee_id) body.assignee_id = form.assignee_id;
-      if (form.deadline)    body.deadline    = form.deadline;
+      if (form.deadline) {
+        body.deadline = form.deadline;
+        if (form.due_time) body.due_time = form.due_time;
+      }
 
       const res = await fetch('/api/tasks', {
         method:  'POST',
@@ -89,7 +93,7 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
       }
 
       setOpen(false);
-      setForm({ title: '', description: '', assignee_id: '', deadline: '', priority: 'medium', reminders: ['1_hour'] });
+      setForm({ title: '', description: '', assignee_id: '', deadline: '', due_time: '', priority: 'medium', reminders: ['1_hour'] });
       router.refresh();
     } finally {
       setLoading(false);
@@ -156,12 +160,20 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
                 />
               </div>
 
-              <Input
-                label="Deadline"
-                type="date"
-                value={form.deadline}
-                onChange={e => set('deadline', e.target.value)}
-              />
+              <div className="grid grid-cols-2 gap-4">
+                <Input
+                  label="Deadline"
+                  type="date"
+                  value={form.deadline}
+                  onChange={e => set('deadline', e.target.value)}
+                />
+                <Input
+                  label="Due Time"
+                  type="time"
+                  value={form.due_time}
+                  onChange={e => set('due_time', e.target.value)}
+                />
+              </div>
 
               <div>
                 <label className="block text-xs font-medium text-surface-700 mb-1.5">

@@ -54,7 +54,7 @@ const REMINDER_OPTS = [
 interface TaskCardProps {
   task: {
     id: string; title: string; status: string; priority: string;
-    deadline: string | null; description: string | null;
+    deadline: string | null; due_time: string | null; description: string | null;
     reminders: string[] | null;
     assignee: { id: string; full_name: string; avatar_url: string | null } | null;
   };
@@ -73,11 +73,12 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
   const [status,        setStatus]        = useState<TaskStatus>(task.status as TaskStatus);
   const [saveError,     setSaveError]     = useState<string | null>(null);
 
-  // Track saved deadline/reminders locally so re-opening edit immediately
+  // Track saved deadline/due_time/reminders locally so re-opening edit immediately
   // shows the latest saved values without waiting for router.refresh().
   // Initialized from props on first render; updated manually in handleSave.
   // No useEffect sync — the server refresh overwrites these with stale data.
   const [savedDeadline,  setSavedDeadline]  = useState<string | null>(task.deadline);
+  const [savedDueTime,   setSavedDueTime]   = useState<string | null>(task.due_time);
   const [savedReminders, setSavedReminders] = useState<string[]>(task.reminders?.length ? task.reminders : ['1_hour']);
 
   const [form, setForm] = useState({
@@ -85,12 +86,17 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
     description: task.description ?? '',
     assignee_id: task.assignee?.id ?? '',
     deadline:    task.deadline ?? '',
+    due_time:    task.due_time?.slice(0, 5) ?? '',
     priority:    task.priority,
     status:      task.status as TaskStatus,
     reminders:   task.reminders?.length ? task.reminders : ['1_hour'],
   });
 
-  const overdue = savedDeadline && status !== 'done' && savedDeadline < todayIST();
+  const overdue = savedDeadline && status !== 'done' && (
+    savedDueTime
+      ? new Date(`${savedDeadline}T${savedDueTime.slice(0, 5)}`) < new Date()
+      : savedDeadline < todayIST()
+  );
   const cfg     = STATUS_CFG[status] ?? STATUS_CFG.todo;
 
   function setField(field: string, value: string) {
@@ -104,6 +110,7 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
       description: task.description ?? '',
       assignee_id: task.assignee?.id ?? '',
       deadline:    savedDeadline ?? '',
+      due_time:    savedDueTime?.slice(0, 5) ?? '',
       priority:    task.priority,
       status:      status,
       reminders:   savedReminders,
@@ -125,7 +132,12 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
       };
       if (form.description) body.description = form.description;
       if (form.assignee_id) body.assignee_id = form.assignee_id;
-      if (form.deadline)    body.deadline    = form.deadline;
+      if (form.deadline) {
+        body.deadline = form.deadline;
+        body.due_time = form.due_time || null;
+      } else {
+        body.due_time = null;
+      }
 
       const res = await fetch(`/api/tasks/${task.id}`, {
         method:  'PATCH',
@@ -135,6 +147,7 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
       if (res.ok) {
         // Update saved values immediately so re-opening edit shows correct data
         setSavedDeadline(form.deadline || null);
+        setSavedDueTime(form.due_time || null);
         setSavedReminders(form.reminders);
         setStatus(form.status);
         onStatusChange?.(task.id, form.status);
@@ -254,9 +267,12 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
                     {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.full_name}</option>)}
                   </SelectNative>
                 )}
-                <Input label="Deadline" type="date" value={form.deadline} onChange={e => setField('deadline', e.target.value)} />
+                <div className="grid grid-cols-2 gap-4">
+                  <Input label="Deadline" type="date" value={form.deadline} onChange={e => setField('deadline', e.target.value)} />
+                  <Input label="Due Time" type="time" value={form.due_time} onChange={e => setField('due_time', e.target.value)} />
+                </div>
 
-                {/* Reminders — only shown when a deadline with time is set */}
+                {/* Reminders — only shown when a deadline is set */}
                 {form.deadline && (
                   <div>
                     <label className="block text-xs font-medium text-surface-700 mb-1.5">
@@ -408,7 +424,7 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
               <span className="text-surface-400 text-2xs">·</span>
               <span className={cn('flex items-center gap-1 text-2xs font-medium', overdue ? 'text-danger' : 'text-surface-600')}>
                 <Clock className="h-3 w-3" />
-                {overdue ? '⚠ ' : ''}{formatDate(task.deadline)}
+                {overdue ? '⚠ ' : ''}{formatDate(task.deadline)}{task.due_time ? `, ${task.due_time.slice(0, 5)}` : ''}
               </span>
             </>
           )}
@@ -493,12 +509,20 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
                 </SelectNative>
               )}
 
-              <Input
-                label="Deadline"
-                type="date"
-                value={form.deadline}
-                onChange={e => setField('deadline', e.target.value)}
-              />
+              <div className="grid grid-cols-2 gap-4">
+                <Input
+                  label="Deadline"
+                  type="date"
+                  value={form.deadline}
+                  onChange={e => setField('deadline', e.target.value)}
+                />
+                <Input
+                  label="Due Time"
+                  type="time"
+                  value={form.due_time}
+                  onChange={e => setField('due_time', e.target.value)}
+                />
+              </div>
 
               {form.deadline && (
                 <div>

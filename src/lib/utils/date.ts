@@ -8,6 +8,11 @@ export function formatDate(dateStr: string): string {
   }
 }
 
+export function formatTime(timeStr: string): string {
+  const [h, m] = timeStr.split(':').map(Number);
+  return `${h % 12 || 12}:${m.toString().padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
+}
+
 export function formatDateTime(dateStr: string): string {
   try {
     return format(parseISO(dateStr), 'dd MMM yyyy, hh:mm a');

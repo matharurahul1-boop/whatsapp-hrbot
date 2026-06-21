@@ -51,7 +51,15 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
   });
 
   function set(field: string, value: string) {
-    setForm(f => ({ ...f, [field]: value }));
+    if (field === 'deadline') {
+      setForm(f => ({
+        ...f,
+        deadline: value,
+        due_time: value ? (f.due_time || '17:00') : '',
+      }));
+    } else {
+      setForm(f => ({ ...f, [field]: value }));
+    }
     setErrors(e => ({ ...e, [field]: '' }));
   }
 
@@ -94,6 +102,7 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
 
       setOpen(false);
       setForm({ title: '', description: '', assignee_id: '', deadline: '', due_time: '', priority: 'medium', reminders: ['1_hour'] });
+      setErrors({});
       router.refresh();
     } finally {
       setLoading(false);
@@ -160,20 +169,20 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <Input
-                  label="Deadline"
-                  type="date"
-                  value={form.deadline}
-                  onChange={e => set('deadline', e.target.value)}
-                />
+              <Input
+                label="Deadline"
+                type="date"
+                value={form.deadline}
+                onChange={e => set('deadline', e.target.value)}
+              />
+              {form.deadline && (
                 <Input
                   label="Due Time"
                   type="time"
                   value={form.due_time}
                   onChange={e => set('due_time', e.target.value)}
                 />
-              </div>
+              )}
 
               <div>
                 <label className="block text-xs font-medium text-surface-700 mb-1.5">

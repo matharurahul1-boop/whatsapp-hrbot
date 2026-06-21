@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input, Textarea, SelectNative } from '@/components/ui/Input';
-import { formatDate } from '@/lib/utils/date';
+import { formatDate, formatTime } from '@/lib/utils/date';
 import { cn } from '@/lib/utils/cn';
 
 type TaskStatus = 'todo' | 'in_progress' | 'done' | 'cancelled';
@@ -100,7 +100,16 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
   const cfg     = STATUS_CFG[status] ?? STATUS_CFG.todo;
 
   function setField(field: string, value: string) {
-    setForm(f => ({ ...f, [field]: value }));
+    if (field === 'deadline') {
+      // Auto-fill 17:00 when a date is first picked; clear time when date is cleared
+      setForm(f => ({
+        ...f,
+        deadline: value,
+        due_time: value ? (f.due_time || '17:00') : '',
+      }));
+    } else {
+      setForm(f => ({ ...f, [field]: value }));
+    }
   }
 
   function openEdit(e?: React.MouseEvent) {
@@ -110,7 +119,7 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
       description: task.description ?? '',
       assignee_id: task.assignee?.id ?? '',
       deadline:    savedDeadline ?? '',
-      due_time:    savedDueTime?.slice(0, 5) ?? '',
+      due_time:    savedDueTime?.slice(0, 5) ?? (savedDeadline ? '17:00' : ''),
       priority:    task.priority,
       status:      status,
       reminders:   savedReminders,
@@ -267,10 +276,10 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
                     {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.full_name}</option>)}
                   </SelectNative>
                 )}
-                <div className="grid grid-cols-2 gap-4">
-                  <Input label="Deadline" type="date" value={form.deadline} onChange={e => setField('deadline', e.target.value)} />
+                <Input label="Deadline" type="date" value={form.deadline} onChange={e => setField('deadline', e.target.value)} />
+                {form.deadline && (
                   <Input label="Due Time" type="time" value={form.due_time} onChange={e => setField('due_time', e.target.value)} />
-                </div>
+                )}
 
                 {/* Reminders — only shown when a deadline is set */}
                 {form.deadline && (
@@ -424,7 +433,7 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
               <span className="text-surface-400 text-2xs">·</span>
               <span className={cn('flex items-center gap-1 text-2xs font-medium', overdue ? 'text-danger' : 'text-surface-600')}>
                 <Clock className="h-3 w-3" />
-                {overdue ? '⚠ ' : ''}{formatDate(task.deadline)}{task.due_time ? `, ${task.due_time.slice(0, 5)}` : ''}
+                {overdue ? '⚠ ' : ''}{formatDate(task.deadline)}{task.due_time ? `, ${formatTime(task.due_time)}` : ''}
               </span>
             </>
           )}
@@ -509,20 +518,20 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
                 </SelectNative>
               )}
 
-              <div className="grid grid-cols-2 gap-4">
-                <Input
-                  label="Deadline"
-                  type="date"
-                  value={form.deadline}
-                  onChange={e => setField('deadline', e.target.value)}
-                />
+              <Input
+                label="Deadline"
+                type="date"
+                value={form.deadline}
+                onChange={e => setField('deadline', e.target.value)}
+              />
+              {form.deadline && (
                 <Input
                   label="Due Time"
                   type="time"
                   value={form.due_time}
                   onChange={e => setField('due_time', e.target.value)}
                 />
-              </div>
+              )}
 
               {form.deadline && (
                 <div>

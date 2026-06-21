@@ -14,7 +14,7 @@ import { Avatar } from '@/components/ui/Avatar';
 import TaskCard from './TaskCard';
 import { ExpandText } from '@/components/ui/ExpandText';
 import { cn } from '@/lib/utils/cn';
-import { formatDate } from '@/lib/utils/date';
+import { formatDate, formatTime } from '@/lib/utils/date';
 
 type TaskStatus = 'todo' | 'in_progress' | 'done' | 'cancelled';
 type ViewMode   = 'kanban' | 'list';
@@ -267,7 +267,7 @@ function ListRow({
           <span className={cn('flex items-center justify-end gap-1 text-xs font-medium', overdue ? 'text-danger' : 'text-surface-500')}>
             {overdue && <AlertTriangle className="h-3 w-3 shrink-0" />}
             <Clock className="h-3 w-3 shrink-0" />
-            {formatDate(task.deadline)}{task.due_time ? `, ${task.due_time.slice(0,5)}` : ''}
+            {formatDate(task.deadline)}{task.due_time ? `, ${formatTime(task.due_time)}` : ''}
           </span>
         ) : (
           <span className="text-xs text-surface-400">—</span>

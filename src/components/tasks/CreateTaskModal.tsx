@@ -55,7 +55,7 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
       setForm(f => ({
         ...f,
         deadline: value,
-        due_time: value ? (f.due_time || '17:00') : '',
+        due_time: f.due_time || '17:00',
       }));
     } else {
       setForm(f => ({ ...f, [field]: value }));
@@ -65,7 +65,10 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
 
   function validate() {
     const e: Record<string, string> = {};
-    if (!form.title.trim()) e.title = 'Title is required';
+    if (!form.title.trim())  e.title       = 'Title is required';
+    if (!form.assignee_id)   e.assignee_id = 'Assignee is required';
+    if (!form.deadline)      e.deadline    = 'Deadline is required';
+    if (!form.due_time)      e.due_time    = 'Due time is required';
     return e;
   }
 
@@ -77,16 +80,14 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
     setLoading(true);
     try {
       const body: Record<string, unknown> = {
-        title:     form.title.trim(),
-        priority:  form.priority,
-        reminders: form.reminders,
+        title:       form.title.trim(),
+        priority:    form.priority,
+        reminders:   form.reminders,
+        assignee_id: form.assignee_id,
+        deadline:    form.deadline,
+        due_time:    form.due_time,
       };
       if (form.description) body.description = form.description;
-      if (form.assignee_id) body.assignee_id = form.assignee_id;
-      if (form.deadline) {
-        body.deadline = form.deadline;
-        if (form.due_time) body.due_time = form.due_time;
-      }
 
       const res = await fetch('/api/tasks', {
         method:  'POST',
@@ -151,18 +152,19 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
 
               <div className="grid grid-cols-2 gap-4">
                 <SelectNative
-                  label="Assign to"
+                  label="Assign to *"
                   value={form.assignee_id}
                   onChange={e => set('assignee_id', e.target.value)}
+                  error={errors.assignee_id}
                 >
-                  <option value="">Unassigned</option>
+                  <option value="">Select assignee</option>
                   {employees.map(emp => (
                     <option key={emp.id} value={emp.id}>{emp.full_name}</option>
                   ))}
                 </SelectNative>
 
                 <SelectNative
-                  label="Priority"
+                  label="Priority *"
                   value={form.priority}
                   onChange={e => set('priority', e.target.value)}
                   options={PRIORITIES}
@@ -171,16 +173,18 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
 
               <div className="grid grid-cols-2 gap-4">
                 <Input
-                  label="Deadline"
+                  label="Deadline *"
                   type="date"
                   value={form.deadline}
                   onChange={e => set('deadline', e.target.value)}
+                  error={errors.deadline}
                 />
                 <Input
-                  label="Due Time"
+                  label="Due Time *"
                   type="time"
                   value={form.due_time}
                   onChange={e => set('due_time', e.target.value)}
+                  error={errors.due_time}
                 />
               </div>
 

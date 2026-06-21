@@ -4,6 +4,7 @@ import { createAdminClient }  from '@/lib/supabase/admin';
 import { writeAuditLog }      from '@/lib/utils/audit';
 import { notifyTaskAssigned, notifyTaskCompleted } from '@/lib/whatsapp/notify';
 import { isEmployee, isManager } from '@/lib/rbac';
+import { scheduleTaskReminders } from '@/lib/tasks/scheduleReminders';
 import { z } from 'zod';
 
 const UpdateTaskSchema = z.object({
@@ -104,6 +105,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   await writeAuditLog({ org_id: profile.organization_id, actor_id: user.id, action: 'UPDATE', table_name: 'tasks', record_id: id, old_data: task, new_data: updated });
+
+  // Re-schedule reminders if deadline/time/reminders changed
+  const deadlineFieldChanged =
+    updateData.deadline  !== undefined ||
+    updateData.due_time  !== undefined ||
+    updateData.reminders !== undefined;
+  if (deadlineFieldChanged) {
+    scheduleTaskReminders({ id: updated.id, deadline: updated.deadline ?? null, due_time: updated.due_time ?? null, reminders: updated.reminders ?? [] });
+  }
 
   const { data: actor } = await db.from('users').select('full_name').eq('id', user.id).single();
   const actorName = actor?.full_name ?? 'your manager';

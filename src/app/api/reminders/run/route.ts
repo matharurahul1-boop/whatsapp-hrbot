@@ -146,9 +146,35 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: true, type, processed });
 }
 
-// ── GET — per-user task due-date reminders (called by Vercel Cron hourly) ────
+// ── GET — per-task due-date reminders (Vercel Cron, runs every 30 min) ────────
+//
+// For each reminder offset the task has set, this handler fires when
+//   now + offset  falls within a ±30-min window around the task's deadline.
+//
+// i.e., it finds tasks where:
+//   deadline BETWEEN (now + offset - 30min)  AND  (now + offset + 30min)
+//
+// Each reminder fires exactly once per task per day because the window is
+// too narrow to be hit by two consecutive hourly runs.
+//
+// Channel preference (WhatsApp / in-app) comes from the assignee's
+// users.metadata.task_reminders.channels (set in Settings → Notifications).
+
+const REMINDER_OFFSETS: Record<string, number> = {
+  '1_hour':  1  * 60 * 60 * 1000,
+  '2_hours': 2  * 60 * 60 * 1000,
+  '4_hours': 4  * 60 * 60 * 1000,
+  '1_day':   24 * 60 * 60 * 1000,
+};
+
+const REMINDER_LABEL: Record<string, string> = {
+  '1_hour':  'due in 1 hour',
+  '2_hours': 'due in 2 hours',
+  '4_hours': 'due in 4 hours',
+  '1_day':   'due tomorrow',
+};
+
 export async function GET(req: NextRequest) {
-  // Accept Vercel's internal cron header or the usual Bearer token
   const isCron = req.headers.get('x-vercel-cron') === '1';
   const auth   = req.headers.get('authorization') ?? '';
   const secret = process.env.APP_SECRET;
@@ -156,41 +182,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const db = createAdminClient();
+  const db  = createAdminClient();
+  const now = new Date();
+  const WINDOW_MS = 30 * 60 * 1000; // ±30-min window around each offset
 
-  // Current IST hour (0-23)
-  const istHour = parseInt(
-    new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata', hour: 'numeric', hour12: false })
-  );
-
-  // Which reminder windows are active right now?
-  const activeTimings: string[] = [];
-  if (istHour >= 8 && istHour <= 10) activeTimings.push('1_day', 'on_due');
-  if (istHour === 16)                 activeTimings.push('2_hours');
-  if (istHour === 17)                 activeTimings.push('1_hour');
-
-  if (!activeTimings.length) {
-    return NextResponse.json({ ok: true, message: `No task reminders at IST hour ${istHour}` });
-  }
-
-  const today    = todayIST();
-  const tomorrow = tomorrowIST();
-
-  const deadlineFor: Record<string, string> = {
-    '1_day':   tomorrow,
-    'on_due':  today,
-    '2_hours': today,
-    '1_hour':  today,
-  };
-
-  const labelFor: Record<string, string> = {
-    '1_day':   'due tomorrow',
-    'on_due':  'due today',
-    '2_hours': 'due in ~2 hours',
-    '1_hour':  'due in ~1 hour',
-  };
-
-  // Only orgs with WhatsApp configured
+  // All active orgs with WhatsApp configured
   const { data: orgs } = await db
     .from('organizations')
     .select('id')
@@ -200,71 +196,63 @@ export async function GET(req: NextRequest) {
 
   let processed = 0;
 
-  for (const org of orgs) {
-    // Pre-load today's reminder notifications to skip duplicates (avoids N+1 per task)
-    const { data: todayNotifs } = await db
-      .from('notifications')
-      .select('action_url')
-      .eq('organization_id', org.id)
-      .gte('created_at', `${today}T00:00:00`)
-      .like('action_url', '/tasks?reminder=%');
+  for (const [offsetKey, offsetMs] of Object.entries(REMINDER_OFFSETS)) {
+    const windowStart = new Date(now.getTime() + offsetMs - WINDOW_MS).toISOString();
+    const windowEnd   = new Date(now.getTime() + offsetMs + WINDOW_MS).toISOString();
 
-    const sentToday = new Set<string>((todayNotifs ?? []).map((n: any) => n.action_url));
+    // Tasks whose deadline falls in this window AND have this reminder offset set
+    const { data: tasks } = await db
+      .from('tasks')
+      .select(`
+        id, title, deadline, reminders, organization_id,
+        assignee:users!tasks_assignee_id_fkey(id, full_name, wa_number, metadata)
+      `)
+      .gte('deadline', windowStart)
+      .lte('deadline', windowEnd)
+      .contains('reminders', [offsetKey])
+      .not('status', 'in', '("done","completed","cancelled")')
+      .is('deleted_at', null);
 
-    for (const timing of activeTimings) {
-      const { data: tasks } = await db
-        .from('tasks')
-        .select(`
-          id, title, deadline,
-          assignee:users!tasks_assignee_id_fkey(id, full_name, wa_number, metadata)
-        `)
-        .eq('organization_id', org.id)
-        .eq('deadline', deadlineFor[timing])
-        .not('status', 'in', '("done","completed","cancelled")')
-        .is('deleted_at', null);
+    for (const task of (tasks ?? [])) {
+      const assignee = (task as any).assignee;
+      if (!assignee) continue;
 
-      for (const task of (tasks ?? [])) {
-        const assignee = (task as any).assignee;
-        if (!assignee) continue;
+      // Channel preference: default to WhatsApp if no settings saved
+      const prefs    = assignee.metadata?.task_reminders ?? {};
+      const enabled  = prefs.enabled !== false; // default on
+      if (!enabled) continue;
+      const channels: string[] = prefs.channels?.length ? prefs.channels : ['whatsapp'];
 
-        // Respect per-user preferences
-        const prefs = assignee.metadata?.task_reminders;
-        if (!prefs?.enabled || !prefs?.timings?.includes(timing)) continue;
+      const notifKey = `/tasks?reminder=${task.id}&t=${offsetKey}`;
 
-        const channels: string[] = prefs.channels ?? ['whatsapp'];
-        const notifKey = `/tasks?reminder=${task.id}&t=${timing}`;
-        if (sentToday.has(notifKey)) continue;
-
-        // In-app notification
-        if (channels.includes('in_app')) {
-          const { error: insErr } = await db.from('notifications').insert({
-            user_id:         assignee.id,
-            organization_id: org.id,
-            title:           '⏰ Task reminder',
-            body:            `"${task.title}" is ${labelFor[timing]}.`,
-            action_url:      notifKey,
-            is_read:         false,
-          });
-          if (!insErr) sentToday.add(notifKey);
-        }
-
-        // WhatsApp notification
-        if (channels.includes('whatsapp') && assignee.wa_number) {
-          await notifyTaskDeadlineReminder({
-            orgId:        org.id,
-            waNumber:     assignee.wa_number,
-            assigneeName: assignee.full_name,
-            taskTitle:    task.title,
-            deadline:     task.deadline,
-          });
-        }
-
-        processed++;
-        await new Promise(r => setTimeout(r, 100));
+      // In-app notification
+      if (channels.includes('in_app')) {
+        await db.from('notifications').insert({
+          user_id:         assignee.id,
+          organization_id: task.organization_id,
+          title:           '⏰ Task reminder',
+          body:            `"${task.title}" is ${REMINDER_LABEL[offsetKey]}.`,
+          action_url:      notifKey,
+          is_read:         false,
+        }).then(({ error }) => { if (error) console.error('[reminder in_app]', error.message); });
       }
+
+      // WhatsApp notification
+      if (channels.includes('whatsapp') && assignee.wa_number) {
+        await notifyTaskDeadlineReminder({
+          orgId:        task.organization_id,
+          waNumber:     assignee.wa_number,
+          assigneeName: assignee.full_name,
+          taskTitle:    task.title,
+          deadline:     task.deadline,
+        });
+      }
+
+      processed++;
+      await new Promise(r => setTimeout(r, 100));
     }
   }
 
-  console.log(`[Reminders:task-GET] ✅ hour=${istHour} timings=[${activeTimings}] processed=${processed}`);
-  return NextResponse.json({ ok: true, timings: activeTimings, processed });
+  console.log(`[Reminders:task-GET] ✅ processed=${processed} at ${now.toISOString()}`);
+  return NextResponse.json({ ok: true, processed, checkedAt: now.toISOString() });
 }

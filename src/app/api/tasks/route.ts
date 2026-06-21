@@ -13,6 +13,7 @@ const CreateTaskSchema = z.object({
   deadline:    z.string().datetime().optional(),
   priority:    z.enum(['low','medium','high','urgent']).default('medium'),
   status:      z.enum(['todo','in_progress','done','cancelled']).default('todo'),
+  reminders:   z.array(z.string()).optional(),
 });
 
 // GET /api/tasks — list tasks for authenticated user's org

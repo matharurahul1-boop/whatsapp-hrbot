@@ -40,10 +40,18 @@ const PRIORITIES = [
 
 interface Employee { id: string; full_name: string; }
 
+const REMINDER_OPTS = [
+  { value: '1_hour',  label: '1 h before'  },
+  { value: '2_hours', label: '2 h before'  },
+  { value: '4_hours', label: '4 h before'  },
+  { value: '1_day',   label: '1 day before' },
+] as const;
+
 interface TaskCardProps {
   task: {
     id: string; title: string; status: string; priority: string;
     deadline: string | null; description: string | null;
+    reminders: string[] | null;
     assignee: { id: string; full_name: string; avatar_url: string | null } | null;
   };
   canEdit:        boolean;
@@ -67,6 +75,7 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
     deadline:    task.deadline ? task.deadline.slice(0, 16) : '',
     priority:    task.priority,
     status:      task.status as TaskStatus,
+    reminders:   task.reminders ?? [] as string[],
   });
 
   const overdue = task.deadline && status !== 'done' && new Date(task.deadline) < new Date();
@@ -85,6 +94,7 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
       deadline:    task.deadline ? task.deadline.slice(0, 16) : '',
       priority:    task.priority,
       status:      status,
+      reminders:   task.reminders ?? [],
     });
     setEditOpen(true);
   }
@@ -94,10 +104,11 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
     if (!form.title.trim() || updating) return;
     setUpdating(true);
     try {
-      const body: Record<string, string> = {
-        title:    form.title.trim(),
-        priority: form.priority,
-        status:   form.status,
+      const body: Record<string, unknown> = {
+        title:     form.title.trim(),
+        priority:  form.priority,
+        status:    form.status,
+        reminders: form.reminders,
       };
       if (form.description) body.description = form.description;
       if (form.assignee_id) body.assignee_id = form.assignee_id;
@@ -169,7 +180,7 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
                   <p className="text-xs font-semibold text-surface-900 leading-snug">{task.title}</p>
                 </div>
                 <DropdownMenu.Item
-                  onSelect={() => { setForm({ title: task.title, description: task.description ?? '', assignee_id: task.assignee?.id ?? '', deadline: task.deadline ? task.deadline.slice(0, 16) : '', priority: task.priority, status: status }); setEditOpen(true); }}
+                  onSelect={() => { setForm({ title: task.title, description: task.description ?? '', assignee_id: task.assignee?.id ?? '', deadline: task.deadline ? task.deadline.slice(0, 16) : '', priority: task.priority, status: status, reminders: task.reminders ?? [] }); setEditOpen(true); }}
                   className="flex items-center gap-2.5 px-2.5 py-2 text-xs text-surface-700 rounded-lg cursor-pointer hover:bg-surface-200/80 outline-none"
                 >
                   Edit Task
@@ -214,6 +225,46 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
                   </SelectNative>
                 )}
                 <Input label="Deadline" type="datetime-local" value={form.deadline} onChange={e => setField('deadline', e.target.value)} />
+
+                {/* Reminders — only shown when a deadline with time is set */}
+                {form.deadline && (
+                  <div>
+                    <label className="block text-xs font-medium text-surface-700 mb-1.5">
+                      Reminders
+                      <span className="ml-1 font-normal text-surface-400">(select one or more)</span>
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      {REMINDER_OPTS.map(opt => {
+                        const active = form.reminders.includes(opt.value);
+                        return (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => setForm(f => ({
+                              ...f,
+                              reminders: active
+                                ? f.reminders.filter(r => r !== opt.value)
+                                : [...f.reminders, opt.value],
+                            }))}
+                            className={cn(
+                              'px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors',
+                              active
+                                ? 'border-brand-500 bg-brand-500/10 text-brand-500'
+                                : 'border-surface-300 text-surface-600 hover:bg-surface-200'
+                            )}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {form.reminders.length > 0 && (
+                      <p className="text-[11px] text-surface-400 mt-1.5">
+                        Sent via your channel preference in Settings → Notifications
+                      </p>
+                    )}
+                  </div>
+                )}
               </DialogBody>
               <DialogFooter>
                 <Button variant="ghost" size="md" type="button" onClick={() => setConfirmDelete(true)} className="text-danger hover:text-danger hover:bg-danger/10 mr-auto">

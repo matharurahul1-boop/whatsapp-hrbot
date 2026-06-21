@@ -13,6 +13,7 @@ const UpdateTaskSchema = z.object({
   deadline:    z.string().datetime().nullable().optional(),
   priority:    z.enum(['low','medium','high','urgent']).optional(),
   status:      z.enum(['todo','in_progress','done','cancelled']).optional(),
+  reminders:   z.array(z.string()).nullable().optional(),
 });
 
 async function getTaskAndProfile(id: string, userId: string) {

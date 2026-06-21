@@ -89,9 +89,8 @@ export default function SettingsPage() {
   const [pwSaved,      setPwSaved]      = useState(false);
   const [pwError,      setPwError]      = useState('');
 
-  // Task reminder preferences
-  const [remindersEnabled,  setRemindersEnabled]  = useState(false);
-  const [reminderTimings,   setReminderTimings]   = useState<string[]>(['1_day']);
+  // Task reminder channel preference (timing is set per-task in the task form)
+  const [remindersEnabled,  setRemindersEnabled]  = useState(true);
   const [reminderChannels,  setReminderChannels]  = useState<string[]>(['whatsapp', 'in_app']);
   const [savingReminders,   setSavingReminders]   = useState(false);
   const [remindersSaved,    setRemindersSaved]    = useState(false);
@@ -128,8 +127,7 @@ export default function SettingsPage() {
 
       const prefs = (profile as any).metadata?.task_reminders;
       if (prefs) {
-        setRemindersEnabled(prefs.enabled ?? false);
-        setReminderTimings(prefs.timings ?? ['1_day']);
+        setRemindersEnabled(prefs.enabled ?? true);
         setReminderChannels(prefs.channels ?? ['whatsapp', 'in_app']);
       }
     }
@@ -225,7 +223,7 @@ export default function SettingsPage() {
       const { data: current } = await supabase.from('users').select('metadata').eq('id', userId).single();
       const merged = {
         ...((current as any)?.metadata ?? {}),
-        task_reminders: { enabled: remindersEnabled, timings: reminderTimings, channels: reminderChannels },
+        task_reminders: { enabled: remindersEnabled, channels: reminderChannels },
       };
       await supabase.from('users').update({ metadata: merged }).eq('id', userId);
       setRemindersSaved(true);
@@ -546,72 +544,38 @@ export default function SettingsPage() {
           </div>
 
           {remindersEnabled && (
-            <>
-              {/* When to remind */}
-              <div>
-                <p className="text-xs font-medium text-surface-700 mb-2">When to remind me</p>
-                <div className="flex flex-wrap gap-2">
-                  {([
-                    { value: '1_day',   label: '1 day before' },
-                    { value: 'on_due',  label: 'Day of (9 am)' },
-                    { value: '2_hours', label: '2 hours before' },
-                    { value: '1_hour',  label: '1 hour before' },
-                  ] as const).map(opt => {
-                    const active = reminderTimings.includes(opt.value);
-                    return (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        onClick={() => setReminderTimings(prev =>
-                          active ? prev.filter(v => v !== opt.value) : [...prev, opt.value]
-                        )}
-                        className={cn(
-                          'px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors',
-                          active
-                            ? 'border-brand-500 bg-brand-500/10 text-brand-500'
-                            : 'border-surface-300 text-surface-600 hover:bg-surface-200'
-                        )}
-                      >
-                        {opt.label}
-                      </button>
-                    );
-                  })}
-                </div>
-                <p className="text-[11px] text-surface-400 mt-2">
-                  "2 h / 1 h before" fires at 4 pm / 5 pm IST for tasks due that day
-                </p>
+            /* Delivery channel — timing is chosen per-task in the task edit form */
+            <div>
+              <p className="text-xs font-medium text-surface-700 mb-2">How to notify me</p>
+              <p className="text-[11px] text-surface-400 mb-2">
+                Reminder timing (1 h, 2 h, 4 h, 1 day before) is set per-task in the task edit form.
+              </p>
+              <div className="flex gap-2">
+                {([
+                  { value: 'whatsapp', label: '📱 WhatsApp' },
+                  { value: 'in_app',   label: '🔔 In-app bell' },
+                ] as const).map(opt => {
+                  const active = reminderChannels.includes(opt.value);
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setReminderChannels(prev =>
+                        active ? prev.filter(v => v !== opt.value) : [...prev, opt.value]
+                      )}
+                      className={cn(
+                        'px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors',
+                        active
+                          ? 'border-brand-500 bg-brand-500/10 text-brand-500'
+                          : 'border-surface-300 text-surface-600 hover:bg-surface-200'
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
               </div>
-
-              {/* Channel */}
-              <div>
-                <p className="text-xs font-medium text-surface-700 mb-2">How to notify me</p>
-                <div className="flex gap-2">
-                  {([
-                    { value: 'whatsapp', label: '📱 WhatsApp' },
-                    { value: 'in_app',   label: '🔔 In-app bell' },
-                  ] as const).map(opt => {
-                    const active = reminderChannels.includes(opt.value);
-                    return (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        onClick={() => setReminderChannels(prev =>
-                          active ? prev.filter(v => v !== opt.value) : [...prev, opt.value]
-                        )}
-                        className={cn(
-                          'px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors',
-                          active
-                            ? 'border-brand-500 bg-brand-500/10 text-brand-500'
-                            : 'border-surface-300 text-surface-600 hover:bg-surface-200'
-                        )}
-                      >
-                        {opt.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </>
+            </div>
           )}
 
           <button

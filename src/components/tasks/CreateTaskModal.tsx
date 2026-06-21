@@ -169,20 +169,20 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
                 />
               </div>
 
-              <Input
-                label="Deadline"
-                type="date"
-                value={form.deadline}
-                onChange={e => set('deadline', e.target.value)}
-              />
-              {form.deadline && (
+              <div className="grid grid-cols-2 gap-4">
+                <Input
+                  label="Deadline"
+                  type="date"
+                  value={form.deadline}
+                  onChange={e => set('deadline', e.target.value)}
+                />
                 <Input
                   label="Due Time"
                   type="time"
                   value={form.due_time}
                   onChange={e => set('due_time', e.target.value)}
                 />
-              )}
+              </div>
 
               <div>
                 <label className="block text-xs font-medium text-surface-700 mb-1.5">

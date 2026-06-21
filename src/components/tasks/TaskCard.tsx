@@ -206,7 +206,7 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
         <Dialog open={editOpen} onOpenChange={setEditOpen}>
           <DialogContent size="md">
             <DialogHeader><DialogTitle>Update Task</DialogTitle></DialogHeader>
-            <form onSubmit={handleSave}>
+            <form onSubmit={handleSave} className="flex flex-col flex-1 min-h-0">
               <DialogBody className="space-y-4">
                 <Input label="Title *" value={form.title} onChange={e => setField('title', e.target.value)} autoFocus />
                 <Textarea label="Description" placeholder="Optional details…" value={form.description} onChange={e => setField('description', e.target.value)} rows={3} />
@@ -411,7 +411,7 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
             <DialogTitle>Update Task</DialogTitle>
           </DialogHeader>
 
-          <form onSubmit={handleSave}>
+          <form onSubmit={handleSave} className="flex flex-col flex-1 min-h-0">
             <DialogBody className="space-y-4">
               <Input
                 label="Title *"

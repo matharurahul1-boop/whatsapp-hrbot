@@ -113,7 +113,7 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
             <DialogTitle>Create Task</DialogTitle>
           </DialogHeader>
 
-          <form onSubmit={handleSubmit}>
+          <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
             <DialogBody className="space-y-4">
               {errors._global && (
                 <p className="text-sm text-danger bg-danger/10 rounded-lg px-3 py-2">{errors._global}</p>

@@ -53,6 +53,7 @@ const DialogContent = React.forwardRef<
       className={cn(
         'fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2',
         'w-full rounded-2xl bg-surface-100 border border-surface-300 shadow-modal',
+        'flex flex-col max-h-[90dvh] overflow-hidden',
         'data-[state=open]:animate-scale-in',
         sizeMap[size],
         className
@@ -75,7 +76,7 @@ DialogContent.displayName = DialogPrimitive.Content.displayName;
 function DialogHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn('flex flex-col gap-1 px-6 py-4 border-b border-surface-300', className)}
+      className={cn('flex-none flex flex-col gap-1 px-6 py-4 border-b border-surface-300', className)}
       {...props}
     />
   );
@@ -106,13 +107,13 @@ const DialogDescription = React.forwardRef<
 DialogDescription.displayName = DialogPrimitive.Description.displayName;
 
 function DialogBody({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn('px-6 py-5', className)} {...props} />;
+  return <div className={cn('flex-1 min-h-0 overflow-y-auto px-6 py-5', className)} {...props} />;
 }
 
 function DialogFooter({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn('flex items-center justify-end gap-3 px-6 py-4 border-t border-surface-300', className)}
+      className={cn('flex-none flex items-center justify-end gap-3 px-6 py-4 border-t border-surface-300', className)}
       {...props}
     />
   );

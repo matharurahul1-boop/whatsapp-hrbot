@@ -3,7 +3,7 @@ import { createClient }       from '@/lib/supabase/server';
 import { createAdminClient }  from '@/lib/supabase/admin';
 import { writeAuditLog }      from '@/lib/utils/audit';
 import { notifyTaskAssigned, notifyTaskCompleted } from '@/lib/whatsapp/notify';
-import { isEmployee, isManager, MANAGER_TASK_FIELDS } from '@/lib/rbac';
+import { isEmployee, isManager } from '@/lib/rbac';
 import { z } from 'zod';
 
 const UpdateTaskSchema = z.object({
@@ -63,21 +63,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (!profile || !task) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   if (task.organization_id !== profile.organization_id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
+  // ── Build updateData — filtered by role ──────────────────────────────────────
+  let updateData: Record<string, unknown> = { ...parsed.data };
+
   // ── RBAC: who can touch this task? ───────────────────────────────────────────
   if (isEmployee(profile.role)) {
     // Employees: only their own assigned or created tasks
     if (task.assignee_id !== user.id && task.created_by !== user.id) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
-    // Employees: can only change status or description — nothing structural
-    const attempted = Object.keys(parsed.data);
-    const forbidden = attempted.filter(f => MANAGER_TASK_FIELDS.has(f));
-    if (forbidden.length > 0) {
-      return NextResponse.json(
-        { error: `Employees can only update task status. Cannot change: ${forbidden.join(', ')}` },
-        { status: 403 },
-      );
-    }
+    // Strip manager-only fields silently — employees can only update status and description
+    updateData = {};
+    if (parsed.data.status      !== undefined) updateData.status      = parsed.data.status;
+    if (parsed.data.description !== undefined) updateData.description = parsed.data.description;
   }
 
   if (isManager(profile.role)) {
@@ -97,7 +95,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   const { data: updated, error } = await db
     .from('tasks')
-    .update({ ...parsed.data, updated_at: new Date().toISOString() })
+    .update({ ...updateData, updated_at: new Date().toISOString() })
     .eq('id', id)
     .select()
     .single();
@@ -110,7 +108,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const actorName = actor?.full_name ?? 'your manager';
 
   // Notify on assignee change
-  const newAssigneeId = parsed.data.assignee_id;
+  const newAssigneeId = updateData.assignee_id as string | null | undefined;
   if (newAssigneeId && newAssigneeId !== task.assignee_id && newAssigneeId !== user.id) {
     notifyTaskAssigned({
       orgId:       profile.organization_id,
@@ -124,7 +122,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   // Notify creator when task is marked completed (and they're not the one completing it)
   const justCompleted =
-    parsed.data.status === 'done' &&
+    updateData.status === 'done' &&
     task.status !== 'done' &&
     updated.created_by &&
     updated.created_by !== user.id;

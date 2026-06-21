@@ -73,6 +73,7 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
   const [updating,      setUpdating]      = useState(false);
   const [deleting,      setDeleting]      = useState(false);
   const [status,        setStatus]        = useState<TaskStatus>(task.status as TaskStatus);
+  const [saveError,     setSaveError]     = useState<string | null>(null);
 
   // Track saved deadline/reminders locally so re-opening edit immediately
   // shows the latest saved values without waiting for router.refresh().
@@ -99,6 +100,7 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
   }
 
   function openEdit(e?: React.MouseEvent) {
+    setSaveError(null);
     setForm({
       title:       task.title,
       description: task.description ?? '',
@@ -115,6 +117,7 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
     e.preventDefault();
     if (!form.title.trim() || updating) return;
     setUpdating(true);
+    setSaveError(null);
     try {
       const body: Record<string, unknown> = {
         title:     form.title.trim(),
@@ -139,7 +142,18 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
         onStatusChange?.(task.id, form.status);
         setEditOpen(false);
         router.refresh();
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        const msg = typeof errData.error === 'string'
+          ? errData.error
+          : `Save failed (${res.status})`;
+        setSaveError(msg);
+        console.error('[TaskCard] PATCH failed:', res.status, errData);
       }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'An unexpected error occurred';
+      setSaveError(msg);
+      console.error('[TaskCard] handleSave error:', err);
     } finally {
       setUpdating(false);
     }
@@ -223,6 +237,9 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
             <DialogHeader><DialogTitle>Update Task</DialogTitle></DialogHeader>
             <form onSubmit={handleSave} className="flex flex-col flex-1 min-h-0">
               <DialogBody className="space-y-4">
+                {saveError && (
+                  <p className="text-xs text-danger bg-danger/10 rounded-lg px-3 py-2">{saveError}</p>
+                )}
                 <Input label="Title *" value={form.title} onChange={e => setField('title', e.target.value)} autoFocus />
                 <Textarea label="Description" placeholder="Optional details…" value={form.description} onChange={e => setField('description', e.target.value)} rows={3} />
                 <div className="grid grid-cols-2 gap-4">
@@ -428,6 +445,9 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
 
           <form onSubmit={handleSave} className="flex flex-col flex-1 min-h-0">
             <DialogBody className="space-y-4">
+              {saveError && (
+                <p className="text-xs text-danger bg-danger/10 rounded-lg px-3 py-2">{saveError}</p>
+              )}
               <Input
                 label="Title *"
                 value={form.title}

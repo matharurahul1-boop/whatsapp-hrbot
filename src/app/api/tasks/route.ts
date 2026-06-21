@@ -124,7 +124,7 @@ export async function POST(req: NextRequest) {
 
   await writeAuditLog({ org_id: profile.organization_id, actor_id: user.id, action: 'CREATE', table_name: 'tasks', record_id: task.id, new_data: task });
 
-  scheduleTaskReminders({ id: task.id, deadline: task.deadline ?? null, due_time: task.due_time ?? null, reminders: task.reminders ?? [] });
+  await scheduleTaskReminders({ id: task.id, deadline: task.deadline ?? null, due_time: task.due_time ?? null, reminders: task.reminders ?? [] });
 
   // ── WhatsApp notification — only when assigned to someone else ───────────────
   const assigneeId = parsed.data.assignee_id;

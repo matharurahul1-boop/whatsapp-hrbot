@@ -12,13 +12,15 @@ interface ScheduleInput {
   reminders: string[] | null;
 }
 
-export function scheduleTaskReminders(task: ScheduleInput): void {
+export async function scheduleTaskReminders(task: ScheduleInput): Promise<void> {
   const webhookUrl = process.env.N8N_TASK_REMINDER_WEBHOOK_URL;
   if (!webhookUrl || !task.deadline || !task.due_time || !task.reminders?.length) return;
 
   const timeStr = task.due_time.slice(0, 5); // HH:MM
   const deadlineUTC = new Date(`${task.deadline}T${timeStr}+05:30`).getTime();
   const now = Date.now();
+
+  const calls: Promise<void>[] = [];
 
   for (const reminder of task.reminders) {
     const offset = REMINDER_OFFSETS[reminder];
@@ -27,18 +29,24 @@ export function scheduleTaskReminders(task: ScheduleInput): void {
     const fireAt = deadlineUTC - offset;
     if (fireAt <= now) continue;
 
-    fetch(webhookUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        task_id:             task.id,
-        reminder,
-        fire_at:             new Date(fireAt).toISOString(),
-        scheduled_deadline:  task.deadline,
-        scheduled_due_time:  timeStr,
-      }),
-    }).catch(err =>
-      console.error(`[scheduleReminders] ${reminder} for task ${task.id}:`, err)
+    calls.push(
+      fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          task_id:            task.id,
+          reminder,
+          fire_at:            new Date(fireAt).toISOString(),
+          scheduled_deadline: task.deadline,
+          scheduled_due_time: timeStr,
+        }),
+      })
+        .then(() => {})
+        .catch(err =>
+          console.error(`[scheduleReminders] ${reminder} for task ${task.id}:`, err)
+        )
     );
   }
+
+  await Promise.all(calls);
 }

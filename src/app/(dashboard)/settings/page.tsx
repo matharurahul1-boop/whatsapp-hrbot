@@ -89,6 +89,13 @@ export default function SettingsPage() {
   const [pwSaved,      setPwSaved]      = useState(false);
   const [pwError,      setPwError]      = useState('');
 
+  // Task reminder preferences
+  const [remindersEnabled,  setRemindersEnabled]  = useState(false);
+  const [reminderTimings,   setReminderTimings]   = useState<string[]>(['1_day']);
+  const [reminderChannels,  setReminderChannels]  = useState<string[]>(['whatsapp', 'in_app']);
+  const [savingReminders,   setSavingReminders]   = useState(false);
+  const [remindersSaved,    setRemindersSaved]    = useState(false);
+
   // Meta
   const [role,   setRole]   = useState('');
   const [orgId,  setOrgId]  = useState('');
@@ -106,7 +113,7 @@ export default function SettingsPage() {
 
     const { data: profile } = await supabase
       .from('users')
-      .select('full_name, wa_number, department, designation, avatar_url, role, organization_id')
+      .select('full_name, wa_number, department, designation, avatar_url, role, organization_id, metadata')
       .eq('id', user.id)
       .single();
 
@@ -118,6 +125,13 @@ export default function SettingsPage() {
       setAvatarUrl(profile.avatar_url ?? '');
       setRole(profile.role ?? '');
       setOrgId(profile.organization_id ?? '');
+
+      const prefs = (profile as any).metadata?.task_reminders;
+      if (prefs) {
+        setRemindersEnabled(prefs.enabled ?? false);
+        setReminderTimings(prefs.timings ?? ['1_day']);
+        setReminderChannels(prefs.channels ?? ['whatsapp', 'in_app']);
+      }
     }
 
     if (profile?.organization_id) {
@@ -203,6 +217,22 @@ export default function SettingsPage() {
     navigator.clipboard.writeText(waToken);
     setCopiedToken(true);
     setTimeout(() => setCopiedToken(false), 2000);
+  }
+
+  async function saveReminders() {
+    setSavingReminders(true);
+    try {
+      const { data: current } = await supabase.from('users').select('metadata').eq('id', userId).single();
+      const merged = {
+        ...((current as any)?.metadata ?? {}),
+        task_reminders: { enabled: remindersEnabled, timings: reminderTimings, channels: reminderChannels },
+      };
+      await supabase.from('users').update({ metadata: merged }).eq('id', userId);
+      setRemindersSaved(true);
+      setTimeout(() => setRemindersSaved(false), 2500);
+    } finally {
+      setSavingReminders(false);
+    }
   }
 
   if (loading) {
@@ -462,33 +492,141 @@ export default function SettingsPage() {
         </form>
       </Section>
 
-      {/* ── Notifications info ── */}
+      {/* ── Notifications ── */}
       <Section
         title="Notifications"
-        description="How you receive HR alerts and updates"
+        description="Manage how and when you receive alerts and reminders"
         icon={<Bell className="h-4 w-4" />}
       >
-        <div className="space-y-3">
+        {/* Auto-alerts (read-only) */}
+        <div className="space-y-3 pb-5 border-b border-surface-300">
+          <p className="text-[11px] font-semibold text-surface-500 uppercase tracking-wider">Auto alerts</p>
           {[
-            { label: 'Task assigned / overdue',  channel: 'WhatsApp + In-app', active: true },
-            { label: 'Leave approved / rejected', channel: 'WhatsApp + In-app', active: true },
-            { label: 'Daily check-in reminder',   channel: 'WhatsApp',         active: true },
-            { label: 'Onboarding updates',        channel: 'WhatsApp',         active: true },
+            { label: 'Task assigned / completed',  channel: 'WhatsApp + In-app' },
+            { label: 'Leave approved / rejected',  channel: 'WhatsApp + In-app' },
+            { label: 'Daily check-in reminder',    channel: 'WhatsApp'          },
+            { label: 'Onboarding updates',         channel: 'WhatsApp'          },
           ].map(n => (
-            <div key={n.label} className="flex items-center justify-between py-2 border-b border-surface-300 last:border-0">
+            <div key={n.label} className="flex items-center justify-between py-1.5">
               <div>
                 <p className="text-sm text-surface-800">{n.label}</p>
                 <p className="text-xs text-surface-500">{n.channel}</p>
               </div>
-              <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                n.active
-                  ? 'bg-success/10 text-success border border-success/20'
-                  : 'bg-surface-300 text-surface-600'
-              }`}>
-                {n.active ? 'Active' : 'Off'}
+              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-success/10 text-success border border-success/20">
+                Active
               </span>
             </div>
           ))}
+        </div>
+
+        {/* Task due-date reminder preferences */}
+        <div className="pt-5 space-y-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-semibold text-surface-900">Task Due Date Reminders</p>
+              <p className="text-xs text-surface-500 mt-0.5">
+                Get notified before a task deadline via WhatsApp and/or the in-app bell
+              </p>
+            </div>
+            {/* Toggle switch */}
+            <button
+              type="button"
+              onClick={() => setRemindersEnabled(v => !v)}
+              className={cn(
+                'relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500/50',
+                remindersEnabled ? 'bg-brand-500' : 'bg-surface-300'
+              )}
+              aria-label="Toggle reminders"
+            >
+              <span className={cn(
+                'inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform mt-0.5',
+                remindersEnabled ? 'translate-x-5' : 'translate-x-0.5'
+              )} />
+            </button>
+          </div>
+
+          {remindersEnabled && (
+            <>
+              {/* When to remind */}
+              <div>
+                <p className="text-xs font-medium text-surface-700 mb-2">When to remind me</p>
+                <div className="flex flex-wrap gap-2">
+                  {([
+                    { value: '1_day',   label: '1 day before' },
+                    { value: 'on_due',  label: 'Day of (9 am)' },
+                    { value: '2_hours', label: '2 hours before' },
+                    { value: '1_hour',  label: '1 hour before' },
+                  ] as const).map(opt => {
+                    const active = reminderTimings.includes(opt.value);
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setReminderTimings(prev =>
+                          active ? prev.filter(v => v !== opt.value) : [...prev, opt.value]
+                        )}
+                        className={cn(
+                          'px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors',
+                          active
+                            ? 'border-brand-500 bg-brand-500/10 text-brand-500'
+                            : 'border-surface-300 text-surface-600 hover:bg-surface-200'
+                        )}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[11px] text-surface-400 mt-2">
+                  "2 h / 1 h before" fires at 4 pm / 5 pm IST for tasks due that day
+                </p>
+              </div>
+
+              {/* Channel */}
+              <div>
+                <p className="text-xs font-medium text-surface-700 mb-2">How to notify me</p>
+                <div className="flex gap-2">
+                  {([
+                    { value: 'whatsapp', label: '📱 WhatsApp' },
+                    { value: 'in_app',   label: '🔔 In-app bell' },
+                  ] as const).map(opt => {
+                    const active = reminderChannels.includes(opt.value);
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setReminderChannels(prev =>
+                          active ? prev.filter(v => v !== opt.value) : [...prev, opt.value]
+                        )}
+                        className={cn(
+                          'px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors',
+                          active
+                            ? 'border-brand-500 bg-brand-500/10 text-brand-500'
+                            : 'border-surface-300 text-surface-600 hover:bg-surface-200'
+                        )}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
+
+          <button
+            type="button"
+            onClick={saveReminders}
+            disabled={savingReminders}
+            className="flex items-center gap-2 rounded-lg border border-surface-300 bg-surface-0 hover:bg-surface-200 disabled:opacity-50 text-surface-800 text-sm font-medium px-4 py-2 transition-colors"
+          >
+            {savingReminders
+              ? <Loader2    className="h-3.5 w-3.5 animate-spin" />
+              : remindersSaved
+                ? <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+                : <Save         className="h-3.5 w-3.5" />}
+            {savingReminders ? 'Saving…' : remindersSaved ? 'Saved!' : 'Save reminder settings'}
+          </button>
         </div>
       </Section>
     </div>

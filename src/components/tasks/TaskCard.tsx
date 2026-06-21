@@ -24,6 +24,12 @@ const STATUS_CFG: Record<TaskStatus, { label: string; icon: React.ReactNode; pil
   cancelled:   { label: 'Cancelled',   icon: <XCircle      className="h-3 w-3" />, pill: 'bg-danger/10 text-danger'           },
 };
 
+// Convert a UTC ISO string from the DB to local YYYY-MM-DDTHH:MM for datetime-local inputs
+function toLocalDatetimeInput(utcISO: string): string {
+  const d = new Date(utcISO);
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+
 const PRI_DOT: Record<string, string> = {
   urgent: 'bg-danger  shadow-[0_0_4px_rgba(239,68,68,0.5)]',
   high:   'bg-warning',
@@ -72,7 +78,7 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
     title:       task.title,
     description: task.description ?? '',
     assignee_id: task.assignee?.id ?? '',
-    deadline:    task.deadline ? task.deadline.slice(0, 16) : '',
+    deadline:    task.deadline ? toLocalDatetimeInput(task.deadline) : '',
     priority:    task.priority,
     status:      task.status as TaskStatus,
     reminders:   task.reminders?.length ? task.reminders : ['1_hour'],
@@ -91,7 +97,7 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
       title:       task.title,
       description: task.description ?? '',
       assignee_id: task.assignee?.id ?? '',
-      deadline:    task.deadline ? task.deadline.slice(0, 16) : '',
+      deadline:    task.deadline ? toLocalDatetimeInput(task.deadline) : '',
       priority:    task.priority,
       status:      status,
       reminders:   task.reminders?.length ? task.reminders : ['1_hour'],
@@ -180,7 +186,7 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
                   <p className="text-xs font-semibold text-surface-900 leading-snug">{task.title}</p>
                 </div>
                 <DropdownMenu.Item
-                  onSelect={() => { setForm({ title: task.title, description: task.description ?? '', assignee_id: task.assignee?.id ?? '', deadline: task.deadline ? task.deadline.slice(0, 16) : '', priority: task.priority, status: status, reminders: task.reminders?.length ? task.reminders : ['1_hour'] }); setEditOpen(true); }}
+                  onSelect={() => { setForm({ title: task.title, description: task.description ?? '', assignee_id: task.assignee?.id ?? '', deadline: task.deadline ? toLocalDatetimeInput(task.deadline) : '', priority: task.priority, status: status, reminders: task.reminders?.length ? task.reminders : ['1_hour'] }); setEditOpen(true); }}
                   className="flex items-center gap-2.5 px-2.5 py-2 text-xs text-surface-700 rounded-lg cursor-pointer hover:bg-surface-200/80 outline-none"
                 >
                   Edit Task

@@ -34,7 +34,7 @@
     "groq-sdk": "^1.2.1",
     "lucide-react": "^0.460.0",
     "nanoid": "^5.0.7",
-    "next": "^16.3.0-canary.60",
+    "next": "^15.5.19",
     "openai": "^6.42.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",

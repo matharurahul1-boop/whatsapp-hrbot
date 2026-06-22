@@ -638,41 +638,72 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const db   = createAdminClient();
     const lang = (slots._lang as 'en' | 'hi') ?? 'en';
 
-    let dueDate: string | null = null;
-    let dueTime: string | null = null;
-    if (slots.deadline) {
-      const parts = slots.deadline.split(' ');
-      dueDate = parts[0];
-      dueTime = parts[1] ?? null;
+    const message   = slots.message ?? slots.title ?? '';
+    const remindAt  = slots.remind_at ?? slots.deadline ?? null;
+    const waNumber  = slots.wa_number ?? null;
+
+    if (!message || !remindAt) {
+      return { success: false, reply: lang === 'hi'
+        ? '❌ रिमाइंडर के लिए message और time दोनों बताएं।'
+        : '❌ Please provide both a message and a time for the reminder.'
+      };
     }
 
-    const { data: task, error } = await db
-      .from('tasks')
-      .insert({
-        organization_id: org_id,
-        title:           slots.title!,
-        assignee_id:     user_id,
-        created_by:      user_id,
-        deadline:        dueDate,
-        due_time:        dueTime,
-        priority:        'medium',
-        status:          'todo',
-        source:          'whatsapp',
-      })
-      .select()
-      .single();
+    // Parse remind_at — accept ISO or YYYY-MM-DD HH:MM
+    let fireAt: Date;
+    try {
+      fireAt = new Date(remindAt);
+      if (isNaN(fireAt.getTime())) throw new Error('invalid');
+    } catch {
+      return { success: false, reply: lang === 'hi'
+        ? `❌ समय समझ नहीं आया: "${remindAt}". ISO format (YYYY-MM-DDTHH:MM+05:30) दें।`
+        : `❌ Couldn't parse time: "${remindAt}". Please use a format like "2026-06-24T15:00:00+05:30".`
+      };
+    }
+
+    if (fireAt <= new Date()) {
+      return { success: false, reply: lang === 'hi'
+        ? '❌ रिमाइंडर का समय भविष्य में होना चाहिए।'
+        : '❌ Reminder time must be in the future.'
+      };
+    }
+
+    // Look up wa_number if not in slots
+    let finalWaNumber = waNumber;
+    if (!finalWaNumber) {
+      const { data: u } = await db.from('users').select('wa_number').eq('id', user_id).single();
+      finalWaNumber = u?.wa_number ?? null;
+    }
+
+    if (!finalWaNumber) {
+      return { success: false, reply: lang === 'hi'
+        ? '❌ WhatsApp नंबर नहीं मिला।'
+        : '❌ Could not find your WhatsApp number.'
+      };
+    }
+
+    const { error } = await db.from('bot_reminders').insert({
+      organization_id: org_id,
+      type:            'custom',
+      user_id,
+      wa_number:       finalWaNumber,
+      custom_message:  message,
+      fire_at:         fireAt.toISOString(),
+    });
 
     if (error) throw error;
 
-    const timeStr = dueDate
-      ? `${formatDate(dueDate)}${dueTime ? ` at ${dueTime}` : ''}`
-      : null;
+    const displayTime = fireAt.toLocaleString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      weekday: 'short', day: 'numeric', month: 'short',
+      hour: '2-digit', minute: '2-digit',
+    });
 
     return {
       success: true,
       reply: lang === 'hi'
-        ? `⏰ *रिमाइंडर सेट!*\n\n📋 ${slots.title!}${timeStr ? `\n🗓 ${timeStr}` : ''}`
-        : `⏰ *Reminder set!*\n\n📋 ${slots.title!}${timeStr ? `\n🗓 ${timeStr}` : ''}`,
+        ? `⏰ *रिमाइंडर सेट!*\n\n📋 ${message}\n🗓 ${displayTime} IST`
+        : `⏰ *Reminder set!*\n\n📋 ${message}\n🗓 ${displayTime} IST`,
     };
   },
 

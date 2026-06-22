@@ -335,6 +335,18 @@ const HRBOT_TOOLS: any[] = [
     description: 'List all active employees / users in the organisation. Managers, HR and admins only.',
     parameters: { type: 'OBJECT', properties: {} },
   },
+  {
+    name: 'set_reminder',
+    description: 'Set a time-based reminder — user gets a WhatsApp message at the specified time. Only call AFTER user confirms.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        message:   { type: 'STRING', description: 'What to remind the user about' },
+        remind_at: { type: 'STRING', description: 'ISO datetime YYYY-MM-DDTHH:MM:SS+05:30 — convert natural language like "tomorrow 3pm" using today\'s date' },
+      },
+      required: ['message', 'remind_at'],
+    },
+  },
 ];
 
 // ─── System prompt ────────────────────────────────────────────────────────────
@@ -405,7 +417,7 @@ The tool text IS the complete reply.
 
 ## CRITICAL: Confirmation rule
 For every action tool (create_task, update_task, complete_task, delete_task, apply_leave, approve_leave,
-reject_leave, cancel_leave, check_in, check_out):
+reject_leave, cancel_leave, check_in, check_out, set_reminder):
 1. First reply with one sentence describing what you'll do (bold the key values).
 2. End with "Go ahead? (Yes / No)"
 3. Only call the tool AFTER the user says Yes / Haan / Sure / Ok / Confirm / "Create the task" / "Do it" / "Go ahead".
@@ -865,6 +877,7 @@ const INTENT_MAP: Record<string, string> = {
   my_attendance:       'MY_ATTENDANCE',
   team_attendance:     'TEAM_ATTENDANCE',
   list_users:          'LIST_USERS',
+  set_reminder:        'SET_REMINDER',
   help:                'HELP',
 };
 
@@ -892,9 +905,11 @@ async function dispatchTool(
       end_date:      input.end_date                            ?? null,
       reason:        input.reason                              ?? null,
       employee_name: input.employee_name                       ?? null,
-      wa_number:     input.wa_number                           ?? null,
+      wa_number:     input.wa_number    ?? user.whatsapp_number ?? null,
       department:    input.department                          ?? null,
       designation:   input.designation                         ?? null,
+      message:       input.message                             ?? null,
+      remind_at:     input.remind_at                           ?? null,
     };
 
     const result = await executeTool({

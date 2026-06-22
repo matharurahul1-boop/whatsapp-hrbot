@@ -112,7 +112,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     updateData.due_time  !== undefined ||
     updateData.reminders !== undefined;
   if (deadlineFieldChanged) {
-    await scheduleTaskReminders({ id: updated.id, deadline: updated.deadline ?? null, due_time: updated.due_time ?? null, reminders: updated.reminders ?? [] });
+    await scheduleTaskReminders({ id: updated.id, organization_id: profile.organization_id, deadline: updated.deadline ?? null, due_time: updated.due_time ?? null, reminders: updated.reminders ?? [] });
   }
 
   const { data: actor } = await db.from('users').select('full_name').eq('id', user.id).single();

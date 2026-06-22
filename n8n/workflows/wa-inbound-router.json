@@ -1,7 +1,12 @@
 {
-  "name": "HRBot — WA Inbound AI Agent",
+  "updatedAt": "2026-06-22T19:51:54.317Z",
+  "createdAt": "2026-06-22T11:06:09.643Z",
+  "id": "NZsKomyCVzVMHqxp",
+  "name": "HRBot - WA Inbound AI Agent",
+  "description": null,
+  "active": true,
+  "isArchived": false,
   "nodes": [
-
     {
       "parameters": {
         "httpMethod": "POST",
@@ -13,22 +18,29 @@
       "name": "WA Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [0, 300]
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "4bff5e1f-1244-4a53-be2a-fc952eeb89f7"
     },
-
     {
       "parameters": {
         "respondWith": "text",
         "responseBody": "OK",
-        "options": { "responseCode": 200 }
+        "options": {
+          "responseCode": 200
+        }
       },
       "id": "respond-immediately",
       "name": "Respond 200",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [220, 160]
+      "position": [
+        220,
+        160
+      ]
     },
-
     {
       "parameters": {
         "jsCode": "const body = $input.first().json.body ?? $input.first().json;\nconst from    = String(body.from ?? '').replace(/^\\+/, '');\nconst message = String(body.message ?? '').trim();\nconst orgId   = String(body.org_id ?? '');\nif (!from || !message || !orgId) throw new Error('Missing fields: ' + JSON.stringify({ from, message, orgId }));\nreturn [{ json: { from, message, org_id: orgId } }];"
@@ -37,17 +49,25 @@
       "name": "Parse Payload",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [220, 300]
+      "position": [
+        220,
+        300
+      ]
     },
-
     {
       "parameters": {
         "url": "={{ $env.SUPABASE_URL }}/rest/v1/users?wa_number=eq.{{ $json.from }}&organization_id=eq.{{ $json.org_id }}&select=id,full_name,role,wa_number,organization_id&limit=1",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_ROLE }}" },
-            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE }}" }
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE }}"
+            }
           ]
         },
         "options": {}
@@ -56,17 +76,25 @@
       "name": "Fetch User",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [440, 300]
+      "position": [
+        440,
+        300
+      ]
     },
-
     {
       "parameters": {
-        "url": "={{ $env.SUPABASE_URL }}/rest/v1/wa_sessions?wa_number=eq.{{ $('Parse Payload').item.json.from }}&organization_id=eq.{{ $('Parse Payload').item.json.org_id }}&select=messages&limit=1",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/wa_bot_sessions?wa_number=eq.{{ $('Parse Payload').item.json.from }}&select=messages&limit=1",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_ROLE }}" },
-            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE }}" }
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE }}"
+            }
           ]
         },
         "options": {}
@@ -75,33 +103,47 @@
       "name": "Fetch History",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [440, 460]
+      "position": [
+        440,
+        460
+      ]
     },
-
     {
       "parameters": {
-        "jsCode": "const payload  = $('Parse Payload').first().json;\nconst userArr  = $('Fetch User').first().json;\nconst user     = Array.isArray(userArr) ? userArr[0] : userArr;\nconst histArr  = $('Fetch History').first().json;\nconst session  = Array.isArray(histArr) ? histArr[0] : histArr;\nconst history  = session?.messages ?? [];\n\nconst today = new Date().toLocaleDateString('en-IN', { timeZone:'Asia/Kolkata', weekday:'long', day:'numeric', month:'long', year:'numeric' });\nconst time  = new Date().toLocaleTimeString('en-IN', { timeZone:'Asia/Kolkata', hour:'2-digit', minute:'2-digit' });\n\nconst systemPrompt = `You are HRBot, an AI HR assistant for WhatsApp. Today is ${today}, ${time} IST.\n\nUser: ${user?.full_name ?? 'Unknown'} | Role: ${user?.role ?? 'employee'} | OrgID: ${payload.org_id} | UserID: ${user?.id ?? ''}\n\nRules:\n- Always reply in WhatsApp-friendly format (use *bold*, _italic_, bullet points)\n- For task creation/updates, confirm details before calling the tool (ask: \"Shall I proceed? (Yes/No)\")\n- If user confirms with yes/ok/proceed/haan — call the tool immediately\n- If user cancels with no/cancel/nahi — acknowledge and stop\n- Keep replies concise and action-oriented\n- Dates: accept natural language (\"next Monday\", \"17 June\") and convert to YYYY-MM-DD\n- Priority values: low / medium / high\n- Status values: pending / in_progress / done / cancelled\n\nAvailable tools: list_tasks, create_task, update_task, check_in, check_out, check_leave_balance, apply_leave, list_leaves, daily_briefing, my_attendance, team_attendance, help`;\n\nreturn [{\n  json: {\n    from:          payload.from,\n    message:       payload.message,\n    org_id:        payload.org_id,\n    user_id:       user?.id ?? '',\n    user_name:     user?.full_name ?? 'there',\n    user_role:     user?.role ?? 'employee',\n    history:       JSON.stringify(history.slice(-10)),\n    system_prompt: systemPrompt,\n  }\n}];"
+        "jsCode": "const payload = $('Parse Payload').first().json; const userArr = $('Fetch User').first().json; const user = Array.isArray(userArr) ? userArr[0] : userArr; const histArr = $('Fetch History').first().json; const session = Array.isArray(histArr) ? histArr[0] : histArr; const history = session?.messages ?? []; const today = new Date().toLocaleDateString('en-IN', { timeZone:'Asia/Kolkata', weekday:'long', day:'numeric', month:'long', year:'numeric' }); const time = new Date().toLocaleTimeString('en-IN', { timeZone:'Asia/Kolkata', hour:'2-digit', minute:'2-digit' }); const name = user?.full_name ?? 'there'; const firstName = name.split(' ')[0]; const msg = payload.message.trim(); const isGreeting = /^(hi+|hello+|hey+|hj+|hii+|sup|yo|good\\s*(morning|evening|afternoon)|namaste|hola)[\\s!?.]*$/i.test(msg); const systemPrompt = isGreeting ? 'You are HRBot. The user greeted you. DO NOT call any tools. Reply with ONLY: Hello ' + firstName + '! I am *HRBot*, your AI HR assistant.\\n\\n*What I can help you with:*\\n- *Tasks* - list, create, update tasks\\n- *Attendance* - check in/out, history\\n- *Leaves* - balance, apply leave\\n- *Daily briefing* - today summary\\n- *Team attendance* - admin only\\n\\nWhat would you like to do?' : 'You are HRBot, an AI HR assistant for WhatsApp. Today is ' + today + ', ' + time + ' IST.\\n\\nUser: ' + name + ' | Role: ' + (user?.role ?? 'employee') + ' | OrgID: ' + payload.org_id + ' | UserID: ' + (user?.id ?? '')+'\\n\\nRules:\\n- Always reply in WhatsApp-friendly format (use *bold*, bullet points)\\n- For task creation, confirm details first then call tool when user confirms\\n- Keep replies concise\\n- Convert natural language dates to YYYY-MM-DD\\n- Priority: low/medium/high | Status: pending/in_progress/done/cancelled'; return [{ json: { from: payload.from, message: payload.message, chatInput: payload.message, org_id: payload.org_id, user_id: user?.id ?? '', user_name: firstName, user_role: user?.role ?? 'employee', history: JSON.stringify(history.slice(-10)), system_prompt: systemPrompt, is_greeting: isGreeting } }];"
       },
       "id": "build-context",
       "name": "Build Context",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [660, 380]
+      "position": [
+        660,
+        380
+      ]
     },
-
     {
       "parameters": {
         "model": "llama-3.3-70b-versatile",
-        "options": { "maxTokens": 600, "temperature": 0.2 }
+        "options": {
+          "maxTokens": 600,
+          "temperature": 0.2
+        }
       },
       "id": "groq-model",
       "name": "Groq Llama 3.3",
       "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
       "typeVersion": 1,
-      "position": [880, 560],
-      "credentials": { "groqApi": { "id": "groq-creds", "name": "Groq API" } }
+      "position": [
+        880,
+        560
+      ],
+      "credentials": {
+        "groqApi": {
+          "id": "fcHPh4mIpd00LrSg",
+          "name": "Groq API"
+        }
+      }
     },
-
     {
       "parameters": {
         "sessionIdType": "customKey",
@@ -112,68 +154,81 @@
       "name": "Buffer Memory",
       "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
       "typeVersion": 1.3,
-      "position": [880, 700]
+      "position": [
+        880,
+        700
+      ]
     },
-
     {
       "parameters": {
         "name": "list_tasks",
-        "description": "List open tasks for the current user. Returns tasks grouped by due date (overdue, today, upcoming).",
-        "method": "GET",
-        "url": "={{ $env.SUPABASE_URL }}/rest/v1/tasks",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            { "name": "assignee_id",     "value": "=eq.{{ $('Build Context').item.json.user_id }}" },
-            { "name": "status",          "value": "=not.in.(done,cancelled)" },
-            { "name": "deleted_at",      "value": "=is.null" },
-            { "name": "organization_id", "value": "=eq.{{ $('Build Context').item.json.org_id }}" },
-            { "name": "select",          "value": "id,title,deadline,priority,status,assignee:users!tasks_assignee_id_fkey(full_name)" },
-            { "name": "order",           "value": "deadline.asc.nullslast" },
-            { "name": "limit",           "value": "20" }
-          ]
-        },
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_ROLE }}" },
-            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE }}" }
-          ]
-        },
-        "options": {}
+        "description": "Fetch all active tasks for the current user. No parameters needed.",
+        "jsCode": "const userId = $('Build Context').item.json.user_id;\nconst orgId = $('Build Context').item.json.org_id;\nconst result = await helpers.httpRequest({\n  method: 'GET',\n  url: $env.SUPABASE_URL + '/rest/v1/tasks?assignee_id=eq.' + userId + '&status=not.in.(done,cancelled)&deleted_at=is.null&organization_id=eq.' + orgId + '&select=id,title,deadline,priority,status,assignee:users!tasks_assignee_id_fkey(full_name)&order=deadline.asc.nullslast&limit=20',\n  headers: { apikey: $env.SUPABASE_SERVICE_ROLE, Authorization: 'Bearer ' + $env.SUPABASE_SERVICE_ROLE }\n});\nreturn JSON.stringify(result);"
       },
       "id": "tool-list-tasks",
       "name": "list_tasks",
-      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
       "typeVersion": 1.1,
-      "position": [1100, 80]
+      "position": [
+        1100,
+        80
+      ]
     },
-
     {
       "parameters": {
         "name": "create_task",
-        "description": "Create a new task. Required: title. Optional: deadline (YYYY-MM-DD), priority (low/medium/high), assignee_name (full or partial name of the person to assign — leave empty to assign to self).",
+        "description": "Create a new task. Required: title. Optional: deadline (YYYY-MM-DD), priority (low/medium/high), assignee_name (full or partial name of the person to assign - leave empty to assign to self).",
         "method": "POST",
         "url": "={{ $env.SUPABASE_URL }}/rest/v1/rpc/create_task_from_bot",
         "sendBody": true,
         "contentType": "json",
         "bodyParameters": {
           "parameters": [
-            { "name": "p_org_id",        "value": "={{ $('Build Context').item.json.org_id }}" },
-            { "name": "p_created_by",    "value": "={{ $('Build Context').item.json.user_id }}" },
-            { "name": "p_title",         "value": "={= toolParameter.title }" },
-            { "name": "p_deadline",      "value": "={= toolParameter.deadline ?? null }" },
-            { "name": "p_priority",      "value": "={= toolParameter.priority ?? 'medium' }" },
-            { "name": "p_assignee_name", "value": "={= toolParameter.assignee_name ?? '' }" }
+            {
+              "name": "p_org_id",
+              "value": "={{ $('Build Context').item.json.org_id }}"
+            },
+            {
+              "name": "p_created_by",
+              "value": "={{ $('Build Context').item.json.user_id }}"
+            },
+            {
+              "name": "p_title",
+              "value": "={= toolParameter.title }"
+            },
+            {
+              "name": "p_deadline",
+              "value": "={= toolParameter.deadline ?? null }"
+            },
+            {
+              "name": "p_priority",
+              "value": "={= toolParameter.priority ?? 'medium' }"
+            },
+            {
+              "name": "p_assignee_name",
+              "value": "={= toolParameter.assignee_name ?? '' }"
+            }
           ]
         },
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_ROLE }}" },
-            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE }}" },
-            { "name": "Content-Type",  "value": "application/json" },
-            { "name": "Prefer",        "value": "return=representation" }
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
           ]
         },
         "options": {}
@@ -182,9 +237,11 @@
       "name": "create_task",
       "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
       "typeVersion": 1.1,
-      "position": [1100, 220]
+      "position": [
+        1100,
+        220
+      ]
     },
-
     {
       "parameters": {
         "name": "update_task",
@@ -195,18 +252,39 @@
         "contentType": "json",
         "bodyParameters": {
           "parameters": [
-            { "name": "p_org_id",       "value": "={{ $('Build Context').item.json.org_id }}" },
-            { "name": "p_task_title",   "value": "={= toolParameter.task_title }" },
-            { "name": "p_update_field", "value": "={= toolParameter.update_field }" },
-            { "name": "p_update_value", "value": "={= toolParameter.update_value }" }
+            {
+              "name": "p_org_id",
+              "value": "={{ $('Build Context').item.json.org_id }}"
+            },
+            {
+              "name": "p_task_title",
+              "value": "={= toolParameter.task_title }"
+            },
+            {
+              "name": "p_update_field",
+              "value": "={= toolParameter.update_field }"
+            },
+            {
+              "name": "p_update_value",
+              "value": "={= toolParameter.update_value }"
+            }
           ]
         },
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_ROLE }}" },
-            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE }}" },
-            { "name": "Content-Type",  "value": "application/json" }
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "options": {}
@@ -215,101 +293,56 @@
       "name": "update_task",
       "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
       "typeVersion": 1.1,
-      "position": [1100, 360]
+      "position": [
+        1100,
+        360
+      ]
     },
-
     {
       "parameters": {
         "name": "check_in",
-        "description": "Mark the current user as checked in for today. Call this when user says checkin, check in, I am in, mark attendance, etc.",
-        "method": "POST",
-        "url": "={{ $env.SUPABASE_URL }}/rest/v1/rpc/attendance_check_in",
-        "sendBody": true,
-        "contentType": "json",
-        "bodyParameters": {
-          "parameters": [
-            { "name": "p_user_id", "value": "={{ $('Build Context').item.json.user_id }}" },
-            { "name": "p_org_id",  "value": "={{ $('Build Context').item.json.org_id }}" }
-          ]
-        },
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_ROLE }}" },
-            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE }}" },
-            { "name": "Content-Type",  "value": "application/json" }
-          ]
-        },
-        "options": {}
+        "description": "Record attendance check-in for the current user. No parameters needed.",
+        "jsCode": "const userId = $('Build Context').item.json.user_id;\nconst orgId = $('Build Context').item.json.org_id;\nconst result = await helpers.httpRequest({\n  method: 'POST',\n  url: $env.SUPABASE_URL + '/rest/v1/rpc/attendance_check_in',\n  headers: { apikey: $env.SUPABASE_SERVICE_ROLE, Authorization: 'Bearer ' + $env.SUPABASE_SERVICE_ROLE, 'Content-Type': 'application/json' },\n  body: JSON.stringify({ p_user_id: userId, p_org_id: orgId })\n});\nreturn JSON.stringify(result);"
       },
       "id": "tool-check-in",
       "name": "check_in",
-      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
       "typeVersion": 1.1,
-      "position": [1100, 500]
+      "position": [
+        1100,
+        500
+      ]
     },
-
     {
       "parameters": {
         "name": "check_out",
-        "description": "Mark the current user as checked out for today. Call when user says checkout, check out, I am leaving, signing off, etc.",
-        "method": "POST",
-        "url": "={{ $env.SUPABASE_URL }}/rest/v1/rpc/attendance_check_out",
-        "sendBody": true,
-        "contentType": "json",
-        "bodyParameters": {
-          "parameters": [
-            { "name": "p_user_id", "value": "={{ $('Build Context').item.json.user_id }}" },
-            { "name": "p_org_id",  "value": "={{ $('Build Context').item.json.org_id }}" }
-          ]
-        },
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_ROLE }}" },
-            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE }}" },
-            { "name": "Content-Type",  "value": "application/json" }
-          ]
-        },
-        "options": {}
+        "description": "Record attendance check-out for the current user. No parameters needed.",
+        "jsCode": "const userId = $('Build Context').item.json.user_id;\nconst orgId = $('Build Context').item.json.org_id;\nconst result = await helpers.httpRequest({\n  method: 'POST',\n  url: $env.SUPABASE_URL + '/rest/v1/rpc/attendance_check_out',\n  headers: { apikey: $env.SUPABASE_SERVICE_ROLE, Authorization: 'Bearer ' + $env.SUPABASE_SERVICE_ROLE, 'Content-Type': 'application/json' },\n  body: JSON.stringify({ p_user_id: userId, p_org_id: orgId })\n});\nreturn JSON.stringify(result);"
       },
       "id": "tool-check-out",
       "name": "check_out",
-      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
       "typeVersion": 1.1,
-      "position": [1100, 640]
+      "position": [
+        1100,
+        640
+      ]
     },
-
     {
       "parameters": {
         "name": "check_leave_balance",
-        "description": "Get the current user's remaining leave balance for all leave types.",
-        "method": "GET",
-        "url": "={{ $env.SUPABASE_URL }}/rest/v1/leave_balances",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            { "name": "employee_id",     "value": "=eq.{{ $('Build Context').item.json.user_id }}" },
-            { "name": "organization_id", "value": "=eq.{{ $('Build Context').item.json.org_id }}" },
-            { "name": "select",          "value": "balance_days,leave_type:leave_types(name)" }
-          ]
-        },
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_ROLE }}" },
-            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE }}" }
-          ]
-        },
-        "options": {}
+        "description": "Get the current user remaining leave balance. No parameters needed.",
+        "jsCode": "const userId = $('Build Context').item.json.user_id;\nconst orgId = $('Build Context').item.json.org_id;\nconst result = await helpers.httpRequest({\n  method: 'GET',\n  url: $env.SUPABASE_URL + '/rest/v1/leave_balances?employee_id=eq.' + userId + '&organization_id=eq.' + orgId + '&select=balance_days,leave_type:leave_types(name)',\n  headers: { apikey: $env.SUPABASE_SERVICE_ROLE, Authorization: 'Bearer ' + $env.SUPABASE_SERVICE_ROLE }\n});\nreturn JSON.stringify(result);"
       },
       "id": "tool-leave-balance",
       "name": "check_leave_balance",
-      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
       "typeVersion": 1.1,
-      "position": [1100, 780]
+      "position": [
+        1100,
+        780
+      ]
     },
-
     {
       "parameters": {
         "name": "apply_leave",
@@ -320,20 +353,47 @@
         "contentType": "json",
         "bodyParameters": {
           "parameters": [
-            { "name": "p_employee_id",     "value": "={{ $('Build Context').item.json.user_id }}" },
-            { "name": "p_org_id",          "value": "={{ $('Build Context').item.json.org_id }}" },
-            { "name": "p_leave_type_name", "value": "={= toolParameter.leave_type_name }" },
-            { "name": "p_start_date",      "value": "={= toolParameter.start_date }" },
-            { "name": "p_end_date",        "value": "={= toolParameter.end_date }" },
-            { "name": "p_reason",          "value": "={= toolParameter.reason ?? '' }" }
+            {
+              "name": "p_employee_id",
+              "value": "={{ $('Build Context').item.json.user_id }}"
+            },
+            {
+              "name": "p_org_id",
+              "value": "={{ $('Build Context').item.json.org_id }}"
+            },
+            {
+              "name": "p_leave_type_name",
+              "value": "={= toolParameter.leave_type_name }"
+            },
+            {
+              "name": "p_start_date",
+              "value": "={= toolParameter.start_date }"
+            },
+            {
+              "name": "p_end_date",
+              "value": "={= toolParameter.end_date }"
+            },
+            {
+              "name": "p_reason",
+              "value": "={= toolParameter.reason ?? '' }"
+            }
           ]
         },
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_ROLE }}" },
-            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE }}" },
-            { "name": "Content-Type",  "value": "application/json" }
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "options": {}
@@ -342,187 +402,151 @@
       "name": "apply_leave",
       "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
       "typeVersion": 1.1,
-      "position": [1340, 80]
+      "position": [
+        1340,
+        80
+      ]
     },
-
     {
       "parameters": {
         "name": "list_leaves",
-        "description": "List the current user's leave requests (pending, approved, rejected).",
-        "method": "GET",
-        "url": "={{ $env.SUPABASE_URL }}/rest/v1/leave_requests",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            { "name": "employee_id",     "value": "=eq.{{ $('Build Context').item.json.user_id }}" },
-            { "name": "organization_id", "value": "=eq.{{ $('Build Context').item.json.org_id }}" },
-            { "name": "select",          "value": "start_date,end_date,duration_days,status,reason,leave_type:leave_types(name)" },
-            { "name": "order",           "value": "created_at.desc" },
-            { "name": "limit",           "value": "10" }
-          ]
-        },
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_ROLE }}" },
-            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE }}" }
-          ]
-        },
-        "options": {}
+        "description": "List leave requests for the current user. No parameters needed.",
+        "jsCode": "const userId = $('Build Context').item.json.user_id;\nconst orgId = $('Build Context').item.json.org_id;\nconst result = await helpers.httpRequest({\n  method: 'GET',\n  url: $env.SUPABASE_URL + '/rest/v1/leave_requests?employee_id=eq.' + userId + '&organization_id=eq.' + orgId + '&select=start_date,end_date,duration_days,status,reason,leave_type:leave_types(name)&order=created_at.desc&limit=10',\n  headers: { apikey: $env.SUPABASE_SERVICE_ROLE, Authorization: 'Bearer ' + $env.SUPABASE_SERVICE_ROLE }\n});\nreturn JSON.stringify(result);"
       },
       "id": "tool-list-leaves",
       "name": "list_leaves",
-      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
       "typeVersion": 1.1,
-      "position": [1340, 220]
+      "position": [
+        1340,
+        220
+      ]
     },
-
     {
       "parameters": {
         "name": "daily_briefing",
-        "description": "Get a morning briefing for the user: today's tasks, attendance status, and pending items. Call on greetings or when user asks for briefing/summary.",
-        "method": "GET",
-        "url": "={{ $env.SUPABASE_URL }}/rest/v1/rpc/daily_briefing_for_bot",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            { "name": "p_user_id", "value": "={{ $('Build Context').item.json.user_id }}" },
-            { "name": "p_org_id",  "value": "={{ $('Build Context').item.json.org_id }}" }
-          ]
-        },
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_ROLE }}" },
-            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE }}" }
-          ]
-        },
-        "options": {}
+        "description": "Get today briefing: tasks due today, attendance status, leave summary. No parameters needed.",
+        "jsCode": "const userId = $('Build Context').item.json.user_id;\nconst orgId = $('Build Context').item.json.org_id;\nconst result = await helpers.httpRequest({\n  method: 'GET',\n  url: $env.SUPABASE_URL + '/rest/v1/rpc/daily_briefing_for_bot?p_user_id=' + userId + '&p_org_id=' + orgId,\n  headers: { apikey: $env.SUPABASE_SERVICE_ROLE, Authorization: 'Bearer ' + $env.SUPABASE_SERVICE_ROLE }\n});\nreturn JSON.stringify(result);"
       },
       "id": "tool-briefing",
       "name": "daily_briefing",
-      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
       "typeVersion": 1.1,
-      "position": [1340, 360]
+      "position": [
+        1340,
+        360
+      ]
     },
-
     {
       "parameters": {
         "name": "my_attendance",
-        "description": "Get the current user's attendance history for the current month.",
-        "method": "GET",
-        "url": "={{ $env.SUPABASE_URL }}/rest/v1/attendance",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            { "name": "user_id",         "value": "=eq.{{ $('Build Context').item.json.user_id }}" },
-            { "name": "organization_id", "value": "=eq.{{ $('Build Context').item.json.org_id }}" },
-            { "name": "date",            "value": "=gte.{{ new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0] }}" },
-            { "name": "select",          "value": "date,check_in_time,check_out_time,status" },
-            { "name": "order",           "value": "date.desc" },
-            { "name": "limit",           "value": "31" }
-          ]
-        },
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_ROLE }}" },
-            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE }}" }
-          ]
-        },
-        "options": {}
+        "description": "Fetch attendance log for the current user this month. No parameters needed.",
+        "jsCode": "const userId = $('Build Context').item.json.user_id;\nconst orgId = $('Build Context').item.json.org_id;\nconst now = new Date();\nconst monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];\nconst result = await helpers.httpRequest({\n  method: 'GET',\n  url: $env.SUPABASE_URL + '/rest/v1/attendance?user_id=eq.' + userId + '&organization_id=eq.' + orgId + '&date=gte.' + monthStart + '&select=date,check_in_time,check_out_time,status&order=date.desc&limit=31',\n  headers: { apikey: $env.SUPABASE_SERVICE_ROLE, Authorization: 'Bearer ' + $env.SUPABASE_SERVICE_ROLE }\n});\nreturn JSON.stringify(result);"
       },
       "id": "tool-my-attendance",
       "name": "my_attendance",
-      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
       "typeVersion": 1.1,
-      "position": [1340, 500]
+      "position": [
+        1340,
+        500
+      ]
     },
-
     {
       "parameters": {
         "name": "team_attendance",
-        "description": "Get today's attendance summary for the whole team. Shows who is present, absent, or on leave. Only for managers/admins/HR.",
-        "method": "GET",
-        "url": "={{ $env.SUPABASE_URL }}/rest/v1/attendance",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            { "name": "organization_id", "value": "=eq.{{ $('Build Context').item.json.org_id }}" },
-            { "name": "date",            "value": "=eq.{{ new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) }}" },
-            { "name": "select",          "value": "status,user:users(full_name,role)" }
-          ]
-        },
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_ROLE }}" },
-            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE }}" }
-          ]
-        },
-        "options": {}
+        "description": "Fetch today attendance for the whole team. Admin use only. No parameters needed.",
+        "jsCode": "const orgId = $('Build Context').item.json.org_id;\nconst today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });\nconst result = await helpers.httpRequest({\n  method: 'GET',\n  url: $env.SUPABASE_URL + '/rest/v1/attendance?organization_id=eq.' + orgId + '&date=eq.' + today + '&select=status,user:users(full_name,role)',\n  headers: { apikey: $env.SUPABASE_SERVICE_ROLE, Authorization: 'Bearer ' + $env.SUPABASE_SERVICE_ROLE }\n});\nreturn JSON.stringify(result);"
       },
       "id": "tool-team-attendance",
       "name": "team_attendance",
-      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
       "typeVersion": 1.1,
-      "position": [1340, 640]
+      "position": [
+        1340,
+        640
+      ]
     },
-
     {
       "parameters": {
         "name": "help",
         "description": "Show the list of available commands to the user.",
         "method": "GET",
         "url": "={{ $env.NEXT_APP_URL }}/api/help",
-        "options": {}
+        "options": {},
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Ref",
+              "value": "={= toolParameter.ref ?? 'auto' }"
+            }
+          ]
+        },
+        "sendHeaders": true
       },
       "id": "tool-help",
       "name": "help",
       "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
       "typeVersion": 1.1,
-      "position": [1340, 780]
+      "position": [
+        1340,
+        780
+      ]
     },
-
     {
       "parameters": {
+        "promptType": "define",
         "text": "={{ $('Build Context').item.json.message }}",
         "systemMessage": "={{ $('Build Context').item.json.system_prompt }}",
-        "options": {
-          "humanMessageTemplate": "{{ text }}"
-        }
+        "options": {}
       },
       "id": "ai-agent",
       "name": "AI Agent",
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 1.7,
-      "position": [880, 380]
+      "position": [
+        880,
+        380
+      ]
     },
-
     {
       "parameters": {
-        "url": "={{ $env.SUPABASE_URL }}/rest/v1/wa_sessions",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/wa_bot_sessions",
         "method": "POST",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "apikey",        "value": "={{ $env.SUPABASE_SERVICE_ROLE }}" },
-            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE }}" },
-            { "name": "Content-Type",  "value": "application/json" },
-            { "name": "Prefer",        "value": "resolution=merge-duplicates" }
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_SERVICE_ROLE }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "resolution=merge-duplicates"
+            }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ wa_number: $('Build Context').item.json.from, organization_id: $('Build Context').item.json.org_id, messages: JSON.parse($('Build Context').item.json.history ?? '[]').concat([ { role: 'user', content: $('Build Context').item.json.message }, { role: 'assistant', content: $json.output } ]).slice(-20), updated_at: new Date().toISOString() }) }}"
+        "jsonBody": "={{ JSON.stringify({ wa_number: $('Build Context').item.json.from, messages: JSON.parse($('Build Context').item.json.history ?? '[]').concat([ { role: 'user', content: $('Build Context').item.json.message }, { role: 'assistant', content: $json.output } ]).slice(-20), updated_at: new Date().toISOString() }) }}"
       },
       "id": "save-history",
       "name": "Save History",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1560, 380]
+      "position": [
+        1560,
+        380
+      ]
     },
-
     {
       "parameters": {
         "url": "=https://graph.facebook.com/v20.0/{{ $env.WHATSAPP_PHONE_NUMBER_ID }}/messages",
@@ -530,53 +554,1129 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "=Bearer {{ $env.WHATSAPP_ACCESS_TOKEN }}" },
-            { "name": "Content-Type",  "value": "application/json" }
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.WHATSAPP_ACCESS_TOKEN }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: $('Build Context').item.json.from, type: 'text', text: { preview_url: false, body: $('AI Agent').item.json.output } }) }}"
+        "jsonBody": "={{ JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: $('Build Context').item.json.from, type: 'text', text: { preview_url: false, body: $json.output } }) }}"
       },
       "id": "send-wa",
       "name": "Send WA Reply",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1780, 380]
+      "position": [
+        2000,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const isGreeting = $('Build Context').item.json.is_greeting;\nconst aiOutput = $('AI Agent').item.json.output;\n\nif (!isGreeting) {\n  return [{ json: { output: aiOutput } }];\n}\n\n// Extract the pre-written greeting from the system prompt\nconst sp = $('Build Context').item.json.system_prompt;\nconst marker = 'Do NOT call any tools. Do NOT add anything:\\n\\n';\nconst idx = sp.indexOf(marker);\nconst greetText = idx >= 0\n  ? sp.substring(idx + marker.length)\n  : `Hello ${$('Build Context').item.json.user_name}! I am *HRBot*, your AI HR assistant.\n\n*Here is what I can help you with:*\n- *Tasks* - list, create, or update tasks\n- *Attendance* - check in/out, view history\n- *Leaves* - check balance, apply for leave\n- *Daily briefing* - today's summary\n- *Team attendance* - admin only\n\nWhat would you like to do?`;\n\nreturn [{ json: { output: greetText } }];"
+      },
+      "id": "format-reply",
+      "name": "Format Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1780,
+        380
+      ]
     }
-
   ],
-
   "connections": {
-    "WA Webhook":          { "main": [[{ "node": "Respond 200",   "type": "main", "index": 0 }, { "node": "Parse Payload", "type": "main", "index": 0 }]] },
-    "Parse Payload":       { "main": [[{ "node": "Fetch User",    "type": "main", "index": 0 }, { "node": "Fetch History", "type": "main", "index": 0 }]] },
-    "Fetch User":          { "main": [[{ "node": "Build Context", "type": "main", "index": 0 }]] },
-    "Fetch History":       { "main": [[{ "node": "Build Context", "type": "main", "index": 0 }]] },
-    "Build Context":       { "main": [[{ "node": "AI Agent",      "type": "main", "index": 0 }]] },
-    "Groq Llama 3.3":      { "ai_languageModel": [[{ "node": "AI Agent", "type": "ai_languageModel", "index": 0 }]] },
-    "Buffer Memory":       { "ai_memory":        [[{ "node": "AI Agent", "type": "ai_memory",        "index": 0 }]] },
-    "list_tasks":          { "ai_tool":          [[{ "node": "AI Agent", "type": "ai_tool",          "index": 0 }]] },
-    "create_task":         { "ai_tool":          [[{ "node": "AI Agent", "type": "ai_tool",          "index": 1 }]] },
-    "update_task":         { "ai_tool":          [[{ "node": "AI Agent", "type": "ai_tool",          "index": 2 }]] },
-    "check_in":            { "ai_tool":          [[{ "node": "AI Agent", "type": "ai_tool",          "index": 3 }]] },
-    "check_out":           { "ai_tool":          [[{ "node": "AI Agent", "type": "ai_tool",          "index": 4 }]] },
-    "check_leave_balance": { "ai_tool":          [[{ "node": "AI Agent", "type": "ai_tool",          "index": 5 }]] },
-    "apply_leave":         { "ai_tool":          [[{ "node": "AI Agent", "type": "ai_tool",          "index": 6 }]] },
-    "list_leaves":         { "ai_tool":          [[{ "node": "AI Agent", "type": "ai_tool",          "index": 7 }]] },
-    "daily_briefing":      { "ai_tool":          [[{ "node": "AI Agent", "type": "ai_tool",          "index": 8 }]] },
-    "my_attendance":       { "ai_tool":          [[{ "node": "AI Agent", "type": "ai_tool",          "index": 9 }]] },
-    "team_attendance":     { "ai_tool":          [[{ "node": "AI Agent", "type": "ai_tool",          "index": 10 }]] },
-    "help":                { "ai_tool":          [[{ "node": "AI Agent", "type": "ai_tool",          "index": 11 }]] },
-    "AI Agent":            { "main": [[{ "node": "Save History",  "type": "main", "index": 0 }]] },
-    "Save History":        { "main": [[{ "node": "Send WA Reply", "type": "main", "index": 0 }]] }
+    "WA Webhook": {
+      "main": [
+        [
+          {
+            "node": "Respond 200",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Parse Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Payload": {
+      "main": [
+        [
+          {
+            "node": "Fetch User",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch User": {
+      "main": [
+        [
+          {
+            "node": "Fetch History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch History": {
+      "main": [
+        [
+          {
+            "node": "Build Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Context": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Llama 3.3": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buffer Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "list_tasks": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "create_task": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "update_task": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "check_in": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "check_out": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 4
+          }
+        ]
+      ]
+    },
+    "check_leave_balance": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 5
+          }
+        ]
+      ]
+    },
+    "apply_leave": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 6
+          }
+        ]
+      ]
+    },
+    "list_leaves": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 7
+          }
+        ]
+      ]
+    },
+    "daily_briefing": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 8
+          }
+        ]
+      ]
+    },
+    "my_attendance": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 9
+          }
+        ]
+      ]
+    },
+    "team_attendance": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 10
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Save History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save History": {
+      "main": [
+        [
+          {
+            "node": "Format Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Reply": {
+      "main": [
+        [
+          {
+            "node": "Send WA Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-
   "settings": {
     "executionOrder": "v1",
     "saveDataErrorExecution": "all",
-    "saveDataSuccessExecution": "last",
+    "saveDataSuccessExecution": "all",
     "callerPolicy": "workflowsFromSameOwner"
   },
-
-  "pinData": {}
+  "staticData": null,
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "37742f20-2c1a-4d33-9f17-4cbddc295930",
+  "activeVersionId": "37742f20-2c1a-4d33-9f17-4cbddc295930",
+  "versionCounter": 15,
+  "triggerCount": 1,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "activeVersion": {
+    "updatedAt": "2026-06-22T19:51:54.522Z",
+    "createdAt": "2026-06-22T19:51:54.522Z",
+    "versionId": "37742f20-2c1a-4d33-9f17-4cbddc295930",
+    "workflowId": "NZsKomyCVzVMHqxp",
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "wa-inbound",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "id": "webhook-trigger",
+        "name": "WA Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          0,
+          300
+        ],
+        "webhookId": "4bff5e1f-1244-4a53-be2a-fc952eeb89f7"
+      },
+      {
+        "parameters": {
+          "respondWith": "text",
+          "responseBody": "OK",
+          "options": {
+            "responseCode": 200
+          }
+        },
+        "id": "respond-immediately",
+        "name": "Respond 200",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1,
+        "position": [
+          220,
+          160
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const body = $input.first().json.body ?? $input.first().json;\nconst from    = String(body.from ?? '').replace(/^\\+/, '');\nconst message = String(body.message ?? '').trim();\nconst orgId   = String(body.org_id ?? '');\nif (!from || !message || !orgId) throw new Error('Missing fields: ' + JSON.stringify({ from, message, orgId }));\nreturn [{ json: { from, message, org_id: orgId } }];"
+        },
+        "id": "parse-payload",
+        "name": "Parse Payload",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          220,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "url": "={{ $env.SUPABASE_URL }}/rest/v1/users?wa_number=eq.{{ $json.from }}&organization_id=eq.{{ $json.org_id }}&select=id,full_name,role,wa_number,organization_id&limit=1",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "apikey",
+                "value": "={{ $env.SUPABASE_SERVICE_ROLE }}"
+              },
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE }}"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "fetch-user",
+        "name": "Fetch User",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          440,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "url": "={{ $env.SUPABASE_URL }}/rest/v1/wa_bot_sessions?wa_number=eq.{{ $('Parse Payload').item.json.from }}&select=messages&limit=1",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "apikey",
+                "value": "={{ $env.SUPABASE_SERVICE_ROLE }}"
+              },
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE }}"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "fetch-history",
+        "name": "Fetch History",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          440,
+          460
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const payload = $('Parse Payload').first().json; const userArr = $('Fetch User').first().json; const user = Array.isArray(userArr) ? userArr[0] : userArr; const histArr = $('Fetch History').first().json; const session = Array.isArray(histArr) ? histArr[0] : histArr; const history = session?.messages ?? []; const today = new Date().toLocaleDateString('en-IN', { timeZone:'Asia/Kolkata', weekday:'long', day:'numeric', month:'long', year:'numeric' }); const time = new Date().toLocaleTimeString('en-IN', { timeZone:'Asia/Kolkata', hour:'2-digit', minute:'2-digit' }); const name = user?.full_name ?? 'there'; const firstName = name.split(' ')[0]; const msg = payload.message.trim(); const isGreeting = /^(hi+|hello+|hey+|hj+|hii+|sup|yo|good\\s*(morning|evening|afternoon)|namaste|hola)[\\s!?.]*$/i.test(msg); const systemPrompt = isGreeting ? 'You are HRBot. The user greeted you. DO NOT call any tools. Reply with ONLY: Hello ' + firstName + '! I am *HRBot*, your AI HR assistant.\\n\\n*What I can help you with:*\\n- *Tasks* - list, create, update tasks\\n- *Attendance* - check in/out, history\\n- *Leaves* - balance, apply leave\\n- *Daily briefing* - today summary\\n- *Team attendance* - admin only\\n\\nWhat would you like to do?' : 'You are HRBot, an AI HR assistant for WhatsApp. Today is ' + today + ', ' + time + ' IST.\\n\\nUser: ' + name + ' | Role: ' + (user?.role ?? 'employee') + ' | OrgID: ' + payload.org_id + ' | UserID: ' + (user?.id ?? '')+'\\n\\nRules:\\n- Always reply in WhatsApp-friendly format (use *bold*, bullet points)\\n- For task creation, confirm details first then call tool when user confirms\\n- Keep replies concise\\n- Convert natural language dates to YYYY-MM-DD\\n- Priority: low/medium/high | Status: pending/in_progress/done/cancelled'; return [{ json: { from: payload.from, message: payload.message, chatInput: payload.message, org_id: payload.org_id, user_id: user?.id ?? '', user_name: firstName, user_role: user?.role ?? 'employee', history: JSON.stringify(history.slice(-10)), system_prompt: systemPrompt, is_greeting: isGreeting } }];"
+        },
+        "id": "build-context",
+        "name": "Build Context",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          660,
+          380
+        ]
+      },
+      {
+        "parameters": {
+          "model": "llama-3.3-70b-versatile",
+          "options": {
+            "maxTokens": 600,
+            "temperature": 0.2
+          }
+        },
+        "id": "groq-model",
+        "name": "Groq Llama 3.3",
+        "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+        "typeVersion": 1,
+        "position": [
+          880,
+          560
+        ],
+        "credentials": {
+          "groqApi": {
+            "id": "fcHPh4mIpd00LrSg",
+            "name": "Groq API"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "sessionIdType": "customKey",
+          "sessionKey": "={{ $('Build Context').item.json.from }}",
+          "contextWindowLength": 10
+        },
+        "id": "memory",
+        "name": "Buffer Memory",
+        "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+        "typeVersion": 1.3,
+        "position": [
+          880,
+          700
+        ]
+      },
+      {
+        "parameters": {
+          "name": "list_tasks",
+          "description": "Fetch all active tasks for the current user. No parameters needed.",
+          "jsCode": "const userId = $('Build Context').item.json.user_id;\nconst orgId = $('Build Context').item.json.org_id;\nconst result = await helpers.httpRequest({\n  method: 'GET',\n  url: $env.SUPABASE_URL + '/rest/v1/tasks?assignee_id=eq.' + userId + '&status=not.in.(done,cancelled)&deleted_at=is.null&organization_id=eq.' + orgId + '&select=id,title,deadline,priority,status,assignee:users!tasks_assignee_id_fkey(full_name)&order=deadline.asc.nullslast&limit=20',\n  headers: { apikey: $env.SUPABASE_SERVICE_ROLE, Authorization: 'Bearer ' + $env.SUPABASE_SERVICE_ROLE }\n});\nreturn JSON.stringify(result);"
+        },
+        "id": "tool-list-tasks",
+        "name": "list_tasks",
+        "type": "@n8n/n8n-nodes-langchain.toolCode",
+        "typeVersion": 1.1,
+        "position": [
+          1100,
+          80
+        ]
+      },
+      {
+        "parameters": {
+          "name": "create_task",
+          "description": "Create a new task. Required: title. Optional: deadline (YYYY-MM-DD), priority (low/medium/high), assignee_name (full or partial name of the person to assign - leave empty to assign to self).",
+          "method": "POST",
+          "url": "={{ $env.SUPABASE_URL }}/rest/v1/rpc/create_task_from_bot",
+          "sendBody": true,
+          "contentType": "json",
+          "bodyParameters": {
+            "parameters": [
+              {
+                "name": "p_org_id",
+                "value": "={{ $('Build Context').item.json.org_id }}"
+              },
+              {
+                "name": "p_created_by",
+                "value": "={{ $('Build Context').item.json.user_id }}"
+              },
+              {
+                "name": "p_title",
+                "value": "={= toolParameter.title }"
+              },
+              {
+                "name": "p_deadline",
+                "value": "={= toolParameter.deadline ?? null }"
+              },
+              {
+                "name": "p_priority",
+                "value": "={= toolParameter.priority ?? 'medium' }"
+              },
+              {
+                "name": "p_assignee_name",
+                "value": "={= toolParameter.assignee_name ?? '' }"
+              }
+            ]
+          },
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "apikey",
+                "value": "={{ $env.SUPABASE_SERVICE_ROLE }}"
+              },
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE }}"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "Prefer",
+                "value": "return=representation"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "tool-create-task",
+        "name": "create_task",
+        "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+        "typeVersion": 1.1,
+        "position": [
+          1100,
+          220
+        ]
+      },
+      {
+        "parameters": {
+          "name": "update_task",
+          "description": "Update an existing task. Required: task_title (to find the task), update_field (one of: title/deadline/priority/status/assignee), update_value (new value).",
+          "method": "POST",
+          "url": "={{ $env.SUPABASE_URL }}/rest/v1/rpc/update_task_from_bot",
+          "sendBody": true,
+          "contentType": "json",
+          "bodyParameters": {
+            "parameters": [
+              {
+                "name": "p_org_id",
+                "value": "={{ $('Build Context').item.json.org_id }}"
+              },
+              {
+                "name": "p_task_title",
+                "value": "={= toolParameter.task_title }"
+              },
+              {
+                "name": "p_update_field",
+                "value": "={= toolParameter.update_field }"
+              },
+              {
+                "name": "p_update_value",
+                "value": "={= toolParameter.update_value }"
+              }
+            ]
+          },
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "apikey",
+                "value": "={{ $env.SUPABASE_SERVICE_ROLE }}"
+              },
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE }}"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "tool-update-task",
+        "name": "update_task",
+        "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+        "typeVersion": 1.1,
+        "position": [
+          1100,
+          360
+        ]
+      },
+      {
+        "parameters": {
+          "name": "check_in",
+          "description": "Record attendance check-in for the current user. No parameters needed.",
+          "jsCode": "const userId = $('Build Context').item.json.user_id;\nconst orgId = $('Build Context').item.json.org_id;\nconst result = await helpers.httpRequest({\n  method: 'POST',\n  url: $env.SUPABASE_URL + '/rest/v1/rpc/attendance_check_in',\n  headers: { apikey: $env.SUPABASE_SERVICE_ROLE, Authorization: 'Bearer ' + $env.SUPABASE_SERVICE_ROLE, 'Content-Type': 'application/json' },\n  body: JSON.stringify({ p_user_id: userId, p_org_id: orgId })\n});\nreturn JSON.stringify(result);"
+        },
+        "id": "tool-check-in",
+        "name": "check_in",
+        "type": "@n8n/n8n-nodes-langchain.toolCode",
+        "typeVersion": 1.1,
+        "position": [
+          1100,
+          500
+        ]
+      },
+      {
+        "parameters": {
+          "name": "check_out",
+          "description": "Record attendance check-out for the current user. No parameters needed.",
+          "jsCode": "const userId = $('Build Context').item.json.user_id;\nconst orgId = $('Build Context').item.json.org_id;\nconst result = await helpers.httpRequest({\n  method: 'POST',\n  url: $env.SUPABASE_URL + '/rest/v1/rpc/attendance_check_out',\n  headers: { apikey: $env.SUPABASE_SERVICE_ROLE, Authorization: 'Bearer ' + $env.SUPABASE_SERVICE_ROLE, 'Content-Type': 'application/json' },\n  body: JSON.stringify({ p_user_id: userId, p_org_id: orgId })\n});\nreturn JSON.stringify(result);"
+        },
+        "id": "tool-check-out",
+        "name": "check_out",
+        "type": "@n8n/n8n-nodes-langchain.toolCode",
+        "typeVersion": 1.1,
+        "position": [
+          1100,
+          640
+        ]
+      },
+      {
+        "parameters": {
+          "name": "check_leave_balance",
+          "description": "Get the current user remaining leave balance. No parameters needed.",
+          "jsCode": "const userId = $('Build Context').item.json.user_id;\nconst orgId = $('Build Context').item.json.org_id;\nconst result = await helpers.httpRequest({\n  method: 'GET',\n  url: $env.SUPABASE_URL + '/rest/v1/leave_balances?employee_id=eq.' + userId + '&organization_id=eq.' + orgId + '&select=balance_days,leave_type:leave_types(name)',\n  headers: { apikey: $env.SUPABASE_SERVICE_ROLE, Authorization: 'Bearer ' + $env.SUPABASE_SERVICE_ROLE }\n});\nreturn JSON.stringify(result);"
+        },
+        "id": "tool-leave-balance",
+        "name": "check_leave_balance",
+        "type": "@n8n/n8n-nodes-langchain.toolCode",
+        "typeVersion": 1.1,
+        "position": [
+          1100,
+          780
+        ]
+      },
+      {
+        "parameters": {
+          "name": "apply_leave",
+          "description": "Apply for leave. Required: leave_type_name (e.g. Casual Leave, Sick Leave), start_date (YYYY-MM-DD), end_date (YYYY-MM-DD). Optional: reason.",
+          "method": "POST",
+          "url": "={{ $env.SUPABASE_URL }}/rest/v1/rpc/apply_leave_from_bot",
+          "sendBody": true,
+          "contentType": "json",
+          "bodyParameters": {
+            "parameters": [
+              {
+                "name": "p_employee_id",
+                "value": "={{ $('Build Context').item.json.user_id }}"
+              },
+              {
+                "name": "p_org_id",
+                "value": "={{ $('Build Context').item.json.org_id }}"
+              },
+              {
+                "name": "p_leave_type_name",
+                "value": "={= toolParameter.leave_type_name }"
+              },
+              {
+                "name": "p_start_date",
+                "value": "={= toolParameter.start_date }"
+              },
+              {
+                "name": "p_end_date",
+                "value": "={= toolParameter.end_date }"
+              },
+              {
+                "name": "p_reason",
+                "value": "={= toolParameter.reason ?? '' }"
+              }
+            ]
+          },
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "apikey",
+                "value": "={{ $env.SUPABASE_SERVICE_ROLE }}"
+              },
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE }}"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "tool-apply-leave",
+        "name": "apply_leave",
+        "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+        "typeVersion": 1.1,
+        "position": [
+          1340,
+          80
+        ]
+      },
+      {
+        "parameters": {
+          "name": "list_leaves",
+          "description": "List leave requests for the current user. No parameters needed.",
+          "jsCode": "const userId = $('Build Context').item.json.user_id;\nconst orgId = $('Build Context').item.json.org_id;\nconst result = await helpers.httpRequest({\n  method: 'GET',\n  url: $env.SUPABASE_URL + '/rest/v1/leave_requests?employee_id=eq.' + userId + '&organization_id=eq.' + orgId + '&select=start_date,end_date,duration_days,status,reason,leave_type:leave_types(name)&order=created_at.desc&limit=10',\n  headers: { apikey: $env.SUPABASE_SERVICE_ROLE, Authorization: 'Bearer ' + $env.SUPABASE_SERVICE_ROLE }\n});\nreturn JSON.stringify(result);"
+        },
+        "id": "tool-list-leaves",
+        "name": "list_leaves",
+        "type": "@n8n/n8n-nodes-langchain.toolCode",
+        "typeVersion": 1.1,
+        "position": [
+          1340,
+          220
+        ]
+      },
+      {
+        "parameters": {
+          "name": "daily_briefing",
+          "description": "Get today briefing: tasks due today, attendance status, leave summary. No parameters needed.",
+          "jsCode": "const userId = $('Build Context').item.json.user_id;\nconst orgId = $('Build Context').item.json.org_id;\nconst result = await helpers.httpRequest({\n  method: 'GET',\n  url: $env.SUPABASE_URL + '/rest/v1/rpc/daily_briefing_for_bot?p_user_id=' + userId + '&p_org_id=' + orgId,\n  headers: { apikey: $env.SUPABASE_SERVICE_ROLE, Authorization: 'Bearer ' + $env.SUPABASE_SERVICE_ROLE }\n});\nreturn JSON.stringify(result);"
+        },
+        "id": "tool-briefing",
+        "name": "daily_briefing",
+        "type": "@n8n/n8n-nodes-langchain.toolCode",
+        "typeVersion": 1.1,
+        "position": [
+          1340,
+          360
+        ]
+      },
+      {
+        "parameters": {
+          "name": "my_attendance",
+          "description": "Fetch attendance log for the current user this month. No parameters needed.",
+          "jsCode": "const userId = $('Build Context').item.json.user_id;\nconst orgId = $('Build Context').item.json.org_id;\nconst now = new Date();\nconst monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];\nconst result = await helpers.httpRequest({\n  method: 'GET',\n  url: $env.SUPABASE_URL + '/rest/v1/attendance?user_id=eq.' + userId + '&organization_id=eq.' + orgId + '&date=gte.' + monthStart + '&select=date,check_in_time,check_out_time,status&order=date.desc&limit=31',\n  headers: { apikey: $env.SUPABASE_SERVICE_ROLE, Authorization: 'Bearer ' + $env.SUPABASE_SERVICE_ROLE }\n});\nreturn JSON.stringify(result);"
+        },
+        "id": "tool-my-attendance",
+        "name": "my_attendance",
+        "type": "@n8n/n8n-nodes-langchain.toolCode",
+        "typeVersion": 1.1,
+        "position": [
+          1340,
+          500
+        ]
+      },
+      {
+        "parameters": {
+          "name": "team_attendance",
+          "description": "Fetch today attendance for the whole team. Admin use only. No parameters needed.",
+          "jsCode": "const orgId = $('Build Context').item.json.org_id;\nconst today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });\nconst result = await helpers.httpRequest({\n  method: 'GET',\n  url: $env.SUPABASE_URL + '/rest/v1/attendance?organization_id=eq.' + orgId + '&date=eq.' + today + '&select=status,user:users(full_name,role)',\n  headers: { apikey: $env.SUPABASE_SERVICE_ROLE, Authorization: 'Bearer ' + $env.SUPABASE_SERVICE_ROLE }\n});\nreturn JSON.stringify(result);"
+        },
+        "id": "tool-team-attendance",
+        "name": "team_attendance",
+        "type": "@n8n/n8n-nodes-langchain.toolCode",
+        "typeVersion": 1.1,
+        "position": [
+          1340,
+          640
+        ]
+      },
+      {
+        "parameters": {
+          "name": "help",
+          "description": "Show the list of available commands to the user.",
+          "method": "GET",
+          "url": "={{ $env.NEXT_APP_URL }}/api/help",
+          "options": {},
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-N8N-Ref",
+                "value": "={= toolParameter.ref ?? 'auto' }"
+              }
+            ]
+          },
+          "sendHeaders": true
+        },
+        "id": "tool-help",
+        "name": "help",
+        "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+        "typeVersion": 1.1,
+        "position": [
+          1340,
+          780
+        ]
+      },
+      {
+        "parameters": {
+          "promptType": "define",
+          "text": "={{ $('Build Context').item.json.message }}",
+          "systemMessage": "={{ $('Build Context').item.json.system_prompt }}",
+          "options": {}
+        },
+        "id": "ai-agent",
+        "name": "AI Agent",
+        "type": "@n8n/n8n-nodes-langchain.agent",
+        "typeVersion": 1.7,
+        "position": [
+          880,
+          380
+        ]
+      },
+      {
+        "parameters": {
+          "url": "={{ $env.SUPABASE_URL }}/rest/v1/wa_bot_sessions",
+          "method": "POST",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "apikey",
+                "value": "={{ $env.SUPABASE_SERVICE_ROLE }}"
+              },
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE }}"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "Prefer",
+                "value": "resolution=merge-duplicates"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ wa_number: $('Build Context').item.json.from, messages: JSON.parse($('Build Context').item.json.history ?? '[]').concat([ { role: 'user', content: $('Build Context').item.json.message }, { role: 'assistant', content: $json.output } ]).slice(-20), updated_at: new Date().toISOString() }) }}"
+        },
+        "id": "save-history",
+        "name": "Save History",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1560,
+          380
+        ]
+      },
+      {
+        "parameters": {
+          "url": "=https://graph.facebook.com/v20.0/{{ $env.WHATSAPP_PHONE_NUMBER_ID }}/messages",
+          "method": "POST",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{ $env.WHATSAPP_ACCESS_TOKEN }}"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: $('Build Context').item.json.from, type: 'text', text: { preview_url: false, body: $json.output } }) }}"
+        },
+        "id": "send-wa",
+        "name": "Send WA Reply",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          2000,
+          380
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const isGreeting = $('Build Context').item.json.is_greeting;\nconst aiOutput = $('AI Agent').item.json.output;\n\nif (!isGreeting) {\n  return [{ json: { output: aiOutput } }];\n}\n\n// Extract the pre-written greeting from the system prompt\nconst sp = $('Build Context').item.json.system_prompt;\nconst marker = 'Do NOT call any tools. Do NOT add anything:\\n\\n';\nconst idx = sp.indexOf(marker);\nconst greetText = idx >= 0\n  ? sp.substring(idx + marker.length)\n  : `Hello ${$('Build Context').item.json.user_name}! I am *HRBot*, your AI HR assistant.\n\n*Here is what I can help you with:*\n- *Tasks* - list, create, or update tasks\n- *Attendance* - check in/out, view history\n- *Leaves* - check balance, apply for leave\n- *Daily briefing* - today's summary\n- *Team attendance* - admin only\n\nWhat would you like to do?`;\n\nreturn [{ json: { output: greetText } }];"
+        },
+        "id": "format-reply",
+        "name": "Format Reply",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1780,
+          380
+        ]
+      }
+    ],
+    "connections": {
+      "WA Webhook": {
+        "main": [
+          [
+            {
+              "node": "Respond 200",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Parse Payload",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parse Payload": {
+        "main": [
+          [
+            {
+              "node": "Fetch User",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Fetch User": {
+        "main": [
+          [
+            {
+              "node": "Fetch History",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Fetch History": {
+        "main": [
+          [
+            {
+              "node": "Build Context",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Context": {
+        "main": [
+          [
+            {
+              "node": "AI Agent",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Groq Llama 3.3": {
+        "ai_languageModel": [
+          [
+            {
+              "node": "AI Agent",
+              "type": "ai_languageModel",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Buffer Memory": {
+        "ai_memory": [
+          [
+            {
+              "node": "AI Agent",
+              "type": "ai_memory",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "list_tasks": {
+        "ai_tool": [
+          [
+            {
+              "node": "AI Agent",
+              "type": "ai_tool",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "create_task": {
+        "ai_tool": [
+          [
+            {
+              "node": "AI Agent",
+              "type": "ai_tool",
+              "index": 1
+            }
+          ]
+        ]
+      },
+      "update_task": {
+        "ai_tool": [
+          [
+            {
+              "node": "AI Agent",
+              "type": "ai_tool",
+              "index": 2
+            }
+          ]
+        ]
+      },
+      "check_in": {
+        "ai_tool": [
+          [
+            {
+              "node": "AI Agent",
+              "type": "ai_tool",
+              "index": 3
+            }
+          ]
+        ]
+      },
+      "check_out": {
+        "ai_tool": [
+          [
+            {
+              "node": "AI Agent",
+              "type": "ai_tool",
+              "index": 4
+            }
+          ]
+        ]
+      },
+      "check_leave_balance": {
+        "ai_tool": [
+          [
+            {
+              "node": "AI Agent",
+              "type": "ai_tool",
+              "index": 5
+            }
+          ]
+        ]
+      },
+      "apply_leave": {
+        "ai_tool": [
+          [
+            {
+              "node": "AI Agent",
+              "type": "ai_tool",
+              "index": 6
+            }
+          ]
+        ]
+      },
+      "list_leaves": {
+        "ai_tool": [
+          [
+            {
+              "node": "AI Agent",
+              "type": "ai_tool",
+              "index": 7
+            }
+          ]
+        ]
+      },
+      "daily_briefing": {
+        "ai_tool": [
+          [
+            {
+              "node": "AI Agent",
+              "type": "ai_tool",
+              "index": 8
+            }
+          ]
+        ]
+      },
+      "my_attendance": {
+        "ai_tool": [
+          [
+            {
+              "node": "AI Agent",
+              "type": "ai_tool",
+              "index": 9
+            }
+          ]
+        ]
+      },
+      "team_attendance": {
+        "ai_tool": [
+          [
+            {
+              "node": "AI Agent",
+              "type": "ai_tool",
+              "index": 10
+            }
+          ]
+        ]
+      },
+      "AI Agent": {
+        "main": [
+          [
+            {
+              "node": "Save History",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Save History": {
+        "main": [
+          [
+            {
+              "node": "Format Reply",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Format Reply": {
+        "main": [
+          [
+            {
+              "node": "Send WA Reply",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "nodeGroups": [],
+    "authors": "Rahul Matharu",
+    "name": null,
+    "description": null,
+    "autosaved": false
+  }
 }

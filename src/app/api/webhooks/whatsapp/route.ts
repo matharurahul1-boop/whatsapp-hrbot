@@ -274,8 +274,9 @@ async function dispatchAgent(from: string, text: string, orgId: string, isAudio 
         (typeof json === 'string' ? json : undefined);
 
       if (!reply) {
-        console.error('[WA Agent] n8n response had no reply field:', JSON.stringify(json));
-        throw new Error('n8n returned no reply');
+        // n8n responded 200 without a reply body — it sent the WhatsApp message directly
+        console.log('[WA Agent] n8n returned 200 with no reply field — n8n handled WhatsApp send directly');
+        return;
       }
 
       console.log(`[WA Agent] n8n reply for ${from}: "${reply.slice(0, 80)}…"`);

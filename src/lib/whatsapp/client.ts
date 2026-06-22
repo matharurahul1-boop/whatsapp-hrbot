@@ -36,14 +36,8 @@ interface MetaCreds {
 const credsCache = new Map<string, { creds: MetaCreds; exp: number }>();
 
 async function resolveMetaCreds(orgId?: string): Promise<MetaCreds> {
-  // Env vars take priority — if explicitly set they are always up-to-date
-  const envPhoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-  const envToken   = process.env.WHATSAPP_ACCESS_TOKEN;
-  if (envPhoneId && envToken) {
-    return { phoneNumberId: envPhoneId, accessToken: envToken };
-  }
-
-  // Fall back to org-specific credentials stored in the DB
+  // DB token takes priority — can be updated in Supabase without redeploying Vercel.
+  // Env vars are fallback only (useful for local dev / initial setup).
   if (orgId) {
     const cached = credsCache.get(orgId);
     if (cached && cached.exp > Date.now()) return cached.creds;
@@ -61,12 +55,19 @@ async function resolveMetaCreds(orgId?: string): Promise<MetaCreds> {
           phoneNumberId: data.wa_phone_number_id,
           accessToken:   data.wa_access_token,
         };
-        credsCache.set(orgId, { creds, exp: Date.now() + 10 * 60 * 1000 });
+        credsCache.set(orgId, { creds, exp: Date.now() + 5 * 60 * 1000 }); // 5 min cache
         return creds;
       }
     } catch {
-      // fall through to error
+      // fall through to env vars
     }
+  }
+
+  // Fallback: env vars (local dev / orgs not yet in DB)
+  const envPhoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  const envToken   = process.env.WHATSAPP_ACCESS_TOKEN;
+  if (envPhoneId && envToken) {
+    return { phoneNumberId: envPhoneId, accessToken: envToken };
   }
 
   throw new Error(

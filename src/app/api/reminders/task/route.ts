@@ -41,9 +41,10 @@ export async function POST(req: NextRequest) {
   }
 
   // Bail if deadline/time changed since reminder was scheduled
+  // Normalize undefined (optional chaining on null) → null for strict equality
   if (
-    task.deadline          !== scheduled_deadline ||
-    task.due_time?.slice(0, 5) !== scheduled_due_time
+    task.deadline !== scheduled_deadline ||
+    (task.due_time?.slice(0, 5) ?? null) !== (scheduled_due_time ?? null)
   ) {
     return NextResponse.json({ ok: true, skipped: 'deadline_changed' });
   }
@@ -83,6 +84,7 @@ export async function POST(req: NextRequest) {
       taskTitle:    task.title,
       deadline:     task.deadline,
       dueTime:      task.due_time,
+      reminderType: reminder,
     });
   }
 

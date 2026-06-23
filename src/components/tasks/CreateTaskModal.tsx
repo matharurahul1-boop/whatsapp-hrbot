@@ -55,7 +55,8 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
       setForm(f => ({
         ...f,
         deadline: value,
-        due_time: f.due_time || '17:00',
+        // auto-fill 17:00 when deadline is picked; clear when deadline is cleared
+        due_time: value ? (f.due_time || '17:00') : '',
       }));
     } else {
       setForm(f => ({ ...f, [field]: value }));
@@ -65,10 +66,10 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
 
   function validate() {
     const e: Record<string, string> = {};
-    if (!form.title.trim())  e.title       = 'Title is required';
-    if (!form.assignee_id)   e.assignee_id = 'Assignee is required';
-    if (!form.deadline)      e.deadline    = 'Deadline is required';
-    if (!form.due_time)      e.due_time    = 'Due time is required';
+    if (!form.title.trim()) e.title       = 'Title is required';
+    if (!form.assignee_id)  e.assignee_id = 'Assignee is required';
+    // due_time is required only when deadline is set
+    if (form.deadline && !form.due_time) e.due_time = 'Due time is required when a deadline is set';
     return e;
   }
 
@@ -82,12 +83,14 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
       const body: Record<string, unknown> = {
         title:       form.title.trim(),
         priority:    form.priority,
-        reminders:   form.reminders,
         assignee_id: form.assignee_id,
-        deadline:    form.deadline,
-        due_time:    form.due_time,
       };
       if (form.description) body.description = form.description;
+      if (form.deadline) {
+        body.deadline  = form.deadline;
+        body.due_time  = form.due_time;
+        if (form.reminders.length) body.reminders = form.reminders;
+      }
 
       const res = await fetch('/api/tasks', {
         method:  'POST',
@@ -164,7 +167,7 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
                 </SelectNative>
 
                 <SelectNative
-                  label="Priority *"
+                  label="Priority"
                   value={form.priority}
                   onChange={e => set('priority', e.target.value)}
                   options={PRIORITIES}
@@ -173,22 +176,23 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
 
               <div className="grid grid-cols-2 gap-4">
                 <Input
-                  label="Deadline *"
+                  label="Deadline"
                   type="date"
                   value={form.deadline}
                   onChange={e => set('deadline', e.target.value)}
                   error={errors.deadline}
                 />
                 <Input
-                  label="Due Time *"
+                  label={form.deadline ? 'Due Time *' : 'Due Time'}
                   type="time"
                   value={form.due_time}
                   onChange={e => set('due_time', e.target.value)}
                   error={errors.due_time}
+                  disabled={!form.deadline}
                 />
               </div>
 
-              <div>
+              {form.deadline && <div>
                 <label className="block text-xs font-medium text-surface-700 mb-1.5">
                   Reminders <span className="text-surface-400 font-normal">(select one or more)</span>
                 </label>
@@ -213,12 +217,12 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
                     );
                   })}
                 </div>
-                {form.deadline && form.reminders.length > 0 && (
+                {form.reminders.length > 0 && (
                   <p className="text-[11px] text-surface-400 mt-1.5">
                     Sent via your channel preference in Settings → Notifications
                   </p>
                 )}
-              </div>
+              </div>}
             </DialogBody>
 
             <DialogFooter>

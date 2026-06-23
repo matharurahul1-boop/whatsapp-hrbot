@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-06-23T19:31:47.551Z",
+  "updatedAt": "2026-06-23T20:16:20.619Z",
   "createdAt": "2026-06-22T22:03:35.478Z",
   "id": "tmYeLQNa0nAuMoEW",
   "name": "HRBot — 5-Min Reminder Cron",
@@ -66,7 +66,7 @@
         300
       ],
       "parameters": {
-        "jsCode": "const sbUrl     = 'https://icobloqimszzcqtphxvr.supabase.co';\nconst sbKey     = 'sb_secret__47INoZ_88PYmCU5XkAiVA_VRLVcR-6';\nconst appSecret = '0yxnvS8z3lpb2AG4Ljjx8TynSI0edL7NKNGJnKKnyhvO3OFK';\nconst sbHeaders = { apikey: sbKey, Authorization: 'Bearer ' + sbKey };\n\nconst now = new Date().toISOString();\n\nlet due;\ntry {\n  due = await helpers.httpRequest({\n    method: 'GET',\n    url: sbUrl + '/rest/v1/bot_reminders?fire_at=lte.' + now + '&sent=eq.false&select=*&limit=50',\n    headers: sbHeaders\n  });\n} catch(e) {\n  console.error('fetch reminders failed:', e.message);\n  return [{ json: { processed: 0, error: e.message } }];\n}\n\nconst reminders = Array.isArray(due) ? due : [];\nif (!reminders.length) return [{ json: { processed: 0 } }];\n\nconst vercelBase = 'https://whatsapp-hrbot.vercel.app';\nconst authHeader = { Authorization: 'Bearer ' + appSecret, 'Content-Type': 'application/json' };\nconst results = [];\n\nfor (const r of reminders) {\n  try {\n    if (r.type === 'task') {\n      await helpers.httpRequest({\n        method: 'POST',\n        url: vercelBase + '/api/reminders/task',\n        headers: authHeader,\n        body: JSON.stringify({\n          task_id:            r.task_id,\n          reminder:           r.task_reminder,\n          scheduled_deadline: r.scheduled_deadline,\n          scheduled_due_time: r.scheduled_due_time,\n        })\n      });\n    } else {\n      await helpers.httpRequest({\n        method: 'POST',\n        url: vercelBase + '/api/reminders/custom',\n        headers: authHeader,\n        body: JSON.stringify({\n          wa_number:       r.wa_number,\n          message:         r.custom_message,\n          organization_id: r.organization_id,\n          user_id:         r.user_id,\n        })\n      });\n    }\n    await helpers.httpRequest({\n      method: 'PATCH',\n      url: sbUrl + '/rest/v1/bot_reminders?id=eq.' + r.id,\n      headers: { ...sbHeaders, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },\n      body: JSON.stringify({ sent: true, sent_at: new Date().toISOString() })\n    });\n    results.push({ id: r.id, type: r.type, status: 'sent' });\n  } catch(e) {\n    results.push({ id: r.id, type: r.type, status: 'error', error: e.message });\n  }\n}\n\nreturn [{ json: { processed: results.length, results } }];"
+        "jsCode": "const sbUrl     = 'https://icobloqimszzcqtphxvr.supabase.co';\nconst sbKey     = 'sb_secret__47INoZ_88PYmCU5XkAiVA_VRLVcR-6';\nconst appSecret = '0yxnvS8z3lpb2AG4Ljjx8TynSI0edL7NKNGJnKKnyhvO3OFK';\nconst sbHeaders = { apikey: sbKey, Authorization: 'Bearer ' + sbKey };\n\n// ── 9 AM – 6 PM IST guard ─────────────────────────────────────────────────\nconst nowIST  = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));\nconst hourIST = nowIST.getHours();\nif (hourIST < 9 || hourIST >= 18) {\n  return [{ json: { processed: 0, skipped: 'outside_business_hours_' + hourIST + 'h_IST' } }];\n}\n\nconst now = new Date().toISOString();\n\nlet due;\ntry {\n  due = await helpers.httpRequest({\n    method: 'GET',\n    url: sbUrl + '/rest/v1/bot_reminders?fire_at=lte.' + now + '&sent=eq.false&select=*&limit=50',\n    headers: sbHeaders\n  });\n} catch(e) {\n  console.error('fetch reminders failed:', e.message);\n  return [{ json: { processed: 0, error: e.message } }];\n}\n\nconst reminders = Array.isArray(due) ? due : [];\nif (!reminders.length) return [{ json: { processed: 0 } }];\n\nconst vercelBase = 'https://whatsapp-hrbot.vercel.app';\nconst authHeader = { Authorization: 'Bearer ' + appSecret, 'Content-Type': 'application/json' };\nconst results = [];\n\nfor (const r of reminders) {\n  try {\n    if (r.type === 'task') {\n      await helpers.httpRequest({\n        method: 'POST',\n        url: vercelBase + '/api/reminders/task',\n        headers: authHeader,\n        body: JSON.stringify({\n          task_id:            r.task_id,\n          reminder:           r.task_reminder,\n          scheduled_deadline: r.scheduled_deadline,\n          scheduled_due_time: r.scheduled_due_time,\n        })\n      });\n    } else {\n      await helpers.httpRequest({\n        method: 'POST',\n        url: vercelBase + '/api/reminders/custom',\n        headers: authHeader,\n        body: JSON.stringify({\n          wa_number:       r.wa_number,\n          message:         r.custom_message,\n          organization_id: r.organization_id,\n          user_id:         r.user_id,\n        })\n      });\n    }\n    await helpers.httpRequest({\n      method: 'PATCH',\n      url: sbUrl + '/rest/v1/bot_reminders?id=eq.' + r.id,\n      headers: { ...sbHeaders, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },\n      body: JSON.stringify({ sent: true, sent_at: new Date().toISOString() })\n    });\n    results.push({ id: r.id, type: r.type, status: 'sent' });\n  } catch(e) {\n    results.push({ id: r.id, type: r.type, status: 'error', error: e.message });\n  }\n}\n\nreturn [{ json: { processed: results.length, results } }];"
       }
     }
   ],
@@ -105,9 +105,9 @@
   "meta": null,
   "nodeGroups": [],
   "pinData": null,
-  "versionId": "670621ad-905a-44b0-a268-a095d94a0e26",
-  "activeVersionId": "670621ad-905a-44b0-a268-a095d94a0e26",
-  "versionCounter": 4,
+  "versionId": "2d1fcc0e-ceba-4ed9-aea0-81503fbd915f",
+  "activeVersionId": "2d1fcc0e-ceba-4ed9-aea0-81503fbd915f",
+  "versionCounter": 5,
   "triggerCount": 1,
   "sourceWorkflowId": null,
   "shared": [
@@ -132,9 +132,9 @@
   ],
   "tags": [],
   "activeVersion": {
-    "updatedAt": "2026-06-23T19:31:47.648Z",
-    "createdAt": "2026-06-23T19:31:47.648Z",
-    "versionId": "670621ad-905a-44b0-a268-a095d94a0e26",
+    "updatedAt": "2026-06-23T20:16:20.707Z",
+    "createdAt": "2026-06-23T20:16:20.707Z",
+    "versionId": "2d1fcc0e-ceba-4ed9-aea0-81503fbd915f",
     "workflowId": "tmYeLQNa0nAuMoEW",
     "nodes": [
       {
@@ -196,7 +196,7 @@
           300
         ],
         "parameters": {
-          "jsCode": "const sbUrl     = 'https://icobloqimszzcqtphxvr.supabase.co';\nconst sbKey     = 'sb_secret__47INoZ_88PYmCU5XkAiVA_VRLVcR-6';\nconst appSecret = '0yxnvS8z3lpb2AG4Ljjx8TynSI0edL7NKNGJnKKnyhvO3OFK';\nconst sbHeaders = { apikey: sbKey, Authorization: 'Bearer ' + sbKey };\n\nconst now = new Date().toISOString();\n\nlet due;\ntry {\n  due = await helpers.httpRequest({\n    method: 'GET',\n    url: sbUrl + '/rest/v1/bot_reminders?fire_at=lte.' + now + '&sent=eq.false&select=*&limit=50',\n    headers: sbHeaders\n  });\n} catch(e) {\n  console.error('fetch reminders failed:', e.message);\n  return [{ json: { processed: 0, error: e.message } }];\n}\n\nconst reminders = Array.isArray(due) ? due : [];\nif (!reminders.length) return [{ json: { processed: 0 } }];\n\nconst vercelBase = 'https://whatsapp-hrbot.vercel.app';\nconst authHeader = { Authorization: 'Bearer ' + appSecret, 'Content-Type': 'application/json' };\nconst results = [];\n\nfor (const r of reminders) {\n  try {\n    if (r.type === 'task') {\n      await helpers.httpRequest({\n        method: 'POST',\n        url: vercelBase + '/api/reminders/task',\n        headers: authHeader,\n        body: JSON.stringify({\n          task_id:            r.task_id,\n          reminder:           r.task_reminder,\n          scheduled_deadline: r.scheduled_deadline,\n          scheduled_due_time: r.scheduled_due_time,\n        })\n      });\n    } else {\n      await helpers.httpRequest({\n        method: 'POST',\n        url: vercelBase + '/api/reminders/custom',\n        headers: authHeader,\n        body: JSON.stringify({\n          wa_number:       r.wa_number,\n          message:         r.custom_message,\n          organization_id: r.organization_id,\n          user_id:         r.user_id,\n        })\n      });\n    }\n    await helpers.httpRequest({\n      method: 'PATCH',\n      url: sbUrl + '/rest/v1/bot_reminders?id=eq.' + r.id,\n      headers: { ...sbHeaders, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },\n      body: JSON.stringify({ sent: true, sent_at: new Date().toISOString() })\n    });\n    results.push({ id: r.id, type: r.type, status: 'sent' });\n  } catch(e) {\n    results.push({ id: r.id, type: r.type, status: 'error', error: e.message });\n  }\n}\n\nreturn [{ json: { processed: results.length, results } }];"
+          "jsCode": "const sbUrl     = 'https://icobloqimszzcqtphxvr.supabase.co';\nconst sbKey     = 'sb_secret__47INoZ_88PYmCU5XkAiVA_VRLVcR-6';\nconst appSecret = '0yxnvS8z3lpb2AG4Ljjx8TynSI0edL7NKNGJnKKnyhvO3OFK';\nconst sbHeaders = { apikey: sbKey, Authorization: 'Bearer ' + sbKey };\n\n// ── 9 AM – 6 PM IST guard ─────────────────────────────────────────────────\nconst nowIST  = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));\nconst hourIST = nowIST.getHours();\nif (hourIST < 9 || hourIST >= 18) {\n  return [{ json: { processed: 0, skipped: 'outside_business_hours_' + hourIST + 'h_IST' } }];\n}\n\nconst now = new Date().toISOString();\n\nlet due;\ntry {\n  due = await helpers.httpRequest({\n    method: 'GET',\n    url: sbUrl + '/rest/v1/bot_reminders?fire_at=lte.' + now + '&sent=eq.false&select=*&limit=50',\n    headers: sbHeaders\n  });\n} catch(e) {\n  console.error('fetch reminders failed:', e.message);\n  return [{ json: { processed: 0, error: e.message } }];\n}\n\nconst reminders = Array.isArray(due) ? due : [];\nif (!reminders.length) return [{ json: { processed: 0 } }];\n\nconst vercelBase = 'https://whatsapp-hrbot.vercel.app';\nconst authHeader = { Authorization: 'Bearer ' + appSecret, 'Content-Type': 'application/json' };\nconst results = [];\n\nfor (const r of reminders) {\n  try {\n    if (r.type === 'task') {\n      await helpers.httpRequest({\n        method: 'POST',\n        url: vercelBase + '/api/reminders/task',\n        headers: authHeader,\n        body: JSON.stringify({\n          task_id:            r.task_id,\n          reminder:           r.task_reminder,\n          scheduled_deadline: r.scheduled_deadline,\n          scheduled_due_time: r.scheduled_due_time,\n        })\n      });\n    } else {\n      await helpers.httpRequest({\n        method: 'POST',\n        url: vercelBase + '/api/reminders/custom',\n        headers: authHeader,\n        body: JSON.stringify({\n          wa_number:       r.wa_number,\n          message:         r.custom_message,\n          organization_id: r.organization_id,\n          user_id:         r.user_id,\n        })\n      });\n    }\n    await helpers.httpRequest({\n      method: 'PATCH',\n      url: sbUrl + '/rest/v1/bot_reminders?id=eq.' + r.id,\n      headers: { ...sbHeaders, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },\n      body: JSON.stringify({ sent: true, sent_at: new Date().toISOString() })\n    });\n    results.push({ id: r.id, type: r.type, status: 'sent' });\n  } catch(e) {\n    results.push({ id: r.id, type: r.type, status: 'error', error: e.message });\n  }\n}\n\nreturn [{ json: { processed: results.length, results } }];"
         }
       }
     ],
@@ -231,18 +231,18 @@
     "autosaved": false,
     "workflowPublishHistory": [
       {
-        "createdAt": "2026-06-23T19:31:48.905Z",
-        "id": 108,
+        "createdAt": "2026-06-23T20:16:22.281Z",
+        "id": 110,
         "workflowId": "tmYeLQNa0nAuMoEW",
-        "versionId": "670621ad-905a-44b0-a268-a095d94a0e26",
+        "versionId": "2d1fcc0e-ceba-4ed9-aea0-81503fbd915f",
         "event": "deactivated",
         "userId": "2ab45e88-48e5-4ae6-a393-d173e7ee85fa"
       },
       {
-        "createdAt": "2026-06-23T19:31:49.669Z",
-        "id": 109,
+        "createdAt": "2026-06-23T20:16:22.992Z",
+        "id": 111,
         "workflowId": "tmYeLQNa0nAuMoEW",
-        "versionId": "670621ad-905a-44b0-a268-a095d94a0e26",
+        "versionId": "2d1fcc0e-ceba-4ed9-aea0-81503fbd915f",
         "event": "activated",
         "userId": "2ab45e88-48e5-4ae6-a393-d173e7ee85fa"
       }

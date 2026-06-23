@@ -15,8 +15,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Missing to or text' }, { status: 400 });
   }
 
-  await sendText(to, text, organization_id ?? '');
-
-  console.log(`[wa/send] ✅ Sent to ${to}: "${String(text).slice(0, 60)}"`);
-  return NextResponse.json({ ok: true });
+  try {
+    await sendText(to, text, organization_id ?? '');
+    console.log(`[wa/send] ✅ Sent to ${to}: "${String(text).slice(0, 60)}"`);
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[wa/send] ❌ Error sending to ${to}:`, msg);
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
 }

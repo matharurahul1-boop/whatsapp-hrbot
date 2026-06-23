@@ -39,6 +39,7 @@ export async function middleware(request: NextRequest) {
     '/api/wa',               // called by n8n with Bearer APP_SECRET
     '/api/escalate-leaves',  // called by cron with x-escalation-secret header
     '/api/reminders/run',    // called by cron with Bearer APP_SECRET
+    '/api/reminders/task',   // called by n8n reminder cron with Bearer APP_SECRET
     // PWA assets — must be public so browsers can install without being logged in
     '/manifest.webmanifest',
     '/sw.js',

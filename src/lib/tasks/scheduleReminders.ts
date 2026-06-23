@@ -51,6 +51,16 @@ export async function scheduleTaskReminders(task: ScheduleInput): Promise<void> 
   if (!rows.length) return;
 
   const db = createAdminClient();
+
+  // Remove any unsent reminders for this task before inserting fresh ones,
+  // so re-saving a task doesn't queue duplicate notifications.
+  await db
+    .from('bot_reminders')
+    .delete()
+    .eq('task_id', task.id)
+    .eq('type', 'task')
+    .eq('sent', false);
+
   const { error } = await db.from('bot_reminders').insert(rows);
   if (error) console.error('[scheduleReminders] insert error:', error.message);
 }

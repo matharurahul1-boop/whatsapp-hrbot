@@ -290,9 +290,19 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const today = todayISO();
     const isPrivileged = ['manager', 'hr', 'admin', 'super_admin'].includes(user_role);
 
+    // Employees cannot list another person's tasks
+    if (!isPrivileged && slots.assignee_name) {
+      return {
+        success: false,
+        reply: lang === 'hi'
+          ? `🚫 आपके पास दूसरों के टास्क देखने की अनुमति नहीं है। अपने टास्क देखने के लिए *my tasks* टाइप करें।`
+          : `🚫 You don't have permission to view other people's tasks. Type *my tasks* to see your own.`,
+      };
+    }
+
     let query = db
       .from('tasks')
-      .select(`id, title, status, deadline, priority, assignee:users!tasks_assignee_id_fkey(full_name)`)
+      .select(`id, title, status, deadline, due_time, priority, assignee:users!tasks_assignee_id_fkey(full_name)`)
       .eq('organization_id', org_id)
       .is('deleted_at', null)
       .neq('status', 'done')
@@ -338,8 +348,17 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const rest     = (tasks as any[]).filter((t) => !t.deadline || t.deadline > today);
 
     const formatTask = (t: any, i: number) => {
-      const pEmoji  = priorityEmoji(t.priority);
-      const due     = t.deadline ? ` — ${formatDate(t.deadline)}` : '';
+      const pEmoji = priorityEmoji(t.priority);
+      let due = '';
+      if (t.deadline) {
+        due = ` — ${formatDate(t.deadline)}`;
+        if (t.due_time) {
+          const [h, m] = t.due_time.split(':').map(Number);
+          const ampm = h >= 12 ? 'PM' : 'AM';
+          const h12  = h % 12 || 12;
+          due += ` at ${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+        }
+      }
       const assignee = user_role !== 'employee' && t.assignee?.full_name ? ` _(${t.assignee.full_name})_` : '';
       return `${i + 1}. ${pEmoji} *${t.title}*${due}${assignee}`;
     };

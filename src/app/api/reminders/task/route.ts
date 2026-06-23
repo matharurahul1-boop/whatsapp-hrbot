@@ -82,6 +82,7 @@ export async function POST(req: NextRequest) {
       assigneeName: assignee.full_name,
       taskTitle:    task.title,
       deadline:     task.deadline,
+      dueTime:      task.due_time,
     });
   }
 

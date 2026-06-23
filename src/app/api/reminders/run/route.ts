@@ -135,6 +135,7 @@ export async function POST(req: NextRequest) {
           assigneeName: assignee.full_name,
           taskTitle:    task.title,
           deadline:     task.deadline,
+          dueTime:      (task as any).due_time ?? null,
         });
         processed++;
         await new Promise(r => setTimeout(r, 150));
@@ -253,6 +254,7 @@ export async function GET(req: NextRequest) {
           assigneeName: assignee.full_name,
           taskTitle:    task.title,
           deadline:     task.deadline,
+          dueTime:      (task as any).due_time ?? null,
         });
       }
 

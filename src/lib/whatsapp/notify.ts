@@ -106,12 +106,22 @@ export async function notifyTaskDeadlineReminder(opts: {
   assigneeName: string;
   taskTitle: string;
   deadline: string;
+  dueTime?: string | null;
 }): Promise<void> {
   return fire('TaskDeadline', async () => {
+    // Format due time: "02:19:00" or "02:19" → "2:19 AM"
+    let timeStr = '';
+    if (opts.dueTime) {
+      const [h, m] = opts.dueTime.split(':').map(Number);
+      const ampm  = h >= 12 ? 'PM' : 'AM';
+      const h12   = h % 12 || 12;
+      timeStr = ` at *${h12}:${String(m).padStart(2, '0')} ${ampm}*`;
+    }
+
     const msg =
       `⏰ *Deadline reminder, ${firstName(opts.assigneeName)}!*\n\n` +
       `*${opts.taskTitle}*\n` +
-      `is due *tomorrow — ${fmtDate(opts.deadline)}*\n\n` +
+      `is due *${fmtDate(opts.deadline)}*${timeStr}\n\n` +
       `Reply *my tasks* to view and update your tasks.`;
 
     await sendText(opts.waNumber, msg, opts.orgId);

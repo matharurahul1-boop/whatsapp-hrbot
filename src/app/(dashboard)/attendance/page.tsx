@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import AttendanceTable from '@/components/attendance/AttendanceTable';
 import CheckInWidget from '@/components/attendance/CheckInWidget';
 import AttendanceHeatmap from '@/components/dashboard/AttendanceHeatmap';
+import { todayISO } from '@/lib/utils/date';
 
 export const metadata = { title: 'Attendance — HRBot' };
 export const revalidate = 0;
@@ -24,8 +25,8 @@ export default async function AttendancePage() {
 
   const { organization_id: orgId, role } = profile;
   const isManager  = ['super_admin', 'admin', 'hr', 'manager'].includes(role);
-  const today      = new Date().toISOString().split('T')[0];
-  const since      = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
+  const today      = todayISO();
+  const since      = new Date(Date.now() - 30 * 86400000).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   const firstName  = profile.full_name?.split(' ')[0] ?? 'there';
 
   let query = db

@@ -123,7 +123,7 @@ export async function POST(req: NextRequest) {
         `)
         .eq('organization_id', org.id)
         .eq('deadline', tomorrow)
-        .not('status', 'in', '("completed","cancelled")')
+        .not('status', 'in', '("done","cancelled")')
         .is('deleted_at', null);
 
       for (const task of (dueTasks ?? [])) {
@@ -211,7 +211,7 @@ export async function GET(req: NextRequest) {
       .eq('deadline', targetDate)
       .not('due_time', 'is', null)
       .contains('reminders', [offsetKey])
-      .not('status', 'in', '("done","completed","cancelled")')
+      .not('status', 'in', '("done","cancelled")')
       .is('deleted_at', null);
 
     // Filter by time window in JS (due_time is IST; compute exact UTC moment and compare)

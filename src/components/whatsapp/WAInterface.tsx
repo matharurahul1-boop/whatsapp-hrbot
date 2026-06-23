@@ -1605,9 +1605,9 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
             >
               {/* ── Smart reply chips ── */}
               {(suggestions.length > 0 || loadingSuggestions) && !isRecording && (
-                <div className="flex flex-wrap gap-1.5 mb-2">
+                <div>
                   {loadingSuggestions && suggestions.length === 0 ? (
-                    <>
+                    <div className="flex gap-1.5 mb-2">
                       {[120, 90, 140].map(w => (
                         <div
                           key={w}
@@ -1615,52 +1615,60 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
                           style={{ width: w, background: '#202C33' }}
                         />
                       ))}
-                    </>
+                    </div>
                   ) : (
                     <>
-                      <div className="flex items-center gap-1 mr-1">
-                        <Zap size={11} style={{ color: '#00A884' }} />
-                        <span className="text-[10px]" style={{ color: '#8696A0' }}>Smart replies:</span>
+                      <div className="flex items-center gap-1.5 mb-2">
+                        {/* Label + chips (wrapping) */}
+                        <div className="flex flex-wrap items-center gap-1.5 flex-1 min-w-0">
+                          <div className="flex items-center gap-1">
+                            <Zap size={11} style={{ color: '#00A884' }} />
+                            <span className="text-[10px]" style={{ color: '#8696A0' }}>Smart replies:</span>
+                          </div>
+                          {suggestions.map((s, i) => (
+                            <button
+                              key={i}
+                              onClick={() => {
+                                setReplyText(s);
+                                setSuggestions([]);
+                                setTimeout(() => {
+                                  if (textareaRef.current) {
+                                    textareaRef.current.style.height = 'auto';
+                                    textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 120) + 'px';
+                                    textareaRef.current.focus();
+                                  }
+                                }, 50);
+                              }}
+                              className="px-3 py-1 rounded-full text-xs transition-all hover:scale-105 active:scale-95 text-left max-w-[200px] truncate"
+                              style={{
+                                background: '#1A2C24',
+                                color:      '#00A884',
+                                border:     '1px solid #00A88433',
+                              }}
+                              title={s}
+                            >
+                              {s}
+                            </button>
+                          ))}
+                        </div>
+                        {/* Refresh + Dismiss — pinned to the right, vertically centered */}
+                        <div className="flex items-center gap-0.5 shrink-0 self-center">
+                          <button
+                            onClick={() => activeConvo && fetchSuggestions(activeConvo)}
+                            className="p-1.5 rounded-full hover:bg-white/10 transition-colors"
+                            title="Refresh suggestions"
+                          >
+                            <RefreshCw size={11} style={{ color: '#8696A0' }} />
+                          </button>
+                          <button
+                            onClick={() => setSuggestions([])}
+                            className="p-1.5 rounded-full hover:bg-white/10 transition-colors"
+                            title="Dismiss"
+                          >
+                            <X size={11} style={{ color: '#8696A0' }} />
+                          </button>
+                        </div>
                       </div>
-                      {suggestions.map((s, i) => (
-                        <button
-                          key={i}
-                          onClick={() => {
-                            setReplyText(s);
-                            setSuggestions([]);
-                            setTimeout(() => {
-                              if (textareaRef.current) {
-                                textareaRef.current.style.height = 'auto';
-                                textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 120) + 'px';
-                                textareaRef.current.focus();
-                              }
-                            }, 50);
-                          }}
-                          className="px-3 py-1 rounded-full text-xs transition-all hover:scale-105 active:scale-95 text-left max-w-[200px] truncate"
-                          style={{
-                            background: '#1A2C24',
-                            color:      '#00A884',
-                            border:     '1px solid #00A88433',
-                          }}
-                          title={s}
-                        >
-                          {s}
-                        </button>
-                      ))}
-                      <button
-                        onClick={() => activeConvo && fetchSuggestions(activeConvo)}
-                        className="p-1.5 rounded-full hover:bg-white/10 transition-colors"
-                        title="Refresh suggestions"
-                      >
-                        <RefreshCw size={11} style={{ color: '#8696A0' }} />
-                      </button>
-                      <button
-                        onClick={() => setSuggestions([])}
-                        className="p-1.5 rounded-full hover:bg-white/10 transition-colors"
-                        title="Dismiss"
-                      >
-                        <X size={11} style={{ color: '#8696A0' }} />
-                      </button>
                     </>
                   )}
                 </div>

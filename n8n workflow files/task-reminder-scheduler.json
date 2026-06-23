@@ -1,0 +1,159 @@
+{
+  "updatedAt": "2026-06-22T10:55:36.659Z",
+  "createdAt": "2026-06-22T10:55:36.659Z",
+  "id": "HhEBPd4kD1PvJBcV",
+  "name": "Task Reminder Scheduler",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "id": "webhook-trigger",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "task-reminder",
+        "responseMode": "onReceived",
+        "options": {
+          "noResponseBody": true
+        }
+      },
+      "webhookId": "41f3fb47-2d4f-46c1-8204-f994d858f648"
+    },
+    {
+      "id": "check-extract",
+      "name": "Check & Extract",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body ?? $input.first().json;\nconst fireAt = body.fire_at;\nif (!fireAt || new Date(fireAt) <= new Date()) {\n  return [];\n}\nreturn [{ json: {\n  task_id:            body.task_id,\n  reminder:           body.reminder,\n  fire_at:            fireAt,\n  scheduled_deadline: body.scheduled_deadline,\n  scheduled_due_time: body.scheduled_due_time,\n} }];"
+      }
+    },
+    {
+      "id": "wait-until",
+      "name": "Wait Until",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        680,
+        300
+      ],
+      "parameters": {
+        "resume": "specificTime",
+        "dateTime": "={{ $json.fire_at }}"
+      },
+      "webhookId": "4a7041cf-a3f4-4e32-b2f4-ba1327edb817"
+    },
+    {
+      "id": "send-reminder",
+      "name": "Send Reminder",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://hrbots.vercel.app/api/reminders/task",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer 0yxnvS8z3lpb2AG4Ljjx8TynSI0edL7NKNGJnKKnyhvO3OFK"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ task_id: $json.task_id, reminder: $json.reminder, scheduled_deadline: $json.scheduled_deadline, scheduled_due_time: $json.scheduled_due_time }) }}"
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Check & Extract",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check & Extract": {
+      "main": [
+        [
+          {
+            "node": "Wait Until",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Until": {
+      "main": [
+        [
+          {
+            "node": "Send Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "staticData": null,
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": null,
+  "versionId": "d23c2d2f-2eaa-4a50-b0a0-33b3a9eb2c42",
+  "activeVersionId": null,
+  "versionCounter": 1,
+  "triggerCount": 1,
+  "sourceWorkflowId": null,
+  "shared": [
+    {
+      "updatedAt": "2026-06-22T10:55:36.659Z",
+      "createdAt": "2026-06-22T10:55:36.659Z",
+      "role": "workflow:owner",
+      "workflowId": "HhEBPd4kD1PvJBcV",
+      "projectId": "yMgzkpwLQ6KqgTd4",
+      "project": {
+        "updatedAt": "2026-06-22T10:50:50.919Z",
+        "createdAt": "2026-06-22T10:41:33.061Z",
+        "id": "yMgzkpwLQ6KqgTd4",
+        "name": "Rahul Matharu <matharurahul1@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "2ab45e88-48e5-4ae6-a393-d173e7ee85fa"
+      }
+    }
+  ],
+  "tags": [],
+  "activeVersion": null
+}

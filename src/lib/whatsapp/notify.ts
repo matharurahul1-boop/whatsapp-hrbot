@@ -100,6 +100,13 @@ export async function notifyTaskCompleted(opts: {
   });
 }
 
+const REMINDER_CONTEXT: Record<string, string> = {
+  '1_hour':  'in *1 hour*',
+  '2_hours': 'in *2 hours*',
+  '4_hours': 'in *4 hours*',
+  '1_day':   '*tomorrow*',
+};
+
 export async function notifyTaskDeadlineReminder(opts: {
   orgId: string;
   waNumber: string;
@@ -107,6 +114,7 @@ export async function notifyTaskDeadlineReminder(opts: {
   taskTitle: string;
   deadline: string;
   dueTime?: string | null;
+  reminderType?: string | null;
 }): Promise<void> {
   return fire('TaskDeadline', async () => {
     // Format due time: "02:19:00" or "02:19" → "2:19 AM"
@@ -118,10 +126,15 @@ export async function notifyTaskDeadlineReminder(opts: {
       timeStr = ` at *${h12}:${String(m).padStart(2, '0')} ${ampm}*`;
     }
 
+    const context = opts.reminderType ? REMINDER_CONTEXT[opts.reminderType] : null;
+    const dueStr  = context
+      ? `is due ${context} — *${fmtDate(opts.deadline)}*${timeStr}`
+      : `is due *${fmtDate(opts.deadline)}*${timeStr}`;
+
     const msg =
       `⏰ *Deadline reminder, ${firstName(opts.assigneeName)}!*\n\n` +
       `*${opts.taskTitle}*\n` +
-      `is due *${fmtDate(opts.deadline)}*${timeStr}\n\n` +
+      `${dueStr}\n\n` +
       `Reply *my tasks* to view and update your tasks.`;
 
     await sendText(opts.waNumber, msg, opts.orgId);

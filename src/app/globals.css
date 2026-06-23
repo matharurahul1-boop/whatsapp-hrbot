@@ -144,7 +144,7 @@
 
   /* ── Topbar ── */
   .topbar {
-    @apply sticky top-0 z-30 flex items-center justify-between h-14 px-4 md:px-6;
+    @apply sticky top-0 z-30 flex items-center justify-between h-14 pl-2 pr-4 md:pl-3 md:pr-6;
     background: var(--shell-topbar-bg);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);

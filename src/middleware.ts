@@ -36,6 +36,7 @@ export async function middleware(request: NextRequest) {
     '/api/organizations/info',
     '/api/policy/ask',       // called server-to-server from WA webhook (no session)
     '/api/agent',            // called by n8n / services with Bearer APP_SECRET
+    '/api/wa',               // called by n8n with Bearer APP_SECRET
     '/api/escalate-leaves',  // called by cron with x-escalation-secret header
     '/api/reminders/run',    // called by cron with Bearer APP_SECRET
     // PWA assets — must be public so browsers can install without being logged in

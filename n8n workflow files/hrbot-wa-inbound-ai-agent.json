@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-06-24T11:40:30.520Z",
+  "updatedAt": "2026-06-24T11:47:33.902Z",
   "createdAt": "2026-06-22T11:06:09.643Z",
   "id": "NZsKomyCVzVMHqxp",
   "name": "HRBot - WA Inbound AI Agent",
@@ -193,7 +193,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ to: $(\"Build Context\").item.json.from, text: $json.output, organization_id: $(\"Build Context\").item.json.org_id }) }}",
+        "jsonBody": "={{ JSON.stringify({ to: $(\"Build Context\").item.json.from, text: $json.output, organization_id: $(\"Build Context\").item.json.org_id, confirmButtons: $json.confirmButtons ?? null, listItems: $json.listItems ?? null, listButtonLabel: $json.listButtonLabel ?? null }) }}",
         "options": {}
       },
       "id": "send-wa",
@@ -207,7 +207,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const isGreeting = $('Build Context').item.json.is_greeting;\nconst aiOutput = $('AI Agent').item.json.output;\n\nif (!isGreeting) {\n  return [{ json: { output: aiOutput } }];\n}\n\n// Extract the pre-written greeting from the system prompt\nconst sp = $('Build Context').item.json.system_prompt;\nconst marker = 'Do NOT call any tools. Do NOT add anything:\\n\\n';\nconst idx = sp.indexOf(marker);\nconst greetText = idx >= 0\n  ? sp.substring(idx + marker.length)\n  : `Hello ${$('Build Context').item.json.user_name}! I am *HRBot*, your AI HR assistant.\n\n*Here is what I can help you with:*\n- *Tasks* - list, create, or update tasks\n- *Attendance* - check in/out, view history\n- *Leaves* - check balance, apply for leave\n- *Daily briefing* - today's summary\n- *Team attendance* - admin only\n\nWhat would you like to do?`;\n\nreturn [{ json: { output: greetText } }];"
+        "jsCode": "const isGreeting = $('Build Context').item.json.is_greeting;\nconst aiOutput = $('AI Agent').item.json.output;\n\nif (!isGreeting) {\n  return [{ json: { output: aiOutput, confirmButtons: $('AI Agent').item.json.confirmButtons ?? null, listItems: $('AI Agent').item.json.listItems ?? null, listButtonLabel: $('AI Agent').item.json.listButtonLabel ?? null } }];\n}\n\n// Extract the pre-written greeting from the system prompt\nconst sp = $('Build Context').item.json.system_prompt;\nconst marker = 'Do NOT call any tools. Do NOT add anything:\\n\\n';\nconst idx = sp.indexOf(marker);\nconst greetText = idx >= 0\n  ? sp.substring(idx + marker.length)\n  : `Hello ${$('Build Context').item.json.user_name}! I am *HRBot*, your AI HR assistant.\n\n*Here is what I can help you with:*\n- *Tasks* - list, create, or update tasks\n- *Attendance* - check in/out, view history\n- *Leaves* - check balance, apply for leave\n- *Daily briefing* - today's summary\n- *Team attendance* - admin only\n\nWhat would you like to do?`;\n\nreturn [{ json: { output: greetText, confirmButtons: null, listItems: null, listButtonLabel: null } }];"
       },
       "id": "format-reply",
       "name": "Format Reply",
@@ -390,9 +390,9 @@
   "meta": null,
   "nodeGroups": [],
   "pinData": {},
-  "versionId": "b94de295-73b5-4483-96cc-49d4dc703e3a",
-  "activeVersionId": "b94de295-73b5-4483-96cc-49d4dc703e3a",
-  "versionCounter": 48,
+  "versionId": "1537d949-37c3-46a6-abe7-5ba0ad80075c",
+  "activeVersionId": "1537d949-37c3-46a6-abe7-5ba0ad80075c",
+  "versionCounter": 49,
   "triggerCount": 1,
   "sourceWorkflowId": null,
   "shared": [
@@ -417,9 +417,9 @@
   ],
   "tags": [],
   "activeVersion": {
-    "updatedAt": "2026-06-24T11:40:30.662Z",
-    "createdAt": "2026-06-24T11:40:30.662Z",
-    "versionId": "b94de295-73b5-4483-96cc-49d4dc703e3a",
+    "updatedAt": "2026-06-24T11:47:34.068Z",
+    "createdAt": "2026-06-24T11:47:34.068Z",
+    "versionId": "1537d949-37c3-46a6-abe7-5ba0ad80075c",
     "workflowId": "NZsKomyCVzVMHqxp",
     "nodes": [
       {
@@ -608,7 +608,7 @@
           },
           "sendBody": true,
           "specifyBody": "json",
-          "jsonBody": "={{ JSON.stringify({ to: $(\"Build Context\").item.json.from, text: $json.output, organization_id: $(\"Build Context\").item.json.org_id }) }}",
+          "jsonBody": "={{ JSON.stringify({ to: $(\"Build Context\").item.json.from, text: $json.output, organization_id: $(\"Build Context\").item.json.org_id, confirmButtons: $json.confirmButtons ?? null, listItems: $json.listItems ?? null, listButtonLabel: $json.listButtonLabel ?? null }) }}",
           "options": {}
         },
         "id": "send-wa",
@@ -622,7 +622,7 @@
       },
       {
         "parameters": {
-          "jsCode": "const isGreeting = $('Build Context').item.json.is_greeting;\nconst aiOutput = $('AI Agent').item.json.output;\n\nif (!isGreeting) {\n  return [{ json: { output: aiOutput } }];\n}\n\n// Extract the pre-written greeting from the system prompt\nconst sp = $('Build Context').item.json.system_prompt;\nconst marker = 'Do NOT call any tools. Do NOT add anything:\\n\\n';\nconst idx = sp.indexOf(marker);\nconst greetText = idx >= 0\n  ? sp.substring(idx + marker.length)\n  : `Hello ${$('Build Context').item.json.user_name}! I am *HRBot*, your AI HR assistant.\n\n*Here is what I can help you with:*\n- *Tasks* - list, create, or update tasks\n- *Attendance* - check in/out, view history\n- *Leaves* - check balance, apply for leave\n- *Daily briefing* - today's summary\n- *Team attendance* - admin only\n\nWhat would you like to do?`;\n\nreturn [{ json: { output: greetText } }];"
+          "jsCode": "const isGreeting = $('Build Context').item.json.is_greeting;\nconst aiOutput = $('AI Agent').item.json.output;\n\nif (!isGreeting) {\n  return [{ json: { output: aiOutput, confirmButtons: $('AI Agent').item.json.confirmButtons ?? null, listItems: $('AI Agent').item.json.listItems ?? null, listButtonLabel: $('AI Agent').item.json.listButtonLabel ?? null } }];\n}\n\n// Extract the pre-written greeting from the system prompt\nconst sp = $('Build Context').item.json.system_prompt;\nconst marker = 'Do NOT call any tools. Do NOT add anything:\\n\\n';\nconst idx = sp.indexOf(marker);\nconst greetText = idx >= 0\n  ? sp.substring(idx + marker.length)\n  : `Hello ${$('Build Context').item.json.user_name}! I am *HRBot*, your AI HR assistant.\n\n*Here is what I can help you with:*\n- *Tasks* - list, create, or update tasks\n- *Attendance* - check in/out, view history\n- *Leaves* - check balance, apply for leave\n- *Daily briefing* - today's summary\n- *Team attendance* - admin only\n\nWhat would you like to do?`;\n\nreturn [{ json: { output: greetText, confirmButtons: null, listItems: null, listButtonLabel: null } }];"
         },
         "id": "format-reply",
         "name": "Format Reply",
@@ -802,34 +802,34 @@
     "autosaved": false,
     "workflowPublishHistory": [
       {
-        "createdAt": "2026-06-24T11:40:35.286Z",
-        "id": 148,
+        "createdAt": "2026-06-24T11:47:35.872Z",
+        "id": 150,
         "workflowId": "NZsKomyCVzVMHqxp",
-        "versionId": "b94de295-73b5-4483-96cc-49d4dc703e3a",
+        "versionId": "1537d949-37c3-46a6-abe7-5ba0ad80075c",
         "event": "deactivated",
         "userId": "2ab45e88-48e5-4ae6-a393-d173e7ee85fa"
       },
       {
-        "createdAt": "2026-06-24T11:40:36.103Z",
-        "id": 149,
+        "createdAt": "2026-06-24T11:47:36.760Z",
+        "id": 151,
         "workflowId": "NZsKomyCVzVMHqxp",
-        "versionId": "b94de295-73b5-4483-96cc-49d4dc703e3a",
+        "versionId": "1537d949-37c3-46a6-abe7-5ba0ad80075c",
         "event": "activated",
         "userId": "2ab45e88-48e5-4ae6-a393-d173e7ee85fa"
       },
       {
-        "createdAt": "2026-06-24T11:40:32.370Z",
-        "id": 146,
+        "createdAt": "2026-06-24T11:47:42.079Z",
+        "id": 152,
         "workflowId": "NZsKomyCVzVMHqxp",
-        "versionId": "b94de295-73b5-4483-96cc-49d4dc703e3a",
+        "versionId": "1537d949-37c3-46a6-abe7-5ba0ad80075c",
         "event": "deactivated",
         "userId": "2ab45e88-48e5-4ae6-a393-d173e7ee85fa"
       },
       {
-        "createdAt": "2026-06-24T11:40:33.233Z",
-        "id": 147,
+        "createdAt": "2026-06-24T11:47:43.055Z",
+        "id": 153,
         "workflowId": "NZsKomyCVzVMHqxp",
-        "versionId": "b94de295-73b5-4483-96cc-49d4dc703e3a",
+        "versionId": "1537d949-37c3-46a6-abe7-5ba0ad80075c",
         "event": "activated",
         "userId": "2ab45e88-48e5-4ae6-a393-d173e7ee85fa"
       }

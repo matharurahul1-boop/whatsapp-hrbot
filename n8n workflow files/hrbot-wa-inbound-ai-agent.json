@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-06-24T10:48:01.819Z",
+  "updatedAt": "2026-06-24T10:53:20.733Z",
   "createdAt": "2026-06-22T11:06:09.643Z",
   "id": "NZsKomyCVzVMHqxp",
   "name": "HRBot - WA Inbound AI Agent",
@@ -110,7 +110,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const payload = $('Parse Payload').first().json; const userArr = $('Fetch User').first().json; const user = Array.isArray(userArr) ? userArr[0] : userArr; const histArr = $('Fetch History').first().json; const session = Array.isArray(histArr) ? histArr[0] : histArr; const history = session?.messages ?? []; const today = new Date().toLocaleDateString('en-IN', { timeZone:'Asia/Kolkata', weekday:'long', day:'numeric', month:'long', year:'numeric' }); const time = new Date().toLocaleTimeString('en-IN', { timeZone:'Asia/Kolkata', hour:'2-digit', minute:'2-digit' }); const name = user?.full_name ?? 'there'; const firstName = name.split(' ')[0]; const msg = payload.message.trim(); const isGreeting = /^(hi+|hello+|hey+|hj+|hii+|sup|yo|good\\s*(morning|evening|afternoon)|namaste|hola)[\\s!?.]*$/i.test(msg); const systemPrompt = isGreeting ? 'You are HRBot. The user greeted you. DO NOT call any tools. Reply with ONLY: Hello ' + firstName + '! I am *HRBot*, your AI HR assistant.\\n\\n*What I can help you with:*\\n- *Tasks* - list, create, update tasks\\n- *Attendance* - check in/out, history\\n- *Leaves* - balance, apply leave\\n- *Daily briefing* - today summary\\n- *Team attendance* - admin only\\n\\nWhat would you like to do?' : 'You are HRBot, an AI HR assistant for WhatsApp. Today is ' + today + ', ' + time + ' IST.\\n\\nUser: ' + name + ' | Role: ' + (user?.role ?? 'employee') + ' | OrgID: ' + payload.org_id + ' | UserID: ' + (user?.id ?? '')+'\\n\\nRules:\\n- Always reply in WhatsApp-friendly format (use *bold*, bullet points)\\n- For task creation: call create_task immediately once you have title + assignee. Do NOT ask for a second confirmation\\n- Keep replies concise\\n- Convert natural language dates to YYYY-MM-DD\\n- Priority: low/medium/high/urgent | Status: todo/in_progress/done/cancelled\\n- When listing tasks use *bullet points*, format deadline as \"24 Jun 2026\" (NOT YYYY-MM-DD), append due time as \"at 11:00 AM\" if set\\n- Employees can ONLY see their own tasks. Deny if someone asks for another person tasks'; return [{ json: { from: payload.from, message: payload.message, chatInput: payload.message, org_id: payload.org_id, user_id: user?.id ?? '', user_name: firstName, user_role: user?.role ?? 'employee', history: JSON.stringify(history.slice(-10)), system_prompt: systemPrompt, is_greeting: isGreeting } }];"
+        "jsCode": "const payload = $('Parse Payload').first().json; const userArr = $('Fetch User').first().json; const user = Array.isArray(userArr) ? userArr[0] : userArr; const histArr = $('Fetch History').first().json; const session = Array.isArray(histArr) ? histArr[0] : histArr; const history = session?.messages ?? []; const today = new Date().toLocaleDateString('en-IN', { timeZone:'Asia/Kolkata', weekday:'long', day:'numeric', month:'long', year:'numeric' }); const time = new Date().toLocaleTimeString('en-IN', { timeZone:'Asia/Kolkata', hour:'2-digit', minute:'2-digit' }); const name = user?.full_name ?? 'there'; const firstName = name.split(' ')[0]; const msg = payload.message.trim(); const isGreeting = /^(hi+|hello+|hey+|hj+|hii+|sup|yo|good\\s*(morning|evening|afternoon)|namaste|hola)[\\s!?.]*$/i.test(msg); const systemPrompt = isGreeting ? 'You are HRBot. The user greeted you. DO NOT call any tools. Reply with ONLY: Hello ' + firstName + '! I am *HRBot*, your AI HR assistant.\\n\\n*What I can help you with:*\\n- *Tasks* - list, create, update tasks\\n- *Attendance* - check in/out, history\\n- *Leaves* - balance, apply leave\\n- *Daily briefing* - today summary\\n- *Team attendance* - admin only\\n\\nWhat would you like to do?' : 'You are HRBot, an AI HR assistant for WhatsApp. Today is ' + today + ', ' + time + ' IST.\\n\\nUser: ' + name + ' | Role: ' + (user?.role ?? 'employee') + ' | OrgID: ' + payload.org_id + ' | UserID: ' + (user?.id ?? '')+'\\n\\nRules:\\n- Always reply in WhatsApp-friendly format (use *bold*, bullet points)\\n- For task creation: call create_task immediately once you have title + assignee. Do NOT ask for a second confirmation\\n- Keep replies concise\\n- Convert natural language dates to YYYY-MM-DD\\n- Priority: low/medium/high/urgent | Status: todo/in_progress/done/cancelled\\n- When listing tasks use *bullet points*, format deadline as \"24 Jun 2026\" (NOT YYYY-MM-DD), append due time as \"at 11:00 AM\" if set'; return [{ json: { from: payload.from, message: payload.message, chatInput: payload.message, org_id: payload.org_id, user_id: user?.id ?? '', user_name: firstName, user_role: user?.role ?? 'employee', history: JSON.stringify(history.slice(-10)), system_prompt: systemPrompt, is_greeting: isGreeting } }];"
       },
       "id": "build-context",
       "name": "Build Context",
@@ -390,9 +390,9 @@
   "meta": null,
   "nodeGroups": [],
   "pinData": {},
-  "versionId": "292c2694-cfef-4f3c-88d4-4746b9b1210e",
-  "activeVersionId": "292c2694-cfef-4f3c-88d4-4746b9b1210e",
-  "versionCounter": 43,
+  "versionId": "62a071a2-abf6-4b5a-9a82-bd66f9d7b324",
+  "activeVersionId": "62a071a2-abf6-4b5a-9a82-bd66f9d7b324",
+  "versionCounter": 44,
   "triggerCount": 1,
   "sourceWorkflowId": null,
   "shared": [
@@ -417,9 +417,9 @@
   ],
   "tags": [],
   "activeVersion": {
-    "updatedAt": "2026-06-24T10:48:01.962Z",
-    "createdAt": "2026-06-24T10:48:01.962Z",
-    "versionId": "292c2694-cfef-4f3c-88d4-4746b9b1210e",
+    "updatedAt": "2026-06-24T10:53:20.894Z",
+    "createdAt": "2026-06-24T10:53:20.894Z",
+    "versionId": "62a071a2-abf6-4b5a-9a82-bd66f9d7b324",
     "workflowId": "NZsKomyCVzVMHqxp",
     "nodes": [
       {
@@ -525,7 +525,7 @@
       },
       {
         "parameters": {
-          "jsCode": "const payload = $('Parse Payload').first().json; const userArr = $('Fetch User').first().json; const user = Array.isArray(userArr) ? userArr[0] : userArr; const histArr = $('Fetch History').first().json; const session = Array.isArray(histArr) ? histArr[0] : histArr; const history = session?.messages ?? []; const today = new Date().toLocaleDateString('en-IN', { timeZone:'Asia/Kolkata', weekday:'long', day:'numeric', month:'long', year:'numeric' }); const time = new Date().toLocaleTimeString('en-IN', { timeZone:'Asia/Kolkata', hour:'2-digit', minute:'2-digit' }); const name = user?.full_name ?? 'there'; const firstName = name.split(' ')[0]; const msg = payload.message.trim(); const isGreeting = /^(hi+|hello+|hey+|hj+|hii+|sup|yo|good\\s*(morning|evening|afternoon)|namaste|hola)[\\s!?.]*$/i.test(msg); const systemPrompt = isGreeting ? 'You are HRBot. The user greeted you. DO NOT call any tools. Reply with ONLY: Hello ' + firstName + '! I am *HRBot*, your AI HR assistant.\\n\\n*What I can help you with:*\\n- *Tasks* - list, create, update tasks\\n- *Attendance* - check in/out, history\\n- *Leaves* - balance, apply leave\\n- *Daily briefing* - today summary\\n- *Team attendance* - admin only\\n\\nWhat would you like to do?' : 'You are HRBot, an AI HR assistant for WhatsApp. Today is ' + today + ', ' + time + ' IST.\\n\\nUser: ' + name + ' | Role: ' + (user?.role ?? 'employee') + ' | OrgID: ' + payload.org_id + ' | UserID: ' + (user?.id ?? '')+'\\n\\nRules:\\n- Always reply in WhatsApp-friendly format (use *bold*, bullet points)\\n- For task creation: call create_task immediately once you have title + assignee. Do NOT ask for a second confirmation\\n- Keep replies concise\\n- Convert natural language dates to YYYY-MM-DD\\n- Priority: low/medium/high/urgent | Status: todo/in_progress/done/cancelled\\n- When listing tasks use *bullet points*, format deadline as \"24 Jun 2026\" (NOT YYYY-MM-DD), append due time as \"at 11:00 AM\" if set\\n- Employees can ONLY see their own tasks. Deny if someone asks for another person tasks'; return [{ json: { from: payload.from, message: payload.message, chatInput: payload.message, org_id: payload.org_id, user_id: user?.id ?? '', user_name: firstName, user_role: user?.role ?? 'employee', history: JSON.stringify(history.slice(-10)), system_prompt: systemPrompt, is_greeting: isGreeting } }];"
+          "jsCode": "const payload = $('Parse Payload').first().json; const userArr = $('Fetch User').first().json; const user = Array.isArray(userArr) ? userArr[0] : userArr; const histArr = $('Fetch History').first().json; const session = Array.isArray(histArr) ? histArr[0] : histArr; const history = session?.messages ?? []; const today = new Date().toLocaleDateString('en-IN', { timeZone:'Asia/Kolkata', weekday:'long', day:'numeric', month:'long', year:'numeric' }); const time = new Date().toLocaleTimeString('en-IN', { timeZone:'Asia/Kolkata', hour:'2-digit', minute:'2-digit' }); const name = user?.full_name ?? 'there'; const firstName = name.split(' ')[0]; const msg = payload.message.trim(); const isGreeting = /^(hi+|hello+|hey+|hj+|hii+|sup|yo|good\\s*(morning|evening|afternoon)|namaste|hola)[\\s!?.]*$/i.test(msg); const systemPrompt = isGreeting ? 'You are HRBot. The user greeted you. DO NOT call any tools. Reply with ONLY: Hello ' + firstName + '! I am *HRBot*, your AI HR assistant.\\n\\n*What I can help you with:*\\n- *Tasks* - list, create, update tasks\\n- *Attendance* - check in/out, history\\n- *Leaves* - balance, apply leave\\n- *Daily briefing* - today summary\\n- *Team attendance* - admin only\\n\\nWhat would you like to do?' : 'You are HRBot, an AI HR assistant for WhatsApp. Today is ' + today + ', ' + time + ' IST.\\n\\nUser: ' + name + ' | Role: ' + (user?.role ?? 'employee') + ' | OrgID: ' + payload.org_id + ' | UserID: ' + (user?.id ?? '')+'\\n\\nRules:\\n- Always reply in WhatsApp-friendly format (use *bold*, bullet points)\\n- For task creation: call create_task immediately once you have title + assignee. Do NOT ask for a second confirmation\\n- Keep replies concise\\n- Convert natural language dates to YYYY-MM-DD\\n- Priority: low/medium/high/urgent | Status: todo/in_progress/done/cancelled\\n- When listing tasks use *bullet points*, format deadline as \"24 Jun 2026\" (NOT YYYY-MM-DD), append due time as \"at 11:00 AM\" if set'; return [{ json: { from: payload.from, message: payload.message, chatInput: payload.message, org_id: payload.org_id, user_id: user?.id ?? '', user_name: firstName, user_role: user?.role ?? 'employee', history: JSON.stringify(history.slice(-10)), system_prompt: systemPrompt, is_greeting: isGreeting } }];"
         },
         "id": "build-context",
         "name": "Build Context",
@@ -802,35 +802,35 @@
     "autosaved": false,
     "workflowPublishHistory": [
       {
-        "createdAt": "2026-06-24T10:48:03.647Z",
-        "id": 126,
+        "createdAt": "2026-06-24T10:53:22.581Z",
+        "id": 130,
         "workflowId": "NZsKomyCVzVMHqxp",
-        "versionId": "292c2694-cfef-4f3c-88d4-4746b9b1210e",
+        "versionId": "62a071a2-abf6-4b5a-9a82-bd66f9d7b324",
         "event": "deactivated",
         "userId": "2ab45e88-48e5-4ae6-a393-d173e7ee85fa"
       },
       {
-        "createdAt": "2026-06-24T10:48:04.530Z",
-        "id": 127,
+        "createdAt": "2026-06-24T10:53:23.495Z",
+        "id": 131,
         "workflowId": "NZsKomyCVzVMHqxp",
-        "versionId": "292c2694-cfef-4f3c-88d4-4746b9b1210e",
+        "versionId": "62a071a2-abf6-4b5a-9a82-bd66f9d7b324",
         "event": "activated",
         "userId": "2ab45e88-48e5-4ae6-a393-d173e7ee85fa"
       },
       {
-        "createdAt": "2026-06-24T10:48:09.527Z",
-        "id": 128,
+        "createdAt": "2026-06-24T10:53:27.074Z",
+        "id": 133,
         "workflowId": "NZsKomyCVzVMHqxp",
-        "versionId": "292c2694-cfef-4f3c-88d4-4746b9b1210e",
+        "versionId": "62a071a2-abf6-4b5a-9a82-bd66f9d7b324",
+        "event": "activated",
+        "userId": "2ab45e88-48e5-4ae6-a393-d173e7ee85fa"
+      },
+      {
+        "createdAt": "2026-06-24T10:53:26.178Z",
+        "id": 132,
+        "workflowId": "NZsKomyCVzVMHqxp",
+        "versionId": "62a071a2-abf6-4b5a-9a82-bd66f9d7b324",
         "event": "deactivated",
-        "userId": "2ab45e88-48e5-4ae6-a393-d173e7ee85fa"
-      },
-      {
-        "createdAt": "2026-06-24T10:48:10.334Z",
-        "id": 129,
-        "workflowId": "NZsKomyCVzVMHqxp",
-        "versionId": "292c2694-cfef-4f3c-88d4-4746b9b1210e",
-        "event": "activated",
         "userId": "2ab45e88-48e5-4ae6-a393-d173e7ee85fa"
       }
     ]

@@ -199,18 +199,25 @@ async function sendViaAISensy(opts: AISensySendOpts): Promise<WAApiResponse> {
 
 // ── Public API ────────────────────────────────────────────────────────────
 
+const WA_TEXT_MAX = 4096;
+
 export async function sendText(
   to:    string,
   body:  string,
   orgId: string = ''
 ): Promise<WAApiResponse> {
+  // WhatsApp max text body is 4096 characters
+  const safeBody = body.length > WA_TEXT_MAX
+    ? body.slice(0, WA_TEXT_MAX - 3) + '…'
+    : body;
+
   if (isAISensyConfigured()) {
     return sendViaAISensy({
       orgId, to,
       messageType:    'text',
-      messageText:    body,
+      messageText:    safeBody,
       campaignName:   process.env.AISENSY_TEXT_CAMPAIGN!,
-      templateParams: [body],
+      templateParams: [safeBody],
     });
   }
 
@@ -220,9 +227,9 @@ export async function sendText(
       recipient_type:    'individual',
       to,
       type:              'text',
-      text:              { body },
+      text:              { body: safeBody },
     },
-    { orgId, to, messageType: 'text', messageText: body }
+    { orgId, to, messageType: 'text', messageText: safeBody }
   );
 }
 
@@ -234,12 +241,15 @@ export async function sendButtons(
   headerText?: string,
   footerText?: string
 ): Promise<WAApiResponse> {
+  // WhatsApp allows max 3 quick-reply buttons
+  const safeButtons = buttons.slice(0, 3);
+
   if (isAISensyConfigured()) {
     const lines = [
       ...(headerText ? [headerText] : []),
       bodyText,
       '',
-      ...buttons.map((b, i) => `${i + 1}. ${b.title}`),
+      ...safeButtons.map((b, i) => `${i + 1}. ${b.title}`),
     ];
     return sendViaAISensy({
       orgId, to,
@@ -251,7 +261,7 @@ export async function sendButtons(
   }
 
   const action: WAButtonAction = {
-    buttons: buttons.map(b => ({
+    buttons: safeButtons.map(b => ({
       type:  'reply',
       reply: { id: b.id, title: b.title.slice(0, 20) },
     })),
@@ -386,9 +396,10 @@ export async function sendTemplate(
 // ── Meta-direct operations (always use Meta — no AISensy equivalent) ──────
 
 export async function downloadMedia(
-  mediaId: string
+  mediaId: string,
+  orgId?:  string
 ): Promise<{ url: string; mime_type: string }> {
-  const { accessToken } = await resolveMetaCreds();
+  const { accessToken } = await resolveMetaCreds(orgId);
   const res = await fetch(`${META_API_BASE}/${mediaId}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });

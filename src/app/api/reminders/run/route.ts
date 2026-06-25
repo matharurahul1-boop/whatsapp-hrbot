@@ -1,15 +1,17 @@
 /**
  * POST /api/reminders/run  — attendance reminders (checkin / checkout / deadline)
- * GET  /api/reminders/run  — task due-date reminders driven by per-user preferences
- *                            called by Vercel Cron every hour
+ * GET  /api/reminders/run  — task due-date reminders + optional ?type= attendance reminders
  *
  * Auth: Authorization: Bearer <APP_SECRET>  OR  x-vercel-cron: 1 header
  *
- * POST body: { type: "checkin" | "checkout" | "deadline" }
- * GET fires based on IST hour:
- *   09:00 → "1_day" (due tomorrow) + "on_due" (due today)
- *   16:00 → "2_hours" (due today, assumed EOD 18:00)
- *   17:00 → "1_hour"  (due today, assumed EOD 18:00)
+ * Cron schedule (vercel.json):
+ *   30 3 * * *  → GET ?type=checkin  (9:00 AM IST)
+ *   30 3 * * *  → GET ?type=deadline (9:00 AM IST)
+ *   30 12 * * * → GET ?type=checkout (6:00 PM IST)
+ *   0  3 * * *  → GET               (task due-date window checks)
+ *
+ * NOTE: Vercel Hobby plan allows max 2 daily cron jobs. Upgrade to Pro for
+ * per-hour task-reminder windows (1_hour / 2_hours / 4_hours offsets).
  */
 
 import { NextRequest, NextResponse }      from 'next/server';
@@ -21,7 +23,7 @@ import {
 } from '@/lib/whatsapp/notify';
 
 function todayIST(): string {
-  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }); // YYYY-MM-DD
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 }
 
 function tomorrowIST(): string {
@@ -30,33 +32,59 @@ function tomorrowIST(): string {
   return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 }
 
+function authorize(req: NextRequest): boolean {
+  const isCron  = req.headers.get('x-vercel-cron') === '1';
+  const auth    = req.headers.get('authorization') ?? '';
+  const secret  = process.env.APP_SECRET;
+  return isCron || (!!secret && auth === `Bearer ${secret}`);
+}
+
+// ── POST — triggered by external callers (e.g. manual test) ──────────────────
 export async function POST(req: NextRequest) {
-  // Auth: Bearer APP_SECRET
-  const auth = req.headers.get('authorization') ?? '';
-  const secret = process.env.APP_SECRET;
-  if (!secret || auth !== `Bearer ${secret}`) {
+  if (!authorize(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   const { type } = await req.json() as { type: string };
-  const db  = createAdminClient();
-  const today    = todayIST();
+  return runAttendanceReminders(type);
+}
+
+// ── GET — Vercel Cron or Bearer-auth callers ──────────────────────────────────
+export async function GET(req: NextRequest) {
+  if (!authorize(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const type = req.nextUrl.searchParams.get('type');
+
+  // Attendance reminder types routed via ?type= query param
+  if (type === 'checkin' || type === 'checkout' || type === 'deadline') {
+    return runAttendanceReminders(type);
+  }
+
+  // Default: task due-date reminders
+  return runTaskDueDateReminders();
+}
+
+// ── Attendance reminders (checkin / checkout / deadline) ──────────────────────
+
+async function runAttendanceReminders(type: string): Promise<NextResponse> {
+  const db    = createAdminClient();
+  const today = todayIST();
   const tomorrow = tomorrowIST();
 
-  // ── Fetch all active orgs ─────────────────────────────────────────────────
   const { data: orgs } = await db
     .from('organizations')
     .select('id, name')
     .not('wa_phone_number_id', 'is', null);
 
-  if (!orgs?.length) return NextResponse.json({ ok: true, processed: 0 });
+  if (!orgs?.length) return NextResponse.json({ ok: true, type, processed: 0 });
 
   let processed = 0;
 
   for (const org of orgs) {
-    // ── Check-in reminder ─────────────────────────────────────────────────────
+    // ── Check-in reminder ───────────────────────────────────────────────────
     if (type === 'checkin') {
-      // All active employees in this org
       const { data: employees } = await db
         .from('users')
         .select('id, full_name, wa_number')
@@ -67,40 +95,37 @@ export async function POST(req: NextRequest) {
 
       if (!employees?.length) continue;
 
-      // Who already checked in today?
       const { data: checkedIn } = await db
         .from('attendance_records')
         .select('employee_id')
         .eq('organization_id', org.id)
         .eq('date', today);
 
-      const checkedInIds = new Set((checkedIn ?? []).map((r: any) => r.employee_id));
+      const checkedInIds = new Set((checkedIn ?? []).map(r => r.employee_id));
 
       for (const emp of employees) {
         if (!emp.wa_number || checkedInIds.has(emp.id)) continue;
-        await notifyCheckInReminder({
-          orgId:        org.id,
-          waNumber:     emp.wa_number,
-          employeeName: emp.full_name,
-        });
+        await notifyCheckInReminder({ orgId: org.id, waNumber: emp.wa_number, employeeName: emp.full_name });
         processed++;
         await new Promise(r => setTimeout(r, 150));
       }
     }
 
-    // ── Checkout reminder ─────────────────────────────────────────────────────
+    // ── Checkout reminder ───────────────────────────────────────────────────
     if (type === 'checkout') {
-      // Employees who checked in but not out
       const { data: pendingCheckouts } = await db
         .from('attendance_records')
-        .select('employee_id, check_in_time, employee:users!attendance_records_employee_id_fkey(full_name, wa_number)')
+        .select(`
+          employee_id, check_in_time,
+          employee:users!attendance_records_employee_id_fkey(full_name, wa_number)
+        `)
         .eq('organization_id', org.id)
         .eq('date', today)
         .not('check_in_time', 'is', null)
         .is('check_out_time', null);
 
       for (const rec of (pendingCheckouts ?? [])) {
-        const emp = (rec as any).employee;
+        const emp = rec.employee as { full_name: string; wa_number: string | null } | null;
         if (!emp?.wa_number) continue;
         await notifyCheckOutReminder({
           orgId:        org.id,
@@ -113,7 +138,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ── Task deadline reminder (tasks due tomorrow) ───────────────────────────
+    // ── Task deadline reminder (tasks due tomorrow) ─────────────────────────
     if (type === 'deadline') {
       const { data: dueTasks } = await db
         .from('tasks')
@@ -127,15 +152,15 @@ export async function POST(req: NextRequest) {
         .is('deleted_at', null);
 
       for (const task of (dueTasks ?? [])) {
-        const assignee = (task as any).assignee;
+        const assignee = task.assignee as { full_name: string; wa_number: string | null } | null;
         if (!assignee?.wa_number) continue;
         await notifyTaskDeadlineReminder({
           orgId:        org.id,
           waNumber:     assignee.wa_number,
           assigneeName: assignee.full_name,
           taskTitle:    task.title,
-          deadline:     task.deadline,
-          dueTime:      (task as any).due_time ?? null,
+          deadline:     task.deadline ?? tomorrow,
+          dueTime:      (task as Record<string, unknown>).due_time as string | null ?? null,
         });
         processed++;
         await new Promise(r => setTimeout(r, 150));
@@ -147,19 +172,12 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: true, type, processed });
 }
 
-// ── GET — per-task due-date reminders (Vercel Cron, runs every 30 min) ────────
+// ── Task due-date reminders (per-user offset windows) ─────────────────────────
 //
-// For each reminder offset the task has set, this handler fires when
-//   now + offset  falls within a ±30-min window around the task's deadline.
-//
-// i.e., it finds tasks where:
-//   deadline BETWEEN (now + offset - 30min)  AND  (now + offset + 30min)
-//
-// Each reminder fires exactly once per task per day because the window is
-// too narrow to be hit by two consecutive hourly runs.
-//
-// Channel preference (WhatsApp / in-app) comes from the assignee's
-// users.metadata.task_reminders.channels (set in Settings → Notifications).
+// For each reminder offset, fires when now is within ±30 min of the
+// (deadline − offset) moment. Run this GET endpoint every 30–60 min
+// via cron for accurate reminder delivery. With Vercel Hobby (daily
+// cron only), the "1_day" offset is the only reliably-fired window.
 
 const REMINDER_OFFSETS: Record<string, number> = {
   '1_hour':  1  * 60 * 60 * 1000,
@@ -175,19 +193,11 @@ const REMINDER_LABEL: Record<string, string> = {
   '1_day':   'due tomorrow',
 };
 
-export async function GET(req: NextRequest) {
-  const isCron = req.headers.get('x-vercel-cron') === '1';
-  const auth   = req.headers.get('authorization') ?? '';
-  const secret = process.env.APP_SECRET;
-  if (!isCron && (!secret || auth !== `Bearer ${secret}`)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
+async function runTaskDueDateReminders(): Promise<NextResponse> {
   const db  = createAdminClient();
   const now = new Date();
-  const WINDOW_MS = 30 * 60 * 1000; // ±30-min window around each offset
+  const WINDOW_MS = 30 * 60 * 1000;
 
-  // All active orgs with WhatsApp configured
   const { data: orgs } = await db
     .from('organizations')
     .select('id')
@@ -198,11 +208,9 @@ export async function GET(req: NextRequest) {
   let processed = 0;
 
   for (const [offsetKey, offsetMs] of Object.entries(REMINDER_OFFSETS)) {
-    // Target moment = now + offset. Work in IST for date/time matching.
     const targetMs   = now.getTime() + offsetMs;
-    const targetDate = new Date(targetMs).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }); // YYYY-MM-DD IST
+    const targetDate = new Date(targetMs).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 
-    // Fetch tasks due on targetDate that have due_time set AND have this reminder
     const { data: tasks } = await db
       .from('tasks')
       .select(`
@@ -215,46 +223,45 @@ export async function GET(req: NextRequest) {
       .not('status', 'in', '("done","cancelled")')
       .is('deleted_at', null);
 
-    // Filter by time window in JS (due_time is IST; compute exact UTC moment and compare)
     const inWindow = (tasks ?? []).filter(task => {
-      const deadlineUTC = new Date(`${task.deadline}T${(task as any).due_time.slice(0, 5)}+05:30`);
+      const dueTime = (task as Record<string, unknown>).due_time as string;
+      const deadlineUTC = new Date(`${task.deadline}T${dueTime.slice(0, 5)}+05:30`);
       const reminderUTC = deadlineUTC.getTime() - offsetMs;
       return Math.abs(now.getTime() - reminderUTC) <= WINDOW_MS;
     });
 
     for (const task of inWindow) {
-      const assignee = (task as any).assignee;
+      const assignee = task.assignee as {
+        id: string; full_name: string; wa_number: string | null;
+        metadata?: { task_reminders?: { enabled?: boolean; channels?: string[] } };
+      } | null;
       if (!assignee) continue;
 
-      // Channel preference: default to WhatsApp if no settings saved
       const prefs    = assignee.metadata?.task_reminders ?? {};
-      const enabled  = prefs.enabled !== false; // default on
+      const enabled  = prefs.enabled !== false;
       if (!enabled) continue;
       const channels: string[] = prefs.channels?.length ? prefs.channels : ['whatsapp'];
 
-      const notifKey = `/tasks?reminder=${task.id}&t=${offsetKey}`;
-
-      // In-app notification
       if (channels.includes('in_app')) {
         await db.from('notifications').insert({
           user_id:         assignee.id,
           organization_id: task.organization_id,
           title:           '⏰ Task reminder',
           body:            `"${task.title}" is ${REMINDER_LABEL[offsetKey]}.`,
-          action_url:      notifKey,
+          action_url:      `/tasks?reminder=${task.id}&t=${offsetKey}`,
           is_read:         false,
         }).then(({ error }) => { if (error) console.error('[reminder in_app]', error.message); });
       }
 
-      // WhatsApp notification
       if (channels.includes('whatsapp') && assignee.wa_number) {
         await notifyTaskDeadlineReminder({
           orgId:        task.organization_id,
           waNumber:     assignee.wa_number,
           assigneeName: assignee.full_name,
           taskTitle:    task.title,
-          deadline:     task.deadline,
-          dueTime:      (task as any).due_time ?? null,
+          deadline:     task.deadline ?? targetDate,
+          dueTime:      (task as Record<string, unknown>).due_time as string | null ?? null,
+          reminderType: offsetKey,
         });
       }
 

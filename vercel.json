@@ -7,10 +7,22 @@
       "maxDuration": 60
     },
     "src/app/api/reminders/run/route.ts": {
-      "maxDuration": 30
+      "maxDuration": 60
     }
   },
   "crons": [
+    {
+      "path": "/api/reminders/run?type=checkin",
+      "schedule": "30 3 * * *"
+    },
+    {
+      "path": "/api/reminders/run?type=deadline",
+      "schedule": "30 3 * * *"
+    },
+    {
+      "path": "/api/reminders/run?type=checkout",
+      "schedule": "30 12 * * *"
+    },
     {
       "path": "/api/reminders/run",
       "schedule": "0 3 * * *"

@@ -55,7 +55,7 @@ async function resolveMetaCreds(orgId?: string): Promise<MetaCreds> {
           phoneNumberId: data.wa_phone_number_id,
           accessToken:   data.wa_access_token,
         };
-        credsCache.set(orgId, { creds, exp: Date.now() + 5 * 60 * 1000 }); // 5 min cache
+        credsCache.set(orgId, { creds, exp: Date.now() + 10 * 60 * 1000 }); // 10 min cache
         return creds;
       }
     } catch {
@@ -101,36 +101,49 @@ async function sendViaMeta(
   let apiResponse: WAApiResponse | null = null;
   let sendError:   unknown;
 
-  try {
-    const res = await fetch(`${META_API_BASE}/${creds.phoneNumberId}/messages`, {
-      method:  'POST',
-      headers: {
-        Authorization:  `Bearer ${creds.accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
+  // One retry on transient 5xx errors from Meta
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch(`${META_API_BASE}/${creds.phoneNumberId}/messages`, {
+        method:  'POST',
+        headers: {
+          Authorization:  `Bearer ${creds.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
 
-    const body = await res.json().catch(() => ({}));
+      const body = await res.json().catch(() => ({}));
 
-    if (!res.ok) {
-      const code = body?.error?.code;
-      const msg  = body?.error?.message ?? JSON.stringify(body);
-      let friendly = msg;
-      if (code === 131047) friendly = '24-hour window expired — the recipient must message you first.';
-      if (code === 131026) friendly = 'Recipient phone number is not a valid WhatsApp account.';
-      if (code === 131021) friendly = 'Recipient is not in your WhatsApp test contacts.';
-      if (code === 131000) friendly = 'Unknown error from WhatsApp API.';
-      if (code === 131008) friendly = 'Required parameter missing in API call.';
-      if (code === 131009) friendly = 'Invalid parameter value in API call.';
-      throw new Error(`WA API ${res.status} (code ${code}): ${friendly}`);
+      if (res.status >= 500 && attempt === 0) {
+        console.warn(`[Meta WA] 5xx on attempt 1 — retrying once`);
+        await new Promise(r => setTimeout(r, 500));
+        continue;
+      }
+
+      if (!res.ok) {
+        const code = body?.error?.code;
+        const msg  = body?.error?.message ?? JSON.stringify(body);
+        let friendly = msg;
+        if (code === 131047) friendly = '24-hour window expired — the recipient must message you first.';
+        if (code === 131026) friendly = 'Recipient phone number is not a valid WhatsApp account.';
+        if (code === 131021) friendly = 'Recipient is not in your WhatsApp test contacts.';
+        if (code === 131000) friendly = 'Unknown error from WhatsApp API.';
+        if (code === 131008) friendly = 'Required parameter missing in API call.';
+        if (code === 131009) friendly = 'Invalid parameter value in API call.';
+        throw new Error(`WA API ${res.status} (code ${code}): ${friendly}`);
+      }
+
+      apiResponse = body as WAApiResponse;
+      console.log(`[Meta WA] ✅ Sent — wamid: ${apiResponse?.messages?.[0]?.id}, to: ${opts.to}`);
+      sendError = undefined;
+      break;
+    } catch (err) {
+      sendError = err;
+      if (attempt === 0 && err instanceof Error && err.message.includes('5xx')) continue;
+      console.error(`[Meta WA] ❌ Failed to ${opts.to}:`, err instanceof Error ? err.message : err);
+      break;
     }
-
-    apiResponse = body as WAApiResponse;
-    console.log(`[Meta WA] ✅ Sent — wamid: ${apiResponse?.messages?.[0]?.id}, to: ${opts.to}`);
-  } catch (err) {
-    sendError = err;
-    console.error(`[Meta WA] ❌ Failed to ${opts.to}:`, err instanceof Error ? err.message : err);
   }
 
   await WALogger.logOutgoing({

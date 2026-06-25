@@ -26,7 +26,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { data: profile } = await db.from('users').select('organization_id, role').eq('id', user.id).single();
   if (!profile) return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
 
-  // Only manager+ can approve/reject
   if (!['super_admin','admin','hr','manager'].includes(profile.role)) {
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
   }
@@ -41,18 +40,44 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (fetchErr || !request) return NextResponse.json({ error: 'Leave request not found' }, { status: 404 });
   if (request.status !== 'pending') return NextResponse.json({ error: `Request is already ${request.status}` }, { status: 409 });
 
-  // Managers can only approve their direct reports
-  if (profile.role === 'manager' && request.employee?.manager_id !== user.id) {
+  const employee = request.employee as { id: string; full_name: string; manager_id: string | null } | null;
+
+  if (profile.role === 'manager' && employee?.manager_id !== user.id) {
     return NextResponse.json({ error: 'You can only review your direct reports' }, { status: 403 });
+  }
+
+  // ── Balance deduction on approval (decrement remaining_days) ──────────────
+  if (parsed.data.action === 'approved') {
+    const leaveYear = new Date(request.start_date).getFullYear();
+
+    const { data: balance } = await db
+      .from('leave_balances')
+      .select('id, remaining_days')
+      .eq('employee_id', request.employee_id)
+      .eq('leave_type_id', request.leave_type_id)
+      .eq('year', leaveYear)
+      .single();
+
+    if (balance) {
+      const newRemaining = Math.max(0, balance.remaining_days - (request.duration_days ?? 0));
+      const { error: balanceErr } = await db
+        .from('leave_balances')
+        .update({ remaining_days: newRemaining })
+        .eq('id', balance.id);
+
+      if (balanceErr) {
+        console.error('[Leave Approve] Balance deduction failed:', balanceErr.message);
+      }
+    }
   }
 
   const { data: updated, error } = await db
     .from('leave_requests')
     .update({
-      status: parsed.data.action,
+      status:      parsed.data.action,
       reviewed_by: user.id,
       reviewed_at: new Date().toISOString(),
-      remarks: parsed.data.remarks,
+      remarks:     parsed.data.remarks,
     })
     .eq('id', id)
     .select()
@@ -60,34 +85,35 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Create in-app notification for employee
+  // In-app notification for employee
   await db.rpc('create_notification', {
-    p_org_id: profile.organization_id,
-    p_user_id: request.employee_id,
-    p_type: 'leave_decision',
-    p_title: `Leave ${parsed.data.action}`,
-    p_body: `Your ${request.duration_days}-day leave request has been ${parsed.data.action}.`,
+    p_org_id:     profile.organization_id,
+    p_user_id:    request.employee_id,
+    p_type:       'leave_decision',
+    p_title:      `Leave ${parsed.data.action}`,
+    p_body:       `Your ${request.duration_days}-day leave request has been ${parsed.data.action}.`,
     p_action_url: `/leave`,
-    p_meta: { leave_request_id: id, action: parsed.data.action },
+    p_meta:       { leave_request_id: id, action: parsed.data.action },
   });
 
   await writeAuditLog({
-    org_id: profile.organization_id,
-    actor_id: user.id,
-    action: 'UPDATE',
+    org_id:     profile.organization_id,
+    actor_id:   user.id,
+    action:     'UPDATE',
     table_name: 'leave_requests',
-    record_id: id,
-    old_data: request,
-    new_data: updated,
+    record_id:  id,
+    old_data:   request as Record<string, unknown>,
+    new_data:   updated as Record<string, unknown>,
   });
 
-  // WhatsApp notification → employee
   const { data: reviewer } = await db.from('users').select('full_name').eq('id', user.id).single();
+  const leaveType = request.leave_type as { name: string } | null;
+
   notifyLeaveDecision({
     orgId:         profile.organization_id,
     employeeId:    request.employee_id,
     action:        parsed.data.action,
-    leaveTypeName: (request.leave_type as any)?.name ?? 'Leave',
+    leaveTypeName: leaveType?.name ?? 'Leave',
     startDate:     request.start_date,
     endDate:       request.end_date,
     reviewerName:  reviewer?.full_name ?? 'your manager',

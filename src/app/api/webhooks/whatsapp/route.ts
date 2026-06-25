@@ -342,8 +342,10 @@ function isPolicyQuestion(text: string): boolean {
 async function dispatchPolicyBot(from: string, question: string, orgId: string): Promise<void> {
   try {
     console.log(`[WA PolicyBot] Answering policy question from ${from}`);
-    const baseUrl = process.env.NEXTAUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
-    const secret  = process.env.POLICY_SECRET ?? process.env.ESCALATION_SECRET ?? '';
+    // VERCEL_URL is set automatically on Vercel (without https://)
+    const vercelUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null;
+    const baseUrl   = process.env.NEXTAUTH_URL ?? vercelUrl ?? process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
+    const secret    = process.env.POLICY_SECRET ?? process.env.ESCALATION_SECRET ?? '';
 
     const res = await fetch(`${baseUrl}/api/policy/ask`, {
       method:  'POST',
@@ -393,18 +395,19 @@ async function transcribeAudio(mediaId: string, orgId: string): Promise<string |
     return (data.text as string)?.trim() || null;
   };
 
-  const gk1 = process.env.GROQ_API_KEY;
-  const gk2 = process.env.GROQ_API_KEY_2;
+  // Rotate through all 10 Groq keys for Whisper (same keys used by n8n AI Agent)
+  const groqKeys = [
+    process.env.GROQ_API_KEY,   process.env.GROQ_API_KEY_2,
+    process.env.GROQ_API_KEY_3, process.env.GROQ_API_KEY_4,
+    process.env.GROQ_API_KEY_5, process.env.GROQ_API_KEY_6,
+    process.env.GROQ_API_KEY_7, process.env.GROQ_API_KEY_8,
+    process.env.GROQ_API_KEY_9, process.env.GROQ_API_KEY_10,
+  ].filter(Boolean) as string[];
 
-  if (gk1) {
-    const r = await tryKey(gk1);
+  for (let i = 0; i < groqKeys.length; i++) {
+    const r = await tryKey(groqKeys[i]);
     if (r !== 'rate_limited') return r;
-    console.warn('[WA Audio] GK1 rate-limited, trying GK2');
-  }
-  if (gk2) {
-    const r = await tryKey(gk2);
-    if (r !== 'rate_limited') return r;
-    console.warn('[WA Audio] GK2 also rate-limited');
+    console.warn(`[WA Audio] Key ${i + 1} rate-limited for Whisper — trying next`);
   }
 
   throw new Error('All Groq keys rate-limited for Whisper');

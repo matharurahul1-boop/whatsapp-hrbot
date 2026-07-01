@@ -30,7 +30,7 @@ const CRUMB_MAP: Record<string, string> = {
   tasks:      'Tasks',
   leave:      'Leave',
   attendance: 'Attendance',
-  employees:  'Employees',
+  employees:  'Team',
   whatsapp:   'WA Logs',
   settings:   'Settings',
 };

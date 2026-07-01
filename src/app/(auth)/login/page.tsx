@@ -166,7 +166,7 @@ export default function LoginPage() {
                   onChange={e => setRememberMe(e.target.checked)}
                   className="h-3.5 w-3.5 rounded border-surface-400 accent-brand-500 cursor-pointer"
                 />
-                <span className="text-xs text-surface-600">Remember me for 30 days</span>
+                <span className="text-xs text-surface-600">Remember me</span>
               </label>
               <button type="submit" disabled={loading} className="w-full flex items-center justify-center gap-2 h-10 rounded-lg bg-brand-gradient text-white text-sm font-semibold mt-1 transition-all shadow-glow-sm hover:opacity-90 disabled:opacity-50">
                 {loading ? <><Loader2 className="h-4 w-4 animate-spin" />Signing in…</> : <>Sign In <ArrowRight className="h-4 w-4" /></>}

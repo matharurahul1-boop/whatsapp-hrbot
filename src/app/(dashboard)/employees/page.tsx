@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import EmployeeGrid from '@/components/employees/EmployeeGrid';
 import InvitePanel from '@/components/employees/InvitePanel';
 
-export const metadata = { title: 'Employees — HRBot' };
+export const metadata = { title: 'Team — HRBot' };
 export const revalidate = 60;
 
 export default async function EmployeesPage() {
@@ -35,7 +35,7 @@ export default async function EmployeesPage() {
     <div className="max-w-7xl mx-auto animate-fade-up space-y-6">
       <div className="page-header">
         <div>
-          <h1 className="page-title">Employees</h1>
+          <h1 className="page-title">Team</h1>
           <p className="page-subtitle">{employees?.length ?? 0} team members</p>
         </div>
         {canInvite && (

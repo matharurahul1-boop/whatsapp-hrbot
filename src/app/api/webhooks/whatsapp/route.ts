@@ -9,7 +9,7 @@ export const maxDuration = 60;
 // (Not distributed — only effective within one warm Vercel instance.)
 const inFlight = new Set<string>();
 import { verifyWebhookSignature, verifyWebhookChallenge } from '@/lib/whatsapp/verify';
-import { sendText, markMessageRead, downloadMediaContent } from '@/lib/whatsapp/client';
+import { sendText, sendButtons, markMessageRead, downloadMediaContent } from '@/lib/whatsapp/client';
 import { createAdminClient }                              from '@/lib/supabase/admin';
 import { runMasterAgent }                                 from '@/lib/ai/agent';
 import type { WAWebhookPayload, WAMessage, WAValue }      from '@/types/whatsapp.types';
@@ -283,6 +283,30 @@ async function updateDeliveryStatus(
   else console.log(`[WA Webhook] ✅ Status updated: ${messageId} → ${status}`);
 }
 
+// ── Confirmation-aware reply sender ──────────────────────────────────────
+// When the agent reply ends with "Go ahead? (Yes / No)", strip that suffix
+// and deliver the message as WhatsApp interactive buttons instead of text.
+// Button IDs "yes" / "no" already match isYes / isNo regex in agent.ts, so
+// the context-state shortcircuit handles button taps with zero extra code.
+const CONFIRM_SUFFIX_RE = /\s*Go ahead\?\s*\(Yes\s*\/\s*No\)\s*$/i;
+
+async function sendAgentReply(to: string, text: string, orgId: string): Promise<void> {
+  if (CONFIRM_SUFFIX_RE.test(text)) {
+    const body = text.replace(CONFIRM_SUFFIX_RE, '').trimEnd();
+    await sendButtons(
+      to,
+      body.length > 1024 ? body.slice(0, 1021) + '…' : body,
+      [
+        { id: 'yes', title: '✅ Yes, proceed' },
+        { id: 'no',  title: '❌ No, cancel'  },
+      ],
+      orgId
+    );
+  } else {
+    await sendText(to, text, orgId);
+  }
+}
+
 // ── AI agent dispatch ─────────────────────────────────────────────────────
 // Standalone branch: all messages processed by the local Groq agent directly.
 // No n8n dependency. To re-enable n8n, merge from the `main` branch.
@@ -290,7 +314,7 @@ async function dispatchAgent(from: string, text: string, orgId: string): Promise
   try {
     console.log(`[WA Agent] → local Groq agent: from=${from}`);
     const result = await runMasterAgent(text, from, orgId);
-    await sendText(from, result.reply, orgId);
+    await sendAgentReply(from, result.reply, orgId);
   } catch (err) {
     console.error(`[WA Agent] error for ${from}:`, err);
     await sendText(from, '⚠️ Something went wrong. Please try again.', orgId).catch(() => {});

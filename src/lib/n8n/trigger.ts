@@ -1,4 +1,4 @@
-const N8N_BASE = process.env.N8N_BASE_URL ?? '';
+const N8N_BASE   = process.env.N8N_BASE_URL ?? '';
 const N8N_SECRET = process.env.N8N_WEBHOOK_SECRET ?? '';
 
 interface TriggerOptions {
@@ -8,6 +8,9 @@ interface TriggerOptions {
 }
 
 export async function triggerWorkflow({ workflow, payload, orgId }: TriggerOptions): Promise<void> {
+  // Standalone mode: if no n8n base URL is configured, skip silently
+  if (!N8N_BASE) return;
+
   const url = `${N8N_BASE}/webhook/${workflow}`;
 
   const res = await fetch(url, {

@@ -116,39 +116,13 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ incoming: incomingLog, reply: replyLog });
 }
 
-// ── AI agent dispatcher (mirrors webhook route logic) ─────────────────────
+// ── AI agent dispatcher ───────────────────────────────────────────────────
+// Standalone branch: always uses the local Groq agent directly.
 
 async function dispatchAgent(
   from: string, text: string, orgId: string, userId: string
 ): Promise<void> {
-  const n8nUrl = process.env.N8N_WEBHOOK_URL;
-
-  if (n8nUrl) {
-    try {
-      const controller = new AbortController();
-      const timeout    = setTimeout(() => controller.abort(), 9_500);
-
-      const n8nRes = await fetch(n8nUrl, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ from: `+${from}`, message: text, org_id: orgId }),
-        signal:  controller.signal,
-      }).finally(() => clearTimeout(timeout));
-
-      if (!n8nRes.ok) throw new Error(`n8n HTTP ${n8nRes.status}`);
-
-      const json  = await n8nRes.json().catch(() => null);
-      const reply = json?.reply ?? json?.output ?? json?.text ?? json?.message;
-      if (!reply) throw new Error('n8n returned no reply');
-
-      await logSimulatedReply(from, orgId, userId, reply);
-    } catch (err) {
-      console.error('[wa-simulate] n8n error:', err);
-      await runLocalAgent(from, text, orgId, userId);
-    }
-  } else {
-    await runLocalAgent(from, text, orgId, userId);
-  }
+  await runLocalAgent(from, text, orgId, userId);
 }
 
 // Write the bot reply directly to wa_logs without touching the WhatsApp API.

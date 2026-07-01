@@ -9,7 +9,7 @@ export const maxDuration = 60;
 // (Not distributed — only effective within one warm Vercel instance.)
 const inFlight = new Set<string>();
 import { verifyWebhookSignature, verifyWebhookChallenge } from '@/lib/whatsapp/verify';
-import { sendText, sendButtons, sendList, markMessageRead, downloadMediaContent } from '@/lib/whatsapp/client';
+import { sendText, markMessageRead, downloadMediaContent } from '@/lib/whatsapp/client';
 import { createAdminClient }                              from '@/lib/supabase/admin';
 import { runMasterAgent }                                 from '@/lib/ai/agent';
 import type { WAWebhookPayload, WAMessage, WAValue }      from '@/types/whatsapp.types';

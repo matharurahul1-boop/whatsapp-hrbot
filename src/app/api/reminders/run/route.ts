@@ -125,7 +125,7 @@ async function runAttendanceReminders(type: string): Promise<NextResponse> {
         .is('check_out_time', null);
 
       for (const rec of (pendingCheckouts ?? [])) {
-        const emp = rec.employee as { full_name: string; wa_number: string | null } | null;
+        const emp = Array.isArray(rec.employee) ? rec.employee[0] : rec.employee;
         if (!emp?.wa_number) continue;
         await notifyCheckOutReminder({
           orgId:        org.id,
@@ -152,7 +152,7 @@ async function runAttendanceReminders(type: string): Promise<NextResponse> {
         .is('deleted_at', null);
 
       for (const task of (dueTasks ?? [])) {
-        const assignee = task.assignee as { full_name: string; wa_number: string | null } | null;
+        const assignee = Array.isArray(task.assignee) ? task.assignee[0] : task.assignee;
         if (!assignee?.wa_number) continue;
         await notifyTaskDeadlineReminder({
           orgId:        org.id,
@@ -231,7 +231,8 @@ async function runTaskDueDateReminders(): Promise<NextResponse> {
     });
 
     for (const task of inWindow) {
-      const assignee = task.assignee as {
+      const assigneeRecord = Array.isArray(task.assignee) ? task.assignee[0] : task.assignee;
+      const assignee = assigneeRecord as {
         id: string; full_name: string; wa_number: string | null;
         metadata?: { task_reminders?: { enabled?: boolean; channels?: string[] } };
       } | null;

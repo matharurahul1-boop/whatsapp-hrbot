@@ -265,8 +265,9 @@ async function dispatchAgent(from: string, text: string, orgId: string, isAudio 
     try {
       console.log(`[WA Agent] Forwarding to n8n: from=${from}, orgId=${orgId}, isAudio=${isAudio}`);
 
+      // 6s timeout: awake n8n responds in 2-4s; sleeping Render instance = 30-60s
       const controller = new AbortController();
-      const timeout    = setTimeout(() => controller.abort(), 29_000); // 29s — stay under Meta's 30s window
+      const timeout    = setTimeout(() => controller.abort(), 6_000);
 
       const n8nRes = await fetch(n8nUrl, {
         method:  'POST',
@@ -307,16 +308,25 @@ async function dispatchAgent(from: string, text: string, orgId: string, isAudio 
       }
 
     } catch (err: unknown) {
-      const isTimeout = err instanceof Error && err.name === 'AbortError';
-      console.error(`[WA Agent] n8n ${isTimeout ? 'timed out' : 'error'} for ${from}:`, err);
-      // Render Free can sleep after inactivity. Keep WhatsApp functional by
-      // running the same agent locally on Vercel while n8n wakes up.
+      const isSleep = err instanceof Error && (err.name === 'AbortError' || err.message.startsWith('fetch'));
+      console.warn(`[WA Agent] n8n ${isSleep ? 'sleeping/timeout' : 'error'} for ${from} — local fallback`, isSleep ? '' : err);
+
+      // Non-blocking wake ping: kicks Render out of sleep for the NEXT message
+      if (isSleep) {
+        fetch(n8nUrl, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ from: '_wake_', message: 'ping', org_id: orgId }),
+        }).catch(() => {});
+      }
+
+      // Local Groq agent — warm on Vercel, responds in ~1-2s
       try {
-        console.log(`[WA Agent] Falling back to local agent for ${from}`);
+        console.log(`[WA Agent] local fallback for ${from}`);
         const result = await runMasterAgent(text, from, orgId);
         await sendText(from, result.reply, orgId);
       } catch (fallbackErr) {
-        console.error(`[WA Agent] Local fallback failed for ${from}:`, fallbackErr);
+        console.error(`[WA Agent] local fallback failed for ${from}:`, fallbackErr);
         await sendText(from, '⚠️ Something went wrong. Please try again.', orgId).catch(() => {});
       }
     }

@@ -343,8 +343,13 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const today = todayISO();
     const isPrivileged = ['manager', 'hr', 'admin', 'super_admin'].includes(user_role);
 
+    // Normalize self-referential assignee_name words that Groq sometimes passes
+    // e.g. "list of mine tasks" → Groq calls list_tasks(assignee_name="mine")
+    const SELF_NAME_RE = /^(mine|my|me|own|self)$/i;
+    const isSelfQuery = !!slots.assignee_name && SELF_NAME_RE.test(slots.assignee_name.trim());
+
     // Employees cannot list another person's tasks
-    if (!isPrivileged && slots.assignee_name) {
+    if (!isPrivileged && slots.assignee_name && !isSelfQuery) {
       return {
         success: false,
         reply: lang === 'hi'
@@ -362,8 +367,9 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       .order('deadline', { ascending: true, nullsFirst: false })
       .limit(10);
 
-    if (!isPrivileged) {
-      // Employees always see only their own tasks
+    if (!isPrivileged || isSelfQuery) {
+      // Employees always see only their own tasks.
+      // Privileged users using self-referential words ("mine", "my", "me") also get own tasks.
       query = query.eq('assignee_id', user_id);
     } else if (slots.assignee_name) {
       // Manager/admin filtering by a specific person
@@ -408,7 +414,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const { data: tasks } = await query;
 
     if (!tasks?.length) {
-      const noTasksName = slots.assignee_name && isPrivileged ? slots.assignee_name : null;
+      const noTasksName = slots.assignee_name && isPrivileged && !isSelfQuery ? slots.assignee_name : null;
       return {
         success: true,
         reply: noTasksName
@@ -437,7 +443,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     };
 
     const lines: string[] = [];
-    const headerName = slots.assignee_name && isPrivileged
+    const headerName = slots.assignee_name && isPrivileged && !isSelfQuery
       ? (tasks as any[])[0]?.assignee?.full_name ?? slots.assignee_name
       : null;
     const header = headerName

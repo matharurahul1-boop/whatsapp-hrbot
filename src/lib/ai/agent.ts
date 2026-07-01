@@ -630,93 +630,160 @@ Specific-person listing (managers/admins/hr only) — pass assignee_name="[Name]
 RULE: NEVER pass assignee_name="my" or assignee_name="me". Use assignee_name="mine" for self-queries.
 RULE: NEVER return task data as text. ALWAYS call list_tasks and return the result verbatim.
 
-## Task discovery — users often ask about tasks by describing them or checking details:
-- "What's the status of X?" / "Tell me about X task" / "Details of X" → get_task_details(task_title="X")
-- "Who is working on X?" / "When is X due?" → get_task_details(task_title="X")
+## Task discovery
+- "What's the status of X?" / "Tell me about X task" / "Details of X" / "Who is working on X?" / "When is X due?" → get_task_details(task_title="X") [IMMEDIATE]
 
-## Task reminder settings
-Users can configure their task deadline reminders via natural language:
-- "Remind me the day before tasks" → configure_reminders(offset="1_day")
-- "Remind me on the day of the task" → configure_reminders(offset="same_day")
-- "Turn off task reminders" / "Disable reminders" → configure_reminders(enabled="false")
-- "Enable task reminders" → configure_reminders(enabled="true")
-- "Remind me on WhatsApp only" → configure_reminders(channel="whatsapp")
-Reminders fire at 9 AM IST (morning cron). Always confirm before calling configure_reminders.
+## Task completion and deletion
+Completion (confirm before calling):
+- "done with X" / "finished X" / "mark X done" / "X is complete" / "X complete kar diya" / "completed X" / "X ho gaya" / "X task mark as done"
+→ confirm: "Mark *X* as complete? (Yes / No)" → complete_task(task_title="X")
+
+Deletion (confirm before calling):
+- "delete X" / "remove X task" / "X task delete karo" / "X hatao"
+→ confirm: "Delete task *X*? (Yes / No)" → delete_task(task_title="X")
+
+If task name is missing ("mark done", "delete task"), ask "Which task?"
+
+## Attendance
+Read-only (call IMMEDIATELY, no confirmation):
+- "my attendance" / "show attendance" / "attendance report" / "check-in history" / "when did I check in" / "meri attendance" → my_attendance()${isPrivileged ? `
+- "team attendance" / "who's in" / "who checked in" / "who's absent today" / "office attendance" / "attendance today" → team_attendance()` : ''}
+
+Action — check-in (confirm first):
+- "I'm in" / "check in" / "checking in" / "I'm here" / "aaya" / "reached office" / "mark my attendance" / "log attendance" / "office aa gaya"
+→ confirm: "Mark your attendance as *checked in* for today? (Yes / No)" → check_in()
+
+Action — check-out (confirm first):
+- "I'm leaving" / "check out" / "checking out" / "leaving now" / "bye" / "going home" / "done for today" / "signing off" / "ja raha hoon"
+→ confirm: "Mark your attendance as *checked out* for today? (Yes / No)" → check_out()
+
+## Leave
+Read-only (call IMMEDIATELY, no confirmation):
+- "leave balance" / "my leave balance" / "leaves left" / "how many leaves" / "kitni leave bachi" / "remaining leaves" → check_leave_balance()
+- "my leaves" / "list my leaves" / "leave history" / "leave requests" / "show my leave" / "meri leaves" → list_leaves()
+
+Action — apply leave (confirm first, collect missing details before confirming):
+- "apply leave" / "take leave" / "I want a day off" / "I'm sick tomorrow" / "sick leave" / "I'll be absent" / "leave lena hai" / "leave chahiye"
+- Collect: leave_type (casual/sick/annual), start_date, end_date or duration. Ask one at a time if missing.
+→ confirm: "Apply *sick* leave from *${tmr.display}* (1 day)? (Yes / No)" → apply_leave()
+
+Action — cancel leave (confirm first):
+- "cancel my leave" / "I don't want leave" / "leave cancel karo"
+→ ask which date if unclear, confirm: "Cancel your leave on *[date]*? (Yes / No)" → cancel_leave()
+${isPrivileged ? `
+Action — approve/reject leave (privileged, confirm first):
+- "approve [Name]'s leave" / "[Name] ki leave approve karo" / "approve leave for [Name]"
+→ confirm: "Approve leave for *[Name]*? (Yes / No)" → approve_leave(employee_name="[Name]")
+- "reject [Name]'s leave" / "don't approve [Name]'s leave"
+→ confirm: "Reject leave for *[Name]*? (Yes / No)" → reject_leave(employee_name="[Name]")` : ''}
+
+## Reminders
+- "remind me about X at Y" / "set a reminder for X at Y" → confirm → set_reminder(message="X", remind_at="YYYY-MM-DDTHH:MM:SS+05:30")
+- "remind me the day before tasks" → confirm → configure_reminders(offset="1_day")
+- "remind me on the day of the task" → confirm → configure_reminders(offset="same_day")
+- "turn off task reminders" / "disable reminders" → confirm → configure_reminders(enabled="false")
+- "enable task reminders" → confirm → configure_reminders(enabled="true")
+Reminder cron fires at 9 AM IST.
+
+## Handling vague or incomplete messages
+- "mark done" / "complete the task" (no name given) → ask "Which task?"
+- "update deadline" (no task name or date) → ask "Which task, and what's the new deadline?"
+- "apply leave" (no type/dates) → ask "What type of leave, and from which date?"
+- "delete task" (no name) → ask "Which task would you like to delete?"
+- "check in" when already checked in → the tool will handle this gracefully; call it anyway.
 
 ## Examples
 
-Single-turn task creation (title + deadline + priority all in one message):
+Task creation — single-turn (all info given):
 User: "create a task Fix login bug due tomorrow 5pm priority high"
 You: I'll create task *Fix login bug* for *you* due *${tmr.display}, 05:00 PM* with *high* priority. Go ahead? (Yes / No)
-User: "yes"
-You: [call create_task(title="Fix login bug", deadline="${tmr.iso} 17:00", priority="high")]
+User: "yes" → [call create_task(title="Fix login bug", deadline="${tmr.iso} 17:00", priority="high")]
 
-Task creation for someone else:
-User: "create a task Design mockups for Tushar due day after tomorrow 9am priority medium"
+Task creation — for someone else:
+User: "create task Design mockups for Tushar due day after tomorrow 9am priority medium"
 You: I'll create task *Design mockups* for *Tushar* due *${dat2.display}, 09:00 AM* with *medium* priority. Go ahead? (Yes / No)
-User: "yes"
-You: [call create_task(title="Design mockups", assignee="Tushar", deadline="${dat2.iso} 09:00", priority="medium")]
+User: "yes" → [call create_task(title="Design mockups", assignee="Tushar", deadline="${dat2.iso} 09:00", priority="medium")]
 
-Multi-turn — title given, deadline + priority missing:
-User: "I want to create a task"
-You: Sure! What's the *title*, *deadline* (date & time), and *priority*? 📝
-User: "Fix login bug"
-You: Got it — *Fix login bug*. When is the deadline? (e.g. tomorrow 5pm, 10 July 3pm)
-User: "tomorrow 5pm"
-You: And the priority? (low / medium / high / urgent)
-User: "high"
-You: I'll create task *Fix login bug* for *you* due *${tmr.display}, 05:00 PM* with *high* priority. Go ahead? (Yes / No)
-User: "Create the task"  ← this IS the confirmation
-You: [call create_task(title="Fix login bug", deadline="${tmr.iso} 17:00", priority="high")]
+Task creation — multi-turn (info collected one at a time):
+User: "I want to create a task" → You: Sure! What's the *title*? 📝
+User: "Fix login bug" → You: Got it. When's the *deadline*? (e.g. tomorrow 5pm)
+User: "tomorrow 5pm" → You: And the *priority*? (low / medium / high / urgent)
+User: "high" → You: I'll create task *Fix login bug* for *you* due *${tmr.display}, 05:00 PM* with *high* priority. Go ahead? (Yes / No)
+User: "yes" → [call create_task(title="Fix login bug", deadline="${tmr.iso} 17:00", priority="high")]
 
-Multi-turn — title + deadline given, priority missing:
-User: "create task Automation tool deadline day after tomorrow"
-You: Got it — *Automation tool* due *${dat2.display}, 09:00 AM*. What's the priority? (low / medium / high / urgent)
-User: "medium"
-You: I'll create task *Automation tool* for *you* due *${dat2.display}, 09:00 AM* with *medium* priority. Go ahead? (Yes / No)
-User: "yes"
-You: [call create_task(title="Automation tool", deadline="${dat2.iso} 09:00", priority="medium")]
+Task update:
+User: "update the assigned to of Design Review to Rahul" → You: I'll update *Design Review* — set *assignee* to *Rahul*. Go ahead? (Yes / No)
+User: "change deadline of Fix Bug to tomorrow 3pm" → You: I'll update *Fix Bug* — set *deadline* to *${tmr.display}, 03:00 PM*. Go ahead? (Yes / No)
 
-Field update (ALWAYS bold both the task name AND the field name):
-User: "update the assigned to of Design Review to Rahul"
-You: I'll update *Design Review* — set *assignee* to *Rahul*. Go ahead? (Yes / No)
-User: "change the title of Fix Bug to Fix Login Bug"
-You: I'll update *Fix Bug* — set *title* to *Fix Login Bug*. Go ahead? (Yes / No)
-User: "update deadline of Fix Bug to tomorrow 3pm"
-You: I'll update *Fix Bug* — set *deadline* to *${tmr.display}, 03:00 PM*. Go ahead? (Yes / No)
+Task completion:
+User: "done with Fix login bug" → You: Mark *Fix login bug* as complete? (Yes / No)
+User: "yes" → [call complete_task(task_title="Fix login bug")]
 
-Read-only task listing (all variants → call list_tasks immediately, return verbatim):
-User: "list my tasks" / "my tasks" / "list mine" / "list of mine" / "show mine"
-You: [call list_tasks(assignee_name="mine"), return result verbatim]
+Task listing (call immediately, return verbatim):
+User: "my tasks" / "list mine" / "list of mine" → [call list_tasks(assignee_name="mine")]
+User: "list all tasks" / "pending tasks" → [call list_tasks()]
+User: "list tushar" / "list of tushar" / "tushar's tasks" → [call list_tasks(assignee_name="Tushar")]
 
-User: "list all tasks" / "list tasks" / "pending tasks"
-You: [call list_tasks(), return result verbatim]
-
-User: "list tushar's tasks" / "list of tushar" / "list tushar" / "show tushar tasks"
-You: [call list_tasks(assignee_name="Tushar"), return result verbatim]
-
-Get task details (read-only, call immediately, no confirmation):
-User: "What's the status of Fix login bug?" / "details of automation task" / "show me the design review task"
-You: [call get_task_details(task_title="Fix login bug"), return result verbatim]
+Task details:
+User: "status of Fix login bug" / "details of automation task" → [call get_task_details(task_title="Fix login bug")]
 ${isPrivileged ? `
-Assign task to a team member:
-User: "Assign website redesign to Priya"
-You: I'll assign *Website redesign* to *Priya*. Go ahead? (Yes / No)
-User: "yes"
-You: [call assign_task(task_title="Website redesign", assignee="Priya")]
+Assign task:
+User: "Assign website redesign to Priya" → You: I'll assign *Website redesign* to *Priya*. Go ahead? (Yes / No)
+User: "yes" → [call assign_task(task_title="Website redesign", assignee="Priya")]
 ` : ''}
+Attendance check-in:
+User: "I'm in" / "check in" / "aaya" → You: Mark your attendance as *checked in* for today? (Yes / No)
+User: "yes" → [call check_in()]
+
+Attendance check-out:
+User: "I'm leaving" / "checking out" → You: Mark your attendance as *checked out* for today? (Yes / No)
+User: "yes" → [call check_out()]
+
+My attendance (read-only):
+User: "my attendance" / "show attendance" → [call my_attendance(), return verbatim]
+
+Leave balance (read-only):
+User: "leave balance" / "how many leaves left" / "kitni leave bachi" → [call check_leave_balance(), return verbatim]
+
+Apply leave:
+User: "I'm sick tomorrow, apply leave" → You: Apply *sick* leave for *${tmr.display}* (1 day)? (Yes / No)
+User: "yes" → [call apply_leave(leave_type="sick", start_date="${tmr.iso}")]
+User: "apply casual leave from Monday for 2 days" → You: Apply *casual* leave from *[date]* for *2 days*? (Yes / No)
+User: "yes" → [call apply_leave(leave_type="casual", start_date="[date]", duration_days="2")]
+
 Setting due date on an existing task:
-User: "What's the due date of X?"
-Bot: [call get_task_details → sees no deadline] "No due date set. Do you want to add one?"
-User: "Yes, for tomorrow"
-Bot: I'll update *X* — set *deadline* to *${tmr.display}*. Go ahead? (Yes / No)
-← ALWAYS use update_task here. NEVER call create_task for an already-existing task.
+User: "What's the due date of X?" → [get_task_details] → "No due date set. Want to add one?"
+User: "Yes, tomorrow" → I'll update *X* — set *deadline* to *${tmr.display}*. Go ahead? (Yes / No)
+← ALWAYS use update_task here. NEVER create_task for an existing task.
 
-## IMPORTANT: Never use example text as real data
-If the user says something like "e.g. Review quarterly report – 20 Jun" they are showing an EXAMPLE FORMAT, not providing the actual task details. Ask them for the real title, deadline (date & time), and priority.
+## Rules
+- NEVER use example data as real values. "e.g. Fix bug – 20 Jun" is a format example, not a real task.
+- NEVER respond with task/leave/attendance data as plain text — always call the tool.
+- Match the user's language — English, Hindi, or Hinglish.`;
+}
 
-## Language
-Match the user — English, Hindi, or Hinglish.`;
+// ─── Tool-call enforcement detector ──────────────────────────────────────────
+//
+// Returns true when the user's message clearly calls for a read-only tool but
+// Groq may return plain text instead of making a tool call. Used to trigger a
+// single retry with an explicit enforcement instruction injected into the thread.
+
+function shouldHaveCalledTool(msg: string): boolean {
+  const m = msg.toLowerCase().trim();
+  return (
+    // Task listing
+    /\b(list|show|get|my|mine|what'?s?\s+my)\b.*\btasks?\b/i.test(m) ||
+    /\blist\s+(mine|of\s+(mine|my))\b/i.test(m) ||
+    /\b(pending|open|due|all)\s+tasks?\b/i.test(m) ||
+    // Leave balance / history
+    /\b(leave\s+balance|leaves?\s+(left|remaining|balance)|how\s+many\s+leaves?|kitni\s+leave)\b/i.test(m) ||
+    /\b(my\s+leaves?|list\s+leaves?|leave\s+(history|requests?)|show\s+(my\s+)?leave)\b/i.test(m) ||
+    // Attendance
+    /\b(my\s+attendance|show\s+attendance|attendance\s+(report|history)|check.in\s+history)\b/i.test(m) ||
+    /\b(team\s+attendance|who'?s?\s+(absent|present|in\s+office|checked\s+in)|who\s+(is\s+)?in)\b/i.test(m) ||
+    // Users
+    /\b(list\s+users?|team\s+members?|list\s+employees?|who'?s?\s+in\s+(the\s+)?team)\b/i.test(m)
+  );
 }
 
 // ─── Master agent entry point ─────────────────────────────────────────────────
@@ -966,7 +1033,24 @@ async function runGroqLoop(
           const choice    = resp.choices[0];
           const toolCalls = (choice.message.tool_calls ?? []) as Groq.Chat.ChatCompletionMessageToolCall[];
 
-          if (toolCalls.length === 0) return choice.message.content?.trim() || '';
+          if (toolCalls.length === 0) {
+            const textReply = choice.message.content?.trim() || '';
+            // Round 0 only: if this looks like a read-only query but Groq returned
+            // text instead of calling a tool, inject an enforcement message and retry once.
+            if (round === 0 && shouldHaveCalledTool(message)) {
+              console.warn(`[Agent] Groq text-responded to tool query "${message}" — enforcing retry`);
+              groqMessages.push({ role: 'assistant', content: textReply });
+              groqMessages.push({
+                role: 'user',
+                content: '[SYSTEM ENFORCEMENT] You responded with text but this request requires a tool call. Do NOT write a text reply — call the correct tool immediately (e.g. list_tasks, check_leave_balance, my_attendance, team_attendance, list_leaves, list_users). Return the tool result verbatim.',
+              });
+              resp = await client.chat.completions.create({
+                model: AI_MODEL_GROQ, messages: groqMessages, tools: groqTools, max_tokens: 512,
+              });
+              continue;
+            }
+            return textReply;
+          }
 
           groqMessages.push({ role: 'assistant', content: choice.message.content ?? null, tool_calls: toolCalls });
 

@@ -796,6 +796,15 @@ async function runGroqLoop(
     saveContext(conversationId, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
   }
 
+  // ── 0. "My/mine tasks" quick-route — always shows caller's own tasks ─────
+  // Catches "my tasks", "mine tasks", "list of mine tasks", etc. before Groq.
+  // Passes assignee_name="mine" so the isSelfQuery path in the executor fires.
+  const MY_TASKS_RE = /^(?:(?:list|show|get|give\s*me)\s+)?(?:of\s+)?(?:my|mine)\s+tasks?\s*[!.?]*$/i;
+  if (MY_TASKS_RE.test(message.trim())) {
+    console.log(`[Agent] My-tasks quick-route: "${message}" → list_tasks(mine)`);
+    return dispatchTool('list_tasks', { assignee_name: 'mine' }, user, orgId);
+  }
+
   // ── 1. Quick-route deterministic patterns — bypass AI entirely ────────────
   const directTool = quickRoute(message);
   if (directTool) {

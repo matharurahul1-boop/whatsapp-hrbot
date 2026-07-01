@@ -45,6 +45,8 @@ export type AgentIntent =
   | 'UPLOAD_DOCUMENT'
   // Users
   | 'LIST_USERS'
+  // Settings
+  | 'CONFIGURE_REMINDERS'
   // General
   | 'GREETING'
   | 'HELP'

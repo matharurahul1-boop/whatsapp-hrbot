@@ -92,8 +92,6 @@ export default function SettingsPage() {
 
   // Task reminder preferences
   const [remindersEnabled,  setRemindersEnabled]  = useState(true);
-  const [reminderOffset,    setReminderOffset]    = useState<'1_day' | 'same_day'>('1_day');
-  const [reminderChannels,  setReminderChannels]  = useState<string[]>(['whatsapp', 'in_app']);
   const [savingReminders,   setSavingReminders]   = useState(false);
   const [remindersSaved,    setRemindersSaved]    = useState(false);
 
@@ -130,8 +128,6 @@ export default function SettingsPage() {
       const prefs = (profile as any).metadata?.task_reminders;
       if (prefs) {
         setRemindersEnabled(prefs.enabled ?? true);
-        setReminderOffset(prefs.offset ?? '1_day');
-        setReminderChannels(prefs.channels ?? ['whatsapp', 'in_app']);
       }
     }
 
@@ -226,7 +222,7 @@ export default function SettingsPage() {
       const { data: current } = await supabase.from('users').select('metadata').eq('id', userId).single();
       const merged = {
         ...((current as any)?.metadata ?? {}),
-        task_reminders: { enabled: remindersEnabled, offset: reminderOffset, channels: reminderChannels },
+        task_reminders: { enabled: remindersEnabled },
       };
       await supabase.from('users').update({ metadata: merged }).eq('id', userId);
       setRemindersSaved(true);
@@ -547,62 +543,9 @@ export default function SettingsPage() {
           </div>
 
           {remindersEnabled && (
-            <div className="space-y-4">
-              {/* Timing offset */}
-              <div>
-                <p className="text-xs font-medium text-surface-700 mb-2">When to remind me</p>
-                <div className="flex gap-2">
-                  {([
-                    { value: '1_day'   as const, label: '📅 Day before (9 AM)' },
-                    { value: 'same_day' as const, label: '⏰ Day of task (9 AM)' },
-                  ]).map(opt => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => setReminderOffset(opt.value)}
-                      className={cn(
-                        'px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors',
-                        reminderOffset === opt.value
-                          ? 'border-brand-500 bg-brand-500/10 text-brand-500'
-                          : 'border-surface-300 text-surface-600 hover:bg-surface-200'
-                      )}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Channel */}
-              <div>
-                <p className="text-xs font-medium text-surface-700 mb-2">How to notify me</p>
-                <div className="flex gap-2">
-                  {([
-                    { value: 'whatsapp', label: '📱 WhatsApp' },
-                    { value: 'in_app',   label: '🔔 In-app bell' },
-                  ] as const).map(opt => {
-                    const active = reminderChannels.includes(opt.value);
-                    return (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        onClick={() => setReminderChannels(prev =>
-                          active ? prev.filter(v => v !== opt.value) : [...prev, opt.value]
-                        )}
-                        className={cn(
-                          'px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors',
-                          active
-                            ? 'border-brand-500 bg-brand-500/10 text-brand-500'
-                            : 'border-surface-300 text-surface-600 hover:bg-surface-200'
-                        )}
-                      >
-                        {opt.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
+            <p className="text-xs text-surface-500 bg-surface-200/60 rounded-lg px-3 py-2.5">
+              Reminders fire via <strong className="text-surface-700">WhatsApp + in-app bell</strong>. Timing (1 hr, 2 hrs, 4 hrs, 1 day, 2 days before) is set per task when you create or edit a task.
+            </p>
           )}
 
           <button

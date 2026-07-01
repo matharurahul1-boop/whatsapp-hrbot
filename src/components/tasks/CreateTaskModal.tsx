@@ -12,10 +12,11 @@ import { Plus } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 
 const REMINDER_OPTS = [
-  { value: '1_hour',  label: '1 h before'  },
-  { value: '2_hours', label: '2 h before'  },
-  { value: '4_hours', label: '4 h before'  },
-  { value: '1_day',   label: '1 day before' },
+  { value: '1_hour',  label: '1 hr before'   },
+  { value: '2_hours', label: '2 hrs before'  },
+  { value: '4_hours', label: '4 hrs before'  },
+  { value: '1_day',   label: '1 day / 24 hrs' },
+  { value: '2_days',  label: '2 days / 48 hrs' },
 ] as const;
 
 interface Employee {
@@ -199,7 +200,7 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
                 </div>
                 {form.reminders.length > 0 && (
                   <p className="text-[11px] text-surface-400 mt-1.5">
-                    Sent via your channel preference in Settings → Notifications
+                    Sends WhatsApp message + in-app bell at the selected time(s)
                   </p>
                 )}
               </div>}

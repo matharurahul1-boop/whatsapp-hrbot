@@ -252,30 +252,32 @@ function parseConfirmationMessage(lastMsg: string): ConfirmationParsed | null {
     return { tool: 'create_task', args };
   }
 
-  // CHECK_IN
-  if (lower.includes('check-in') || lower.includes('check in') || lower.includes('mark your attendance')) {
+  // CHECK_IN — matches "check-in", "check in", "checked in", "mark your attendance as checked in"
+  if (/check[- ]?in\b|checked[\s-]+in|mark\s+your\s+attendance\s+as\s+checked[\s-]+in/i.test(lastMsg) &&
+      !/check[- ]?out|checked[\s-]+out/i.test(lastMsg)) {
     return { tool: 'check_in', args: {} };
   }
 
-  // CHECK_OUT
-  if (lower.includes('check-out') || lower.includes('check out') || lower.includes('mark your check-out')) {
+  // CHECK_OUT — matches "check-out", "check out", "checked out", "mark your attendance as checked out"
+  if (/check[- ]?out\b|checked[\s-]+out|mark\s+your\s+attendance\s+as\s+checked[\s-]+out/i.test(lastMsg)) {
     return { tool: 'check_out', args: {} };
   }
 
-  // COMPLETE_TASK: "I'll mark *Title* as complete"
-  const completeM = lastMsg.match(/mark\s+\*([^*]+)\*\s+as\s+complet/i);
+  // COMPLETE_TASK — "mark *Title* as complete/done" OR "Mark *Title* complete"
+  const completeM = lastMsg.match(/mark\s+\*([^*]+)\*\s+(?:as\s+)?(?:complet\w*|done)/i)
+    ?? lastMsg.match(/\*([^*]+)\*\s+(?:as\s+)?(?:complet\w*|done)/i);
   if (completeM) return { tool: 'complete_task', args: { task_title: completeM[1].trim() } };
 
-  // DELETE_TASK: "I'll delete task *Title*"
-  const deleteM = lastMsg.match(/delete\s+task\s+\*([^*]+)\*/i);
+  // DELETE_TASK — "delete task *Title*" OR "delete *Title*"
+  const deleteM = lastMsg.match(/delete\s+(?:task\s+)?\*([^*]+)\*/i);
   if (deleteM) return { tool: 'delete_task', args: { task_title: deleteM[1].trim() } };
 
-  // ASSIGN_TASK: "I'll assign *Task Name* to *Person Name*"
+  // ASSIGN_TASK — "assign *Task* to *Person*"
   const assignM = lastMsg.match(/assign\s+\*([^*]+)\*\s+to\s+\*([^*]+)\*/i);
   if (assignM) return { tool: 'assign_task', args: { task_title: assignM[1].trim(), assignee: assignM[2].trim() } };
 
-  // UPDATE_TASK: "I'll update *Title* — set *field* to *value*"
-  const updateM = lastMsg.match(/update\s+\*([^*]+)\*[\s—–-]+set\s+(?:\*([^*]+)\*|(?:its\s+)?(\w+))\s+to\s+\*([^*]+)\*/i);
+  // UPDATE_TASK — "update *Title* — set *field* to *value*" (em-dash, en-dash, or plain dash)
+  const updateM = lastMsg.match(/update\s+\*([^*]+)\*[\s—–\-]+set\s+(?:\*([^*]+)\*|(?:its\s+)?(\w+))\s+to\s+\*([^*]+)\*/i);
   if (updateM) {
     return { tool: 'update_task', args: {
       task_title:   updateM[1].trim(),
@@ -284,26 +286,46 @@ function parseConfirmationMessage(lastMsg: string): ConfirmationParsed | null {
     }};
   }
 
-  // APPLY_LEAVE: "I'll apply *type* leave from *date*"
-  const leaveM = lastMsg.match(/apply\s+\*(casual|sick|annual|maternity)\*\s+leave/i);
+  // APPLY_LEAVE — "apply *type* leave" OR "Apply for *type* leave" (bold or plain type)
+  const leaveM = lastMsg.match(/apply\s+(?:for\s+)?\*?(casual|sick|annual|maternity)\*?\s+leave/i);
   if (leaveM) {
-    const startM = lastMsg.match(/from\s+\*([^*]+)\*/i);
+    const startM = lastMsg.match(/from\s+\*([^*]+)\*/i) ?? lastMsg.match(/\bfrom\s+([\w\s,]+?)(?:\s+(?:to|for|\()|$)/i);
     const endM   = lastMsg.match(/to\s+\*([^*]+)\*/i);
+    const durM   = lastMsg.match(/for\s+\*?(\d+)\*?\s+days?/i);
     if (startM) {
       const args: Record<string, string> = {
         leave_type: leaveM[1].toLowerCase(),
-        start_date: naturalDateToISO(startM[1]) ?? startM[1],
+        start_date: naturalDateToISO(startM[1].trim()) ?? startM[1].trim(),
       };
-      if (endM) args.end_date = naturalDateToISO(endM[1]) ?? endM[1];
+      if (endM)  args.end_date      = naturalDateToISO(endM[1].trim()) ?? endM[1].trim();
+      if (durM)  args.duration_days = durM[1];
       return { tool: 'apply_leave', args };
     }
   }
 
-  // APPROVE / REJECT LEAVE
-  const approveM = lastMsg.match(/approve\s+\*([^*]+)\*['']?s?\s+leave/i);
+  // APPROVE LEAVE — "approve *Name*'s leave" OR "approve leave for *Name*"
+  const approveM = lastMsg.match(/approve\s+(?:leave\s+for\s+)?\*([^*]+)\*['']?s?\s*(?:leave)?/i)
+    ?? lastMsg.match(/approve\s+\*([^*]+)\*['']?s?\s+leave/i);
   if (approveM) return { tool: 'approve_leave', args: { employee_name: approveM[1].trim() } };
-  const rejectM  = lastMsg.match(/reject\s+\*([^*]+)\*['']?s?\s+leave/i);
-  if (rejectM)  return { tool: 'reject_leave',  args: { employee_name: rejectM[1].trim()  } };
+
+  // REJECT LEAVE — "reject *Name*'s leave" OR "reject leave for *Name*"
+  const rejectM = lastMsg.match(/reject\s+(?:leave\s+for\s+)?\*([^*]+)\*['']?s?\s*(?:leave)?/i)
+    ?? lastMsg.match(/reject\s+\*([^*]+)\*['']?s?\s+leave/i);
+  if (rejectM) return { tool: 'reject_leave', args: { employee_name: rejectM[1].trim() } };
+
+  // CANCEL LEAVE
+  const cancelLeaveM = lastMsg.match(/cancel\s+(?:your\s+)?leave\s+(?:on|from|for|starting)?\s*\*([^*]+)\*/i);
+  if (cancelLeaveM) {
+    const iso = naturalDateToISO(cancelLeaveM[1].trim());
+    return { tool: 'cancel_leave', args: { start_date: iso ?? cancelLeaveM[1].trim() } };
+  }
+
+  // SET_REMINDER — "set a reminder for *message* at *time*"
+  const reminderMsgM  = lastMsg.match(/reminder[^*]*\*([^*]+)\*/i);
+  const reminderTimeM = lastMsg.match(/(?:at|on)\s+\*([^*]+)\*/i);
+  if (reminderMsgM && reminderTimeM) {
+    return { tool: 'set_reminder', args: { message: reminderMsgM[1].trim(), remind_at: reminderTimeM[1].trim() } };
+  }
 
   return null;
 }
@@ -762,6 +784,20 @@ User: "Yes, tomorrow" → I'll update *X* — set *deadline* to *${tmr.display}*
 - Match the user's language — English, Hindi, or Hinglish.`;
 }
 
+// ─── Groq filler stripper ─────────────────────────────────────────────────────
+//
+// Groq sometimes appends "What else can I help with? 😊" after returning a tool
+// result verbatim, violating the "Tool output rule". Strip these trailing phrases
+// only when there is substantive content before them (>20 chars), so standalone
+// filler responses (e.g. after cancellation) are left intact.
+
+const GROQ_FILLER_RE = /\s*\n+(?:what else (?:can|would) (?:i|you) (?:help|do|like to)|is there anything else i can|anything else (?:you.d like|i can help)|let me know if you need|feel free to (?:ask|reach out))[^\n]*/gi;
+
+function stripGroqFiller(text: string): string {
+  const stripped = text.replace(GROQ_FILLER_RE, '').trim();
+  return stripped.length > 20 ? stripped : text;
+}
+
 // ─── Tool-call enforcement detector ──────────────────────────────────────────
 //
 // Returns true when the user's message clearly calls for a read-only tool but
@@ -1034,7 +1070,7 @@ async function runGroqLoop(
           const toolCalls = (choice.message.tool_calls ?? []) as Groq.Chat.ChatCompletionMessageToolCall[];
 
           if (toolCalls.length === 0) {
-            const textReply = choice.message.content?.trim() || '';
+            const textReply = stripGroqFiller(choice.message.content?.trim() || '');
             // Round 0 only: if this looks like a read-only query but Groq returned
             // text instead of calling a tool, inject an enforcement message and retry once.
             if (round === 0 && shouldHaveCalledTool(message)) {

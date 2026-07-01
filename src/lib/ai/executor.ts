@@ -230,7 +230,9 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     let assignedTo   = user_id;
     let assigneeName = user_name ?? (lang === 'hi' ? 'आप' : 'You');
 
-    if (slots.assignee && slots.assignee.toLowerCase() !== 'me') {
+    // Treat any self-referential word as "assign to self" (Groq may pass "me", "myself", "you", "mine" etc.)
+    const ASSIGNEE_SELF_RE = /^(me|myself|mine|my|i|you|yourself|self|own)$/i;
+    if (slots.assignee && !ASSIGNEE_SELF_RE.test(slots.assignee.trim())) {
       // RBAC: employees can only create tasks for themselves via bot
       if (user_role === 'employee') {
         return {
@@ -343,9 +345,9 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const today = todayISO();
     const isPrivileged = ['manager', 'hr', 'admin', 'super_admin'].includes(user_role);
 
-    // Normalize self-referential assignee_name words that Groq sometimes passes
-    // e.g. "list of mine tasks" → Groq calls list_tasks(assignee_name="mine")
-    const SELF_NAME_RE = /^(mine|my|me|own|self)$/i;
+    // Normalize self-referential assignee_name words that Groq sometimes passes.
+    // Covers: mine/my/me/myself/i/own/self/your (all mean "show the caller's own tasks")
+    const SELF_NAME_RE = /^(mine|my|me|myself|i|own|self|your)$/i;
     const isSelfQuery = !!slots.assignee_name && SELF_NAME_RE.test(slots.assignee_name.trim());
 
     // Employees cannot list another person's tasks

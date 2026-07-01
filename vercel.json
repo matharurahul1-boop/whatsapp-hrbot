@@ -12,20 +12,12 @@
   },
   "crons": [
     {
-      "path": "/api/reminders/run?type=checkin",
+      "path": "/api/reminders/run?type=morning",
       "schedule": "30 3 * * *"
     },
     {
-      "path": "/api/reminders/run?type=deadline",
-      "schedule": "30 3 * * *"
-    },
-    {
-      "path": "/api/reminders/run?type=checkout",
+      "path": "/api/reminders/run?type=evening",
       "schedule": "30 12 * * *"
-    },
-    {
-      "path": "/api/reminders/run",
-      "schedule": "0 3 * * *"
     }
   ]
 }

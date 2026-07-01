@@ -268,6 +268,21 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       };
     }
 
+    // Read assignee's reminder preference to auto-set reminders on the task.
+    // Default: '1_day' (morning-before reminder). User can override via bot.
+    let taskReminders = ['1_day'];
+    try {
+      const { data: assigneeUser } = await db
+        .from('users').select('metadata').eq('id', assignedTo).single();
+      const prefs = (assigneeUser?.metadata as Record<string, unknown> | null)?.task_reminders as
+        { enabled?: boolean; offset?: string } | undefined ?? {};
+      if (prefs.enabled === false) {
+        taskReminders = [];
+      } else if (prefs.offset) {
+        taskReminders = [prefs.offset];
+      }
+    } catch { /* keep default */ }
+
     const { data: task, error } = await db
       .from('tasks')
       .insert({
@@ -279,6 +294,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
         priority:        taskPriority,
         status:          'todo',
         source:          'whatsapp',
+        reminders:       taskReminders,
       })
       .select()
       .single();
@@ -1384,6 +1400,52 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
         user_id: userId,
         message: NOTIFICATIONS.onboardingWelcome(empName, 'your company'),
       }],
+    };
+  },
+
+  // ── REMINDER PREFERENCES ────────────────────────────────────────────────────
+
+  async CONFIGURE_REMINDERS({ slots, user_id }): Promise<ToolResult> {
+    const db   = createAdminClient();
+    const lang = (slots._lang as 'en' | 'hi') ?? 'en';
+
+    const { data: userRow } = await db
+      .from('users').select('metadata').eq('id', user_id).single();
+
+    const existingMeta  = (userRow?.metadata as Record<string, unknown>) ?? {};
+    const existingPrefs = (existingMeta.task_reminders as Record<string, unknown>) ?? {};
+    const updates: Record<string, unknown> = { ...existingPrefs };
+
+    if (slots.enabled !== null && slots.enabled !== undefined) {
+      updates.enabled = slots.enabled === 'true';
+    }
+    if (slots.offset) updates.offset = slots.offset;
+    if (slots.channel) {
+      updates.channels = slots.channel === 'both'    ? ['whatsapp', 'in_app']
+                       : slots.channel === 'in_app'  ? ['in_app']
+                       : ['whatsapp'];
+    }
+
+    await db.from('users')
+      .update({ metadata: { ...existingMeta, task_reminders: updates } })
+      .eq('id', user_id);
+
+    const OFFSET_LABEL: Record<string, string> = {
+      '1_day':   lang === 'hi' ? 'deadline से 1 दिन पहले (सुबह)' : '1 day before deadline (morning)',
+      'same_day': lang === 'hi' ? 'deadline वाले दिन सुबह'        : 'morning of the deadline day',
+    };
+
+    const statusStr = updates.enabled === false
+      ? (lang === 'hi' ? '🔕 बंद'        : '🔕 Disabled')
+      : (lang === 'hi' ? '🔔 चालू'       : '🔔 Enabled');
+    const offsetStr = OFFSET_LABEL[(updates.offset as string) ?? '1_day']
+      ?? (updates.offset as string ?? '1 day before');
+
+    return {
+      success: true,
+      reply: lang === 'hi'
+        ? `⏰ *Reminder preferences saved!*\n\n📋 Status: ${statusStr}\n🕐 Timing: ${offsetStr}`
+        : `⏰ *Reminder preferences saved!*\n\n📋 Status: ${statusStr}\n🕐 Timing: ${offsetStr}`,
     };
   },
 

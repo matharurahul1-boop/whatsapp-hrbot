@@ -443,6 +443,18 @@ const HRBOT_TOOLS: any[] = [
       required: ['message', 'remind_at'],
     },
   },
+  {
+    name: 'configure_reminders',
+    description: 'Update the user\'s task deadline reminder preferences (on/off, timing, channel). Only call AFTER user confirms.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        enabled: { type: 'STRING', description: 'true | false — enable or disable task deadline reminders on WhatsApp' },
+        offset:  { type: 'STRING', description: 'When to send reminder before deadline: 1_day (day before, morning) | same_day (morning of deadline day)' },
+        channel: { type: 'STRING', description: 'whatsapp | in_app | both' },
+      },
+    },
+  },
 ];
 
 // ─── System prompt ────────────────────────────────────────────────────────────
@@ -526,6 +538,15 @@ reject_leave, cancel_leave, check_in, check_out, set_reminder):
 
 ## Read-only tools — call immediately, NO confirmation needed:
 daily_briefing, list_tasks, get_task_details, check_leave_balance, list_leaves, my_attendance${isPrivileged ? ', team_attendance, list_users' : ''}
+
+## Task reminder settings
+Users can configure their task deadline reminders via natural language:
+- "Remind me the day before tasks" → configure_reminders(offset="1_day")
+- "Remind me on the day of the task" → configure_reminders(offset="same_day")
+- "Turn off task reminders" / "Disable reminders" → configure_reminders(enabled="false")
+- "Enable task reminders" → configure_reminders(enabled="true")
+- "Remind me on WhatsApp only" → configure_reminders(channel="whatsapp")
+Reminders fire at 9 AM IST (morning cron). Always confirm before calling configure_reminders.
 
 ## Asking for tasks by person (managers/admins only)
 - "List Pranay's tasks" → call list_tasks(assignee_name="Pranay")
@@ -1022,6 +1043,7 @@ const INTENT_MAP: Record<string, string> = {
   team_attendance:     'TEAM_ATTENDANCE',
   list_users:          'LIST_USERS',
   set_reminder:        'SET_REMINDER',
+  configure_reminders: 'CONFIGURE_REMINDERS',
   help:                'HELP',
 };
 
@@ -1055,6 +1077,9 @@ async function dispatchTool(
       designation:   input.designation                         ?? null,
       message:       input.message                             ?? null,
       remind_at:     input.remind_at                           ?? null,
+      enabled:       input.enabled                             ?? null,
+      offset:        input.offset                              ?? null,
+      channel:       input.channel                             ?? null,
     };
 
     const result = await executeTool({

@@ -27,14 +27,14 @@ const SLOT_SCHEMAS: Partial<Record<AgentIntent, SlotDefinition[]>> = {
     {
       name: 'deadline',
       type: 'datetime',
-      required: false,
-      question_en: 'What is the deadline? (e.g. today 5pm, tomorrow, 25 May)',
-      question_hi: 'डेडलाइन क्या है? (जैसे आज 5 बजे, कल, 25 मई)',
+      required: true,
+      question_en: 'What is the deadline? (e.g. today 5pm, tomorrow, 25 May 3pm)',
+      question_hi: 'डेडलाइन क्या है? (जैसे आज 5 बजे, कल, 25 मई 3 बजे)',
     },
     {
       name: 'priority',
       type: 'enum',
-      required: false,
+      required: true,
       question_en: 'Priority? (low / medium / high / urgent)',
       question_hi: 'प्राथमिकता? (low / medium / high / urgent)',
       enum_values: ['low', 'medium', 'high', 'urgent'],

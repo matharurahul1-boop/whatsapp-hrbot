@@ -1,6 +1,6 @@
 import { createAdminClient }   from '@/lib/supabase/admin';
 import { writeAuditLog }       from '@/lib/utils/audit';
-import { formatDate, calcBusinessDays, todayISO } from '@/lib/utils/date';
+import { formatDate, formatDateTime, calcBusinessDays, todayISO } from '@/lib/utils/date';
 import { generateEmployeeId }  from '@/lib/utils/employee-id';
 import { n8n }                 from '@/lib/n8n/trigger';
 import { REPLIES, NOTIFICATIONS } from './prompts/responses';
@@ -274,14 +274,14 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     const notify = assignedTo !== user_id ? [{
       user_id: assignedTo,
-      message: NOTIFICATIONS.taskAssigned('your colleague', slots.title!, dueDate),
+      message: NOTIFICATIONS.taskAssigned('your colleague', slots.title!, deadlineISO),
     }] : [];
 
     n8n.notifyTaskAssigned(org_id, task.id, assignedTo).catch(() => {});
 
     return {
       success: true,
-      reply:   REPLIES.taskCreated(slots.title!, assigneeName, dueDate ? formatDate(dueDate) : null, slots.priority as string ?? 'medium', lang),
+      reply:   REPLIES.taskCreated(slots.title!, assigneeName, deadlineISO ? formatDateTime(deadlineISO) : null, slots.priority as string ?? 'medium', lang),
       notify,
     };
   },

@@ -50,7 +50,7 @@ export const EMPLOYEE_TASK_WRITABLE = new Set<string>(['status', 'description'])
  * Employees get a 403 if they attempt any of these.
  */
 export const MANAGER_TASK_FIELDS = new Set<string>([
-  'priority', 'assignee_id', 'deadline', 'due_time', 'title', 'tags',
+  'priority', 'assignee_id', 'deadline', 'due_time', 'title', 'tags',  // due_time set internally from deadline split
 ]);
 
 // ── Profile field-level permissions ──────────────────────────────────────────

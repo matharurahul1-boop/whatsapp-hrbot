@@ -44,23 +44,13 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
     title:       '',
     description: '',
     assignee_id: '',
-    deadline:    '',
-    due_time:    '',
-    priority:    'medium',
+    deadline:    '',   // datetime-local format: YYYY-MM-DDTHH:MM
+    priority:    '',
     reminders:   ['1_hour'] as string[],
   });
 
   function set(field: string, value: string) {
-    if (field === 'deadline') {
-      setForm(f => ({
-        ...f,
-        deadline: value,
-        // auto-fill 17:00 when deadline is picked; clear when deadline is cleared
-        due_time: value ? (f.due_time || '17:00') : '',
-      }));
-    } else {
-      setForm(f => ({ ...f, [field]: value }));
-    }
+    setForm(f => ({ ...f, [field]: value }));
     setErrors(e => ({ ...e, [field]: '' }));
   }
 
@@ -68,8 +58,8 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
     const e: Record<string, string> = {};
     if (!form.title.trim()) e.title       = 'Title is required';
     if (!form.assignee_id)  e.assignee_id = 'Assignee is required';
-    // due_time is required only when deadline is set
-    if (form.deadline && !form.due_time) e.due_time = 'Due time is required when a deadline is set';
+    if (!form.deadline)     e.deadline    = 'Deadline is required';
+    if (!form.priority)     e.priority    = 'Priority is required';
     return e;
   }
 
@@ -84,13 +74,10 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
         title:       form.title.trim(),
         priority:    form.priority,
         assignee_id: form.assignee_id,
+        deadline:    form.deadline,
       };
-      if (form.description) body.description = form.description;
-      if (form.deadline) {
-        body.deadline  = form.deadline;
-        body.due_time  = form.due_time;
-        if (form.reminders.length) body.reminders = form.reminders;
-      }
+      if (form.description)    body.description = form.description;
+      if (form.reminders.length) body.reminders = form.reminders;
 
       const res = await fetch('/api/tasks', {
         method:  'POST',
@@ -105,7 +92,7 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
       }
 
       setOpen(false);
-      setForm({ title: '', description: '', assignee_id: '', deadline: '', due_time: '', priority: 'medium', reminders: ['1_hour'] });
+      setForm({ title: '', description: '', assignee_id: '', deadline: '', priority: '', reminders: ['1_hour'] });
       setErrors({});
       router.refresh();
     } finally {
@@ -167,30 +154,23 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
                 </SelectNative>
 
                 <SelectNative
-                  label="Priority"
+                  label="Priority *"
                   value={form.priority}
                   onChange={e => set('priority', e.target.value)}
-                  options={PRIORITIES}
-                />
+                  error={errors.priority}
+                >
+                  <option value="">Select priority</option>
+                  {PRIORITIES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+                </SelectNative>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <Input
-                  label="Deadline"
-                  type="date"
-                  value={form.deadline}
-                  onChange={e => set('deadline', e.target.value)}
-                  error={errors.deadline}
-                />
-                <Input
-                  label={form.deadline ? 'Due Time *' : 'Due Time'}
-                  type="time"
-                  value={form.due_time}
-                  onChange={e => set('due_time', e.target.value)}
-                  error={errors.due_time}
-                  disabled={!form.deadline}
-                />
-              </div>
+              <Input
+                label="Deadline *"
+                type="datetime-local"
+                value={form.deadline}
+                onChange={e => set('deadline', e.target.value)}
+                error={errors.deadline}
+              />
 
               {form.deadline && <div>
                 <label className="block text-xs font-medium text-surface-700 mb-1.5">

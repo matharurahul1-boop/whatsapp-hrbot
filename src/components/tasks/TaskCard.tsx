@@ -73,10 +73,8 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
   const [status,        setStatus]        = useState<TaskStatus>(task.status as TaskStatus);
   const [saveError,     setSaveError]     = useState<string | null>(null);
 
-  // Track saved deadline/due_time/reminders locally so re-opening edit immediately
+  // Track saved deadline/due_time locally so re-opening edit immediately
   // shows the latest saved values without waiting for router.refresh().
-  // Initialized from props on first render; updated manually in handleSave.
-  // No useEffect sync — the server refresh overwrites these with stale data.
   const [savedDeadline,  setSavedDeadline]  = useState<string | null>(task.deadline);
   const [savedDueTime,   setSavedDueTime]   = useState<string | null>(task.due_time);
   const [savedReminders, setSavedReminders] = useState<string[]>(task.reminders?.length ? task.reminders : ['1_hour']);
@@ -85,8 +83,8 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
     title:       task.title,
     description: task.description ?? '',
     assignee_id: task.assignee?.id ?? '',
-    deadline:    task.deadline ?? '',
-    due_time:    task.due_time?.slice(0, 5) ?? '',
+    // Combine date + time into datetime-local format (YYYY-MM-DDTHH:MM)
+    deadline:    task.deadline && task.due_time ? `${task.deadline}T${task.due_time.slice(0, 5)}` : (task.deadline ?? ''),
     priority:    task.priority,
     status:      task.status as TaskStatus,
     reminders:   task.reminders?.length ? task.reminders : ['1_hour'],
@@ -100,16 +98,7 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
   const cfg     = STATUS_CFG[status] ?? STATUS_CFG.todo;
 
   function setField(field: string, value: string) {
-    if (field === 'deadline') {
-      // Auto-fill 17:00 when a date is first picked; clear time when date is cleared
-      setForm(f => ({
-        ...f,
-        deadline: value,
-        due_time: value ? (f.due_time || '17:00') : '',
-      }));
-    } else {
-      setForm(f => ({ ...f, [field]: value }));
-    }
+    setForm(f => ({ ...f, [field]: value }));
   }
 
   function openEdit(e?: React.MouseEvent) {
@@ -118,8 +107,9 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
       title:       task.title,
       description: task.description ?? '',
       assignee_id: task.assignee?.id ?? '',
-      deadline:    savedDeadline ?? '',
-      due_time:    savedDueTime?.slice(0, 5) ?? (savedDeadline ? '17:00' : ''),
+      deadline:    savedDeadline && savedDueTime
+        ? `${savedDeadline}T${savedDueTime.slice(0, 5)}`
+        : (savedDeadline ?? ''),
       priority:    task.priority,
       status:      status,
       reminders:   savedReminders,
@@ -141,12 +131,8 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
       };
       if (form.description) body.description = form.description;
       if (form.assignee_id) body.assignee_id = form.assignee_id;
-      if (form.deadline) {
-        body.deadline = form.deadline;
-        body.due_time = form.due_time || null;
-      } else {
-        body.due_time = null;
-      }
+      // Send combined datetime string; server splits into deadline + due_time
+      body.deadline = form.deadline || null;
 
       const res = await fetch(`/api/tasks/${task.id}`, {
         method:  'PATCH',
@@ -154,9 +140,10 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
         body:    JSON.stringify(body),
       });
       if (res.ok) {
-        // Update saved values immediately so re-opening edit shows correct data
-        setSavedDeadline(form.deadline || null);
-        setSavedDueTime(form.due_time || null);
+        // Split combined datetime back for local display state
+        const [dl, dt] = form.deadline ? form.deadline.split('T') : [null, null];
+        setSavedDeadline(dl || null);
+        setSavedDueTime(dt || null);
         setSavedReminders(form.reminders);
         setStatus(form.status);
         onStatusChange?.(task.id, form.status);
@@ -276,10 +263,7 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
                     {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.full_name}</option>)}
                   </SelectNative>
                 )}
-                <Input label="Deadline" type="date" value={form.deadline} onChange={e => setField('deadline', e.target.value)} />
-                {form.deadline && (
-                  <Input label="Due Time" type="time" value={form.due_time} onChange={e => setField('due_time', e.target.value)} />
-                )}
+                <Input label="Deadline" type="datetime-local" value={form.deadline} onChange={e => setField('deadline', e.target.value)} />
 
                 {/* Reminders — only shown when a deadline is set */}
                 {form.deadline && (
@@ -520,18 +504,10 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
 
               <Input
                 label="Deadline"
-                type="date"
+                type="datetime-local"
                 value={form.deadline}
                 onChange={e => setField('deadline', e.target.value)}
               />
-              {form.deadline && (
-                <Input
-                  label="Due Time"
-                  type="time"
-                  value={form.due_time}
-                  onChange={e => setField('due_time', e.target.value)}
-                />
-              )}
 
               {form.deadline && (
                 <div>

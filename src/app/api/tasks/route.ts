@@ -11,9 +11,8 @@ const CreateTaskSchema = z.object({
   title:       z.string().min(1).max(200),
   description: z.string().max(2000).optional(),
   assignee_id: z.string().uuid(),
-  deadline:    z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  due_time:    z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/).optional(),
-  priority:    z.enum(['low','medium','high','urgent']).default('medium'),
+  deadline:    z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/),   // required datetime
+  priority:    z.enum(['low','medium','high','urgent']),                  // required, no default
   status:      z.enum(['todo','in_progress','done','cancelled']).default('todo'),
   reminders:   z.array(z.string()).optional(),
 });
@@ -113,8 +112,14 @@ export async function POST(req: NextRequest) {
     // HR+ can assign to anyone in the org — no extra check
   }
 
+  // Split combined datetime into separate date + time columns
+  const { deadline: deadlineISO, ...taskFields } = parsed.data;
+  const [deadlineDate, dueTime] = deadlineISO.split('T');
+
   const { data: task, error } = await db.from('tasks').insert({
-    ...parsed.data,
+    ...taskFields,
+    deadline:        deadlineDate,
+    due_time:        dueTime,
     reminders:       parsed.data.reminders ?? ['1_hour'],
     organization_id: profile.organization_id,
     created_by:      user.id,

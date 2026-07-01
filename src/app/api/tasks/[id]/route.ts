@@ -11,8 +11,7 @@ const UpdateTaskSchema = z.object({
   title:       z.string().min(1).max(200).optional(),
   description: z.string().max(2000).optional(),
   assignee_id: z.string().uuid().nullable().optional(),
-  deadline:    z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
-  due_time:    z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/).nullable().optional(),
+  deadline:    z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/).nullable().optional(),  // combined datetime or null to clear
   priority:    z.enum(['low','medium','high','urgent']).optional(),
   status:      z.enum(['todo','in_progress','done','cancelled']).optional(),
   reminders:   z.array(z.string()).nullable().optional(),
@@ -65,8 +64,22 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (!profile || !task) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   if (task.organization_id !== profile.organization_id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
+  // Split combined datetime into separate date + time columns
+  const { deadline: deadlineISO, ...parsedRest } = parsed.data;
+  const deadlineFields: Record<string, unknown> = {};
+  if (deadlineISO !== undefined) {
+    if (deadlineISO === null) {
+      deadlineFields.deadline = null;
+      deadlineFields.due_time = null;
+    } else {
+      const [dl, dt] = deadlineISO.split('T');
+      deadlineFields.deadline = dl;
+      deadlineFields.due_time = dt;
+    }
+  }
+
   // ── Build updateData — filtered by role ──────────────────────────────────────
-  let updateData: Record<string, unknown> = { ...parsed.data };
+  let updateData: Record<string, unknown> = { ...parsedRest, ...deadlineFields };
 
   // ── RBAC: who can touch this task? ───────────────────────────────────────────
   if (isEmployee(profile.role)) {

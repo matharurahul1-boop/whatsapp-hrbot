@@ -832,14 +832,26 @@ async function runGroqLoop(
 
   // "List [Name]'s tasks" / "Show [Name]'s tasks" — privileged users only
   const isPrivilegedUser = ['manager', 'hr', 'admin', 'super_admin'].includes(user.role);
+  const GENERIC_NAME_RE = /^(all|my|mine|our|the|any|pending|team|org|your|own|me|self|tasks?|his|her|their)$/i;
   const tasksByNameMatch = message.match(
     /\b(?:list|show|get)\s+(?:of\s+)?([a-z][a-z\s]{1,30}?)(?:'s|'s|s)?\s+tasks?\b/i
   );
   if (tasksByNameMatch && isPrivilegedUser) {
     const assigneeName = tasksByNameMatch[1].trim();
-    // Don't match generic terms like "all", "my", "pending"
-    if (!/^(all|my|mine|our|the|any|pending|team|org|your|own|me|self)$/i.test(assigneeName)) {
+    if (!GENERIC_NAME_RE.test(assigneeName)) {
       console.log(`[Agent] Name-task quick-route: "${message}" → list_tasks(assignee_name="${assigneeName}")`);
+      return dispatchTool('list_tasks', { assignee_name: assigneeName }, user, orgId);
+    }
+  }
+
+  // Also catch "list of [name]" / "list [name]" without "tasks" keyword — e.g. "list of tushar", "list tushar"
+  const tasksByNameShortMatch = message.match(
+    /^(?:list|show|get)\s+(?:of\s+)?([a-z][a-z\s]{1,30}?)\s*[!.?]*$/i
+  );
+  if (tasksByNameShortMatch && isPrivilegedUser && !tasksByNameMatch) {
+    const assigneeName = tasksByNameShortMatch[1].trim();
+    if (!GENERIC_NAME_RE.test(assigneeName)) {
+      console.log(`[Agent] Name-short quick-route: "${message}" → list_tasks(assignee_name="${assigneeName}")`);
       return dispatchTool('list_tasks', { assignee_name: assigneeName }, user, orgId);
     }
   }

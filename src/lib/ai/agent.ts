@@ -108,13 +108,92 @@ const MONTH_MAP: Record<string, string> = {
 function naturalDateToISO(text: string): string | null {
   const t = text.trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
-  const yr = new Date().getFullYear();
-  // "17th June" or "17 June"
-  let m = t.match(/(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]+)/i);
-  if (m) { const mo = MONTH_MAP[m[2].toLowerCase()]; if (mo) return `${yr}-${mo}-${m[1].padStart(2,'0')}`; }
-  // "June 17" or "June 17th"
-  m = t.match(/([a-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?/i);
-  if (m) { const mo = MONTH_MAP[m[1].toLowerCase()]; if (mo) return `${yr}-${mo}-${m[2].padStart(2,'0')}`; }
+
+  const now  = new Date();
+  const yr   = now.getFullYear();
+  const nowM = now.getMonth();  // 0-indexed
+  const nowD = now.getDate();
+
+  // Relative keywords
+  if (/\btoday\b/i.test(t)) return now.toISOString().split('T')[0];
+  if (/\btomorrow\b/i.test(t)) {
+    const d = new Date(now); d.setDate(d.getDate() + 1);
+    return d.toISOString().split('T')[0];
+  }
+  // "in N days"
+  const inDays = t.match(/\bin\s+(\d+)\s+days?\b/i);
+  if (inDays) {
+    const d = new Date(now); d.setDate(d.getDate() + parseInt(inDays[1]));
+    return d.toISOString().split('T')[0];
+  }
+  // "next week"
+  if (/\bnext\s+week\b/i.test(t)) {
+    const d = new Date(now); d.setDate(d.getDate() + 7);
+    return d.toISOString().split('T')[0];
+  }
+  // "end of month"
+  if (/\bend\s+of\s+month\b/i.test(t)) {
+    const d = new Date(yr, nowM + 1, 0);
+    return d.toISOString().split('T')[0];
+  }
+  // "next Monday/Tuesday/..."
+  const DAY_MAP: Record<string,number> = { sun:0,sunday:0,mon:1,monday:1,tue:2,tuesday:2,wed:3,wednesday:3,thu:4,thursday:4,fri:5,friday:5,sat:6,saturday:6 };
+  const dayM = t.match(/\b(next\s+)?(sunday|monday|tuesday|wednesday|thursday|friday|saturday|sun|mon|tue|wed|thu|fri|sat)\b/i);
+  if (dayM) {
+    const target = DAY_MAP[dayM[2].toLowerCase()];
+    if (target !== undefined) {
+      const d = new Date(now);
+      const diff = ((target - d.getDay()) + 7) % 7 || 7;
+      d.setDate(d.getDate() + diff);
+      return d.toISOString().split('T')[0];
+    }
+  }
+
+  // Pick year: if month/day is in the past use next year
+  function pickYear(mo: string, day: string): number {
+    const mIdx = parseInt(mo) - 1; // 0-indexed
+    if (mIdx < nowM || (mIdx === nowM && parseInt(day) < nowD)) return yr + 1;
+    return yr;
+  }
+
+  // "17th June" or "17 June 2026"
+  let m = t.match(/(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]+)(?:\s+(\d{4}))?/i);
+  if (m) {
+    const mo = MONTH_MAP[m[2].toLowerCase()];
+    if (mo) {
+      const useYr = m[3] ? parseInt(m[3]) : pickYear(mo, m[1]);
+      return `${useYr}-${mo}-${m[1].padStart(2,'0')}`;
+    }
+  }
+  // "June 17" or "June 17th 2026"
+  m = t.match(/([a-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?(?:\s+(\d{4}))?/i);
+  if (m) {
+    const mo = MONTH_MAP[m[1].toLowerCase()];
+    if (mo) {
+      const useYr = m[3] ? parseInt(m[3]) : pickYear(mo, m[2]);
+      return `${useYr}-${mo}-${m[2].padStart(2,'0')}`;
+    }
+  }
+  return null;
+}
+
+/** Extract a time component from natural text → "HH:MM" (24h) or null */
+function extractTimeFromText(text: string): string | null {
+  const t = text.toLowerCase();
+  if (/\bnoon\b/.test(t))     return '12:00';
+  if (/\bmidnight\b/.test(t)) return '00:00';
+  // "5pm", "5:30pm", "5:30 pm"
+  const m12 = t.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i);
+  if (m12) {
+    let h = parseInt(m12[1]);
+    const min = m12[2] ? parseInt(m12[2]) : 0;
+    if (m12[3].toLowerCase() === 'pm' && h !== 12) h += 12;
+    if (m12[3].toLowerCase() === 'am' && h === 12) h = 0;
+    return `${h.toString().padStart(2,'0')}:${min.toString().padStart(2,'0')}`;
+  }
+  // "17:00" (no am/pm suffix)
+  const m24 = t.match(/\b(\d{1,2}):(\d{2})\b(?!\s*[ap]m)/i);
+  if (m24) return `${m24[1].padStart(2,'0')}:${m24[2]}`;
   return null;
 }
 
@@ -138,7 +217,12 @@ async function executeFromConfirmation(
     const deadlineM = lastMsg.match(/due\s+\*([^*]+)\*/i);
     const args: Record<string, string> = { title: titleM[1].trim() };
     if (priorityM) args.priority = priorityM[1].toLowerCase();
-    if (deadlineM) { const iso = naturalDateToISO(deadlineM[1]); if (iso) args.deadline = iso; }
+    if (deadlineM) {
+      const raw  = deadlineM[1];
+      const iso  = naturalDateToISO(raw);
+      const time = extractTimeFromText(raw);
+      if (iso) args.deadline = time ? `${iso} ${time}` : `${iso} 09:00`;
+    }
     return dispatchTool('create_task', args, user, orgId);
   }
 
@@ -225,16 +309,16 @@ const HRBOT_TOOLS: any[] = [
   },
   {
     name: 'create_task',
-    description: 'Create a new task. ONLY call AFTER user confirms AND you have the task title. NEVER call without a title.',
+    description: 'Create a new task. ONLY call AFTER user confirms AND you have title + deadline + priority. NEVER call without all three.',
     parameters: {
       type: 'OBJECT',
       properties: {
         title:    { type: 'STRING', description: 'Short, clear task title' },
         assignee: { type: 'STRING', description: 'Assignee name or "me". Omit if self.' },
-        deadline: { type: 'STRING', description: 'Due date as YYYY-MM-DD' },
-        priority: { type: 'STRING', description: 'low | medium | high | urgent' },
+        deadline: { type: 'STRING', description: 'REQUIRED. Due date and time as "YYYY-MM-DD HH:MM" (24h IST). Use 09:00 if user gives only a date. E.g. "2026-07-10 17:00"' },
+        priority: { type: 'STRING', description: 'REQUIRED. low | medium | high | urgent' },
       },
-      required: ['title'],
+      required: ['title', 'deadline', 'priority'],
     },
   },
   {
@@ -434,6 +518,7 @@ reject_leave, cancel_leave, check_in, check_out, set_reminder):
 2. End with "Go ahead? (Yes / No)"
 3. Only call the tool AFTER the user says Yes / Haan / Sure / Ok / Confirm / "Create the task" / "Do it" / "Go ahead".
 4. If user says No / Nahi / Cancel → say "Got it, cancelled. What else can I help with?"
+5. For create_task ONLY: NEVER send the confirmation until *title*, *deadline* (date + time), AND *priority* are all collected. Ask for any that are missing — one question at a time — before confirming.
 
 ## CRITICAL: Never lose context mid-collection
 - If you just asked for task details and the user provided them, your IMMEDIATE next reply MUST be the confirmation message (e.g. "I'll create task *X* due *Y*. Go ahead? (Yes / No)"). NEVER say "What else can I help with?" at this point.
@@ -449,27 +534,39 @@ daily_briefing, list_tasks, get_task_details, check_leave_balance, list_leaves, 
 
 ## Examples
 
-Single-turn task creation:
-User: "create a task Fix login bug due tomorrow priority high"
-You: I'll create task *Fix login bug* with *high* priority due *tomorrow*. Go ahead? (Yes / No)
+Single-turn task creation (title + deadline + priority all in one message):
+User: "create a task Fix login bug due tomorrow 5pm priority high"
+You: I'll create task *Fix login bug* due *2 Jul 2026, 05:00 PM* with *high* priority. Go ahead? (Yes / No)
 User: "yes"
-You: [call create_task(title="Fix login bug", deadline="<tomorrow's date>", priority="high")]
+You: [call create_task(title="Fix login bug", deadline="2026-07-02 17:00", priority="high")]
 
-Multi-turn task creation:
-User: "I want to create a task" OR "let's create one" OR "create another one"
-You: Sure! What's the task *title* and *deadline*? 📝
-User: "Title is Automation tool and deadline is 19 June"
-You: I'll create task *Automation tool* due *June 19, 2026*. Go ahead? (Yes / No)
+Multi-turn — title given, deadline + priority missing:
+User: "I want to create a task"
+You: Sure! What's the *title*, *deadline* (date & time), and *priority*? 📝
+User: "Fix login bug"
+You: Got it — *Fix login bug*. When is the deadline? (e.g. tomorrow 5pm, 10 July 3pm)
+User: "tomorrow 5pm"
+You: And the priority? (low / medium / high / urgent)
+User: "high"
+You: I'll create task *Fix login bug* due *2 Jul 2026, 05:00 PM* with *high* priority. Go ahead? (Yes / No)
 User: "Create the task"  ← this IS the confirmation
-You: [call create_task(title="Automation tool", deadline="2026-06-19")]
+You: [call create_task(title="Fix login bug", deadline="2026-07-02 17:00", priority="high")]
+
+Multi-turn — title + deadline given, priority missing:
+User: "create task Automation tool deadline 19 June"
+You: Got it — *Automation tool* due *19 Jun 2026, 09:00 AM*. What's the priority? (low / medium / high / urgent)
+User: "medium"
+You: I'll create task *Automation tool* due *19 Jun 2026, 09:00 AM* with *medium* priority. Go ahead? (Yes / No)
+User: "yes"
+You: [call create_task(title="Automation tool", deadline="2026-06-19 09:00", priority="medium")]
 
 Field update (ALWAYS bold both the task name AND the field name):
 User: "update the assigned to of Design Review to Rahul"
 You: I'll update *Design Review* — set *assignee* to *Rahul*. Go ahead? (Yes / No)
 User: "change the title of Fix Bug to Fix Login Bug"
 You: I'll update *Fix Bug* — set *title* to *Fix Login Bug*. Go ahead? (Yes / No)
-User: "update deadline of Fix Bug to tomorrow"
-You: I'll update *Fix Bug* — set *deadline* to *17 Jun 2026*. Go ahead? (Yes / No)
+User: "update deadline of Fix Bug to tomorrow 3pm"
+You: I'll update *Fix Bug* — set *deadline* to *2 Jul 2026, 03:00 PM*. Go ahead? (Yes / No)
 
 Read-only query:
 User: "list my tasks"
@@ -483,7 +580,7 @@ Bot: I'll update *X* — set *deadline* to *17 Jun 2026*. Go ahead? (Yes / No)
 ← ALWAYS use update_task here. NEVER call create_task for an already-existing task.
 
 ## IMPORTANT: Never use example text as real data
-If the user says something like "e.g. Review quarterly report – 20 Jun" they are showing an EXAMPLE FORMAT, not providing the actual task details. Ask them for the real title and deadline.
+If the user says something like "e.g. Review quarterly report – 20 Jun" they are showing an EXAMPLE FORMAT, not providing the actual task details. Ask them for the real title, deadline (date & time), and priority.
 
 ## Language
 Match the user — English, Hindi, or Hinglish.`;
@@ -974,7 +1071,12 @@ async function dispatchTool(
       sendUserNotifications(result.notify, orgId).catch(() => {});
     }
 
-    return result.reply;
+    // WhatsApp hard limit: 4096 chars. Truncate gracefully.
+    const reply = result.reply;
+    if (reply.length > 4000) {
+      return reply.slice(0, 3940) + '\n\n_...list is long. Send "more tasks" to see the next page._';
+    }
+    return reply;
   } catch (err) {
     console.error(`[Tool] ${toolName} failed:`, err);
     return '❌ Something went wrong with that action. Please try again.';

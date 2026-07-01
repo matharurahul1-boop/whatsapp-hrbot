@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { waitUntil }                                      from '@vercel/functions';
 
 export const maxDuration = 60;
+
+// Best-effort per-instance concurrency guard.
+// Prevents a rapid second message from the same sender from interleaving
+// with the first while the AI is still processing it.
+// (Not distributed — only effective within one warm Vercel instance.)
+const inFlight = new Set<string>();
 import { verifyWebhookSignature, verifyWebhookChallenge } from '@/lib/whatsapp/verify';
 import { sendText, sendButtons, sendList, markMessageRead, downloadMediaContent } from '@/lib/whatsapp/client';
 import { createAdminClient }                              from '@/lib/supabase/admin';
@@ -128,19 +134,32 @@ async function handleOneMessage(
   //    returning 200 OK to Meta (background tasks are otherwise killed).
   const text = extractText(msg);
   if (text?.trim()) {
-    if (isPolicyQuestion(text)) {
-      waitUntil(
-        dispatchPolicyBot(msg.from, text, orgId).catch(err =>
-          console.error('[WA PolicyBot] Error:', err)
-        )
-      );
-    } else {
-      waitUntil(
-        dispatchAgent(msg.from, text, orgId).catch(err =>
-          console.error('[WA Agent] Error:', err)
-        )
-      );
-    }
+    const flightKey = `${orgId}:${msg.from}`;
+    waitUntil((async () => {
+      // If a previous message from this user is still being processed, wait
+      // briefly then either proceed (if it finished) or send a holding reply.
+      if (inFlight.has(flightKey)) {
+        await new Promise(r => setTimeout(r, 4_000));
+        if (inFlight.has(flightKey)) {
+          await sendText(msg.from, '⏳ Still working on your previous message — just a moment!', orgId).catch(() => {});
+          return;
+        }
+      }
+      inFlight.add(flightKey);
+      try {
+        if (isPolicyQuestion(text)) {
+          await dispatchPolicyBot(msg.from, text, orgId).catch(err =>
+            console.error('[WA PolicyBot] Error:', err)
+          );
+        } else {
+          await dispatchAgent(msg.from, text, orgId).catch(err =>
+            console.error('[WA Agent] Error:', err)
+          );
+        }
+      } finally {
+        inFlight.delete(flightKey);
+      }
+    })());
   } else if (msg.type === 'audio') {
     waitUntil(
       handleAudioMessage(msg.from, msg.audio?.id ?? '', orgId).catch(err =>
@@ -383,7 +402,7 @@ async function transcribeAudio(mediaId: string, orgId: string): Promise<string |
     const form = new FormData();
     form.append('file', new Blob([buffer], { type: mimeType }), `audio${ext}`);
     form.append('model', 'whisper-large-v3-turbo');
-    form.append('language', 'en');
+    // 'auto' lets Whisper detect Hindi, Hinglish, and English automatically
 
     const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
       method:  'POST',

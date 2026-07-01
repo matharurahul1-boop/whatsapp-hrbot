@@ -249,6 +249,25 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       deadlineISO = `${date}T${time}:00+05:30`;
     }
 
+    // Enforce required fields — reject early with an actionable prompt
+    if (!deadlineISO) {
+      return {
+        success: false,
+        reply: lang === 'hi'
+          ? '❌ डेडलाइन बताएं — तारीख और समय (जैसे: कल शाम 5 बजे, 10 July 5pm)'
+          : '❌ Please provide a deadline — date and time. (e.g. tomorrow 5pm, July 10 at 3pm)',
+      };
+    }
+    const taskPriority = (slots.priority as string | null);
+    if (!taskPriority) {
+      return {
+        success: false,
+        reply: lang === 'hi'
+          ? '❌ Priority बताएं: low / medium / high / urgent में से एक'
+          : '❌ Please provide a priority: low / medium / high / urgent',
+      };
+    }
+
     const { data: task, error } = await db
       .from('tasks')
       .insert({
@@ -257,7 +276,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
         assignee_id:     assignedTo,
         created_by:      user_id,
         deadline:        deadlineISO,
-        priority:        (slots.priority as string) ?? 'medium',
+        priority:        taskPriority,
         status:          'todo',
         source:          'whatsapp',
       })
@@ -281,7 +300,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     return {
       success: true,
-      reply:   REPLIES.taskCreated(slots.title!, assigneeName, deadlineISO ? formatDateTime(deadlineISO) : null, slots.priority as string ?? 'medium', lang),
+      reply:   REPLIES.taskCreated(slots.title!, assigneeName, formatDateTime(deadlineISO), taskPriority, lang),
       notify,
     };
   },

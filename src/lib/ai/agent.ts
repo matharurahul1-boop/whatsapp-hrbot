@@ -813,9 +813,11 @@ async function runGroqLoop(
   }
 
   // ── 0. "My/mine tasks" quick-route — always shows caller's own tasks ─────
-  // Catches "my tasks", "mine tasks", "list of mine tasks", etc. before Groq.
+  // Two branches:
+  //   A) verb present  → tasks? optional:  "list mine", "list of mine", "list my tasks"
+  //   B) no verb       → tasks required:   "my tasks", "mine tasks"
   // Passes assignee_name="mine" so the isSelfQuery path in the executor fires.
-  const MY_TASKS_RE = /^(?:(?:list|show|get|give\s*me)\s+)?(?:of\s+)?(?:my|mine)\s+tasks?\s*[!.?]*$/i;
+  const MY_TASKS_RE = /^(?:(?:(?:list|show|get|give\s+me)\s+(?:of\s+)?(?:my|mine)(?:\s+tasks?)?)|(?:(?:of\s+)?(?:my|mine)\s+tasks?))\s*[!.?]*$/i;
   if (MY_TASKS_RE.test(message.trim())) {
     console.log(`[Agent] My-tasks quick-route: "${message}" → list_tasks(mine)`);
     return dispatchTool('list_tasks', { assignee_name: 'mine' }, user, orgId);

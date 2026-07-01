@@ -15,7 +15,12 @@ export function formatTime(timeStr: string): string {
 
 export function formatDateTime(dateStr: string): string {
   try {
-    return format(parseISO(dateStr), 'dd MMM yyyy, hh:mm a');
+    const d = new Date(dateStr);
+    // date-fns format() uses the process local timezone (UTC on Vercel).
+    // Add IST offset so the UTC value equals the IST wall-clock time.
+    const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
+    const istDate = new Date(d.getTime() + IST_OFFSET_MS);
+    return format(istDate, 'dd MMM yyyy, hh:mm a');
   } catch {
     return dateStr;
   }

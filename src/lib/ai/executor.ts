@@ -212,7 +212,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     }
 
     let assignedTo   = user_id;
-    let assigneeName = lang === 'hi' ? 'आप' : 'You';
+    let assigneeName = user_name ?? (lang === 'hi' ? 'आप' : 'You');
 
     if (slots.assignee && slots.assignee.toLowerCase() !== 'me') {
       // RBAC: employees can only create tasks for themselves via bot

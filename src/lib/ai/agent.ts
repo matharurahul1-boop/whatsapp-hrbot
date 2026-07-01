@@ -263,6 +263,10 @@ function parseConfirmationMessage(lastMsg: string): ConfirmationParsed | null {
   const deleteM = lastMsg.match(/delete\s+task\s+\*([^*]+)\*/i);
   if (deleteM) return { tool: 'delete_task', args: { task_title: deleteM[1].trim() } };
 
+  // ASSIGN_TASK: "I'll assign *Task Name* to *Person Name*"
+  const assignM = lastMsg.match(/assign\s+\*([^*]+)\*\s+to\s+\*([^*]+)\*/i);
+  if (assignM) return { tool: 'assign_task', args: { task_title: assignM[1].trim(), assignee: assignM[2].trim() } };
+
   // UPDATE_TASK: "I'll update *Title* — set *field* to *value*"
   const updateM = lastMsg.match(/update\s+\*([^*]+)\*[\s—–-]+set\s+(?:\*([^*]+)\*|(?:its\s+)?(\w+))\s+to\s+\*([^*]+)\*/i);
   if (updateM) {
@@ -379,6 +383,18 @@ const HRBOT_TOOLS: any[] = [
       type: 'OBJECT',
       properties: { task_title: { type: 'STRING' } },
       required: ['task_title'],
+    },
+  },
+  {
+    name: 'assign_task',
+    description: 'Reassign an existing task to a different team member (managers/admins/HR only). Only call AFTER user confirms.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        task_title: { type: 'STRING', description: 'Current title or part of the task to reassign' },
+        assignee:   { type: 'STRING', description: 'Full name or first name of the person to assign to' },
+      },
+      required: ['task_title', 'assignee'],
     },
   },
   {
@@ -569,6 +585,10 @@ reject_leave, cancel_leave, check_in, check_out, set_reminder):
 ## Read-only tools — call immediately, NO confirmation needed:
 daily_briefing, list_tasks, get_task_details, check_leave_balance, list_leaves, my_attendance${isPrivileged ? ', team_attendance, list_users' : ''}
 
+## Task discovery — users often ask about tasks by describing them or checking details:
+- "What's the status of X?" / "Tell me about X task" / "Details of X" → get_task_details(task_title="X")
+- "Who is working on X?" / "When is X due?" → get_task_details(task_title="X")
+
 ## Task reminder settings
 Users can configure their task deadline reminders via natural language:
 - "Remind me the day before tasks" → configure_reminders(offset="1_day")
@@ -623,6 +643,16 @@ Read-only query:
 User: "list my tasks"
 You: [call list_tasks(), return result verbatim]
 
+Get task details (read-only, call immediately, no confirmation):
+User: "What's the status of Fix login bug?" / "details of automation task" / "show me the design review task"
+You: [call get_task_details(task_title="Fix login bug"), return result verbatim]
+${isPrivileged ? `
+Assign task to a team member:
+User: "Assign website redesign to Priya"
+You: I'll assign *Website redesign* to *Priya*. Go ahead? (Yes / No)
+User: "yes"
+You: [call assign_task(task_title="Website redesign", assignee="Priya")]
+` : ''}
 Setting due date on an existing task:
 User: "What's the due date of X?"
 Bot: [call get_task_details → sees no deadline] "No due date set. Do you want to add one?"
@@ -874,9 +904,14 @@ async function runGroqLoop(
       { role: 'user', content: effectiveMessage },
     ];
 
+    // Advance global index BEFORE any await so parallel requests on the same warm
+    // instance read different starting positions (eliminates read-after-write races).
+    const startIdx = groqKeyIndex;
+    groqKeyIndex   = (startIdx + 1) % (groqClients.length || 1);
+
     // Try each Groq key in rotation; on 429 move to the next key
     for (let keyTry = 0; keyTry < groqClients.length; keyTry++) {
-      const clientIdx = (groqKeyIndex + keyTry) % groqClients.length;
+      const clientIdx = (startIdx + keyTry) % groqClients.length;
       const client    = groqClients[clientIdx];
 
       try {
@@ -887,8 +922,7 @@ async function runGroqLoop(
           max_tokens: 512,
         });
 
-        // Advance the round-robin index so the next request starts on the next key
-        groqKeyIndex = (clientIdx + 1) % groqClients.length;
+        // Index was already advanced before the loop
 
         for (let round = 0; round < 6; round++) {
           const choice    = resp.choices[0];
@@ -1108,6 +1142,7 @@ const INTENT_MAP: Record<string, string> = {
   update_task:         'UPDATE_TASK',
   complete_task:       'COMPLETE_TASK',
   delete_task:         'DELETE_TASK',
+  assign_task:         'ASSIGN_TASK',
   apply_leave:         'APPLY_LEAVE',
   check_leave_balance: 'CHECK_LEAVE_BALANCE',
   list_leaves:         'LIST_LEAVES',
@@ -1147,6 +1182,7 @@ async function dispatchTool(
       leave_type:    input.leave_type                          ?? null,
       start_date:    input.start_date                          ?? null,
       end_date:      input.end_date                            ?? null,
+      duration_days: input.duration_days                       ?? null,
       reason:        input.reason                              ?? null,
       employee_name: input.employee_name                       ?? null,
       wa_number:     input.wa_number    ?? user.whatsapp_number ?? null,

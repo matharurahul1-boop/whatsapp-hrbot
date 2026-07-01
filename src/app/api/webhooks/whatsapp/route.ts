@@ -139,8 +139,9 @@ async function handleOneMessage(
     return;
   }
 
-  // 2. Save to wa_logs
-  await saveIncomingLog(msg, value, orgId, rawBody);
+  // 2. Save to wa_logs (returns false = duplicate caught by DB unique constraint → skip dispatch)
+  const isNew = await saveIncomingLog(msg, value, orgId, rawBody);
+  if (!isNew) return;
 
   // 3. Mark as read (non-blocking — fire and forget)
   markMessageRead(msg.id).catch(() => {});
@@ -187,12 +188,17 @@ async function handleOneMessage(
 }
 
 // ── Save incoming message to wa_logs ─────────────────────────────────────
+// Returns true  = row inserted (new message, proceed with agent dispatch).
+// Returns false = duplicate (DB unique constraint on meta_message_id fired,
+//                meaning another Vercel instance already processed this message).
+// To enable the full distributed dedup, run this migration in Supabase:
+//   ALTER TABLE wa_logs ADD CONSTRAINT wa_logs_meta_message_id_unique UNIQUE (meta_message_id);
 async function saveIncomingLog(
   msg:     WAMessage,
   value:   WAValue,
   orgId:   string,
   rawBody: string
-): Promise<void> {
+): Promise<boolean> {
   const db       = createAdminClient();
   const contacts = value.contacts ?? [];
   const waNumber = msg.from.replace(/^\+/, '');
@@ -239,10 +245,16 @@ async function saveIncomingLog(
     .insert(row);
 
   if (error) {
+    if (error.code === '23505') {
+      // unique_violation — DB constraint stopped a cross-instance duplicate
+      console.log(`[WA Webhook] ⏭️ DB unique constraint: duplicate ${msg.id} — skipping`);
+      return false;
+    }
     console.error('[WA Webhook] ❌ wa_logs insert FAILED:', error.code, error.message, error.details);
   } else {
     console.log(`[WA Webhook] ✅ wa_logs saved — ${waNumber} → "${row.message_text}"`);
   }
+  return true;
 }
 
 // ── Update delivery status ────────────────────────────────────────────────

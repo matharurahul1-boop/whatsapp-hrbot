@@ -695,8 +695,10 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     // Use human-readable values in the reply (avoid showing UUIDs for assignee).
     let displayValue: string;
     if (field === 'assignee') {
-      // foundUser.full_name was used to set patch.assignee_id — use original value string (the name)
       displayValue = value;
+    } else if (field === 'priority') {
+      const pVal = String(patch.priority ?? value);
+      displayValue = `${priorityEmoji(pVal)} ${pVal}`;
     } else {
       displayValue = String(patch.title ?? patch.priority ?? patch.status ?? patch.deadline ?? value);
     }
@@ -705,7 +707,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     return {
       success: true,
       reply: lang === 'hi'
-        ? `✅ *"${displayTitle}"* — ${displayField} अपडेट हो गया!`
+        ? `✅ *"${displayTitle}"* — ${displayField} *${displayValue}* कर दिया!`
         : `✅ *"${displayTitle}"* — *${displayField}* updated to *${displayValue}*!`,
     };
   },

@@ -79,12 +79,10 @@ async function dispatch(type: string): Promise<NextResponse> {
     results.deadline = await runDeadlineReminders();   // date-based: 1_day, 2_days
     results.offsets  = await runTaskOffsetReminders(); // time-based: 1h/2h/4h near 9 AM
     results.bot      = await fireBotReminders();
-    pingN8n(); // keep Render instance awake
   } else if (type === 'evening') {
     results.checkout = await runCheckoutReminders();
     results.offsets  = await runTaskOffsetReminders(); // time-based: 1h/2h/4h near 6 PM
     results.bot      = await fireBotReminders();
-    pingN8n(); // keep Render instance awake
   } else if (type === 'checkin')  {
     results.checkin  = await runCheckinReminders();
   } else if (type === 'checkout') {
@@ -416,15 +414,3 @@ function delay(ms: number): Promise<void> {
   return new Promise(r => setTimeout(r, ms));
 }
 
-// Fire-and-forget ping to keep the Render n8n instance awake between messages.
-// Render Free spins down after ~15 min; this runs at 9 AM and 6 PM IST via cron.
-function pingN8n(): void {
-  const url = process.env.N8N_WEBHOOK_URL;
-  if (!url) return;
-  fetch(url, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ from: '_keepalive_', message: 'ping', org_id: '' }),
-  }).then(() => console.log('[n8n keepalive] ping sent'))
-    .catch(e  => console.warn('[n8n keepalive] ping failed:', e?.message));
-}

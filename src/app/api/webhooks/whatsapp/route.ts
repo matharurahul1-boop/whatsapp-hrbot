@@ -257,89 +257,16 @@ async function updateDeliveryStatus(
 }
 
 // ── AI agent dispatch ─────────────────────────────────────────────────────
-async function dispatchAgent(from: string, text: string, orgId: string, isAudio = false): Promise<void> {
-  const n8nUrl = process.env.N8N_WEBHOOK_URL;
-
-  if (n8nUrl) {
-    // ── n8n AI agent path ────────────────────────────────────────────────
-    try {
-      console.log(`[WA Agent] Forwarding to n8n: from=${from}, orgId=${orgId}, isAudio=${isAudio}`);
-
-      // 6s timeout: awake n8n responds in 2-4s; sleeping Render instance = 30-60s
-      const controller = new AbortController();
-      const timeout    = setTimeout(() => controller.abort(), 6_000);
-
-      const n8nRes = await fetch(n8nUrl, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ from, message: text, org_id: orgId, is_audio: isAudio }),
-        signal:  controller.signal,
-      }).finally(() => clearTimeout(timeout));
-
-      if (!n8nRes.ok) {
-        const errBody = await n8nRes.text().catch(() => '');
-        console.error(`[WA Agent] n8n responded ${n8nRes.status}: ${errBody}`);
-        throw new Error(`n8n HTTP ${n8nRes.status}`);
-      }
-
-      const json = await n8nRes.json().catch(() => null);
-      const reply: string | undefined =
-        json?.reply   ??   // { reply: "..." }
-        json?.output  ??   // { output: "..." }  — AI Agent node default
-        json?.text    ??   // { text: "..." }
-        json?.message ??   // { message: "..." }
-        (typeof json === 'string' ? json : undefined);
-
-      if (!reply) {
-        // n8n responded 200 without a reply body — it sent the WhatsApp message directly
-        console.log('[WA Agent] n8n returned 200 with no reply field — n8n handled WhatsApp send directly');
-        return;
-      }
-
-      console.log(`[WA Agent] n8n reply for ${from}: "${reply.slice(0, 80)}…"`);
-      const confirmButtons = json?.confirmButtons;
-      const listItems      = json?.listItems;
-      if (Array.isArray(listItems) && listItems.length > 0) {
-        await sendList(from, reply, json?.listButtonLabel ?? 'Select', listItems, orgId);
-      } else if (Array.isArray(confirmButtons) && confirmButtons.length > 0) {
-        await sendButtons(from, reply, confirmButtons, orgId);
-      } else {
-        await sendText(from, reply, orgId);
-      }
-
-    } catch (err: unknown) {
-      const isSleep = err instanceof Error && (err.name === 'AbortError' || err.message.startsWith('fetch'));
-      console.warn(`[WA Agent] n8n ${isSleep ? 'sleeping/timeout' : 'error'} for ${from} — local fallback`, isSleep ? '' : err);
-
-      // Non-blocking wake ping: kicks Render out of sleep for the NEXT message
-      if (isSleep) {
-        fetch(n8nUrl, {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ from: '_wake_', message: 'ping', org_id: orgId }),
-        }).catch(() => {});
-      }
-
-      // Local Groq agent — warm on Vercel, responds in ~1-2s
-      try {
-        console.log(`[WA Agent] local fallback for ${from}`);
-        const result = await runMasterAgent(text, from, orgId);
-        await sendText(from, result.reply, orgId);
-      } catch (fallbackErr) {
-        console.error(`[WA Agent] local fallback failed for ${from}:`, fallbackErr);
-        await sendText(from, '⚠️ Something went wrong. Please try again.', orgId).catch(() => {});
-      }
-    }
-
-  } else {
-    // ── Fallback: local Claude agent ─────────────────────────────────────
-    try {
-      const result = await runMasterAgent(text, from, orgId);
-      await sendText(from, result.reply, orgId);
-    } catch (err) {
-      console.error(`[WA Agent] Error for ${from}:`, err);
-      await sendText(from, '⚠️ Something went wrong. Please try again.', orgId).catch(() => {});
-    }
+// Standalone branch: all messages processed by the local Groq agent directly.
+// No n8n dependency. To re-enable n8n, merge from the `main` branch.
+async function dispatchAgent(from: string, text: string, orgId: string): Promise<void> {
+  try {
+    console.log(`[WA Agent] → local Groq agent: from=${from}`);
+    const result = await runMasterAgent(text, from, orgId);
+    await sendText(from, result.reply, orgId);
+  } catch (err) {
+    console.error(`[WA Agent] error for ${from}:`, err);
+    await sendText(from, '⚠️ Something went wrong. Please try again.', orgId).catch(() => {});
   }
 }
 
@@ -474,7 +401,7 @@ async function handleAudioMessage(from: string, mediaId: string, orgId: string):
   if (isPolicyQuestion(transcript)) {
     await dispatchPolicyBot(from, transcript, orgId);
   } else {
-    await dispatchAgent(from, transcript, orgId, true);
+    await dispatchAgent(from, transcript, orgId);
   }
 }
 

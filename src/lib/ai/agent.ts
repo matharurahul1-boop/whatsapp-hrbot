@@ -798,7 +798,7 @@ async function runGroqLoop(
   if (tasksByNameMatch && isPrivilegedUser) {
     const assigneeName = tasksByNameMatch[1].trim();
     // Don't match generic terms like "all", "my", "pending"
-    if (!/^(all|my|our|the|any|pending|team|org|your)$/i.test(assigneeName)) {
+    if (!/^(all|my|mine|our|the|any|pending|team|org|your|own|me|self)$/i.test(assigneeName)) {
       console.log(`[Agent] Name-task quick-route: "${message}" → list_tasks(assignee_name="${assigneeName}")`);
       return dispatchTool('list_tasks', { assignee_name: assigneeName }, user, orgId);
     }

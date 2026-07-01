@@ -47,6 +47,22 @@ function priorityEmoji(p: string | null): string {
   return map[p.toLowerCase()] ?? '⚪';
 }
 
+// Sorted-character overlap similarity — robust to single-char typos and transpositions.
+// "Prnay" vs "Pranay" → ~0.83 (above the 0.65 threshold used below).
+function nameSimilarity(a: string, b: string): number {
+  const al = a.toLowerCase().replace(/\s+/g, '');
+  const bl = b.toLowerCase().replace(/\s+/g, '');
+  if (al.length === 0 || bl.length === 0) return 0;
+  if (bl.includes(al) || al.includes(bl)) return 0.9;
+  const ac = [...al].sort(), bc = [...bl].sort();
+  let i = 0, j = 0, common = 0;
+  while (i < ac.length && j < bc.length) {
+    if (ac[i] === bc[j]) { common++; i++; j++; }
+    else if (ac[i] < bc[j]) i++; else j++;
+  }
+  return common / Math.max(ac.length, bc.length);
+}
+
 // ─── Tool Map ─────────────────────────────────────────────────────────────────
 
 const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolResult>>> = {
@@ -357,22 +373,35 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
         .eq('organization_id', org_id)
         .ilike('full_name', `%${slots.assignee_name}%`)
         .limit(5);
-      const target = targetRows?.[0];
+      let target: { id: string; full_name: string } | null = targetRows?.[0] ?? null;
+
+      // Fuzzy fallback for typos — e.g. "Prnay" → "Pranay"
       if (!target) {
         const { data: allActive } = await db
           .from('users')
-          .select('full_name')
+          .select('id, full_name')
           .eq('organization_id', org_id)
           .eq('is_active', true)
-          .neq('id', user_id)
-          .limit(8);
-        const nameList = (allActive ?? []).map((u: any) => u.full_name).join(', ');
-        return { success: false, reply: lang === 'hi'
-          ? `❌ "*${slots.assignee_name}*" नाम का कोई user नहीं मिला।${nameList ? `\n\nउपलब्ध: ${nameList}` : ''}`
-          : `❌ No user found matching "*${slots.assignee_name}*".${nameList ? `\n\nAvailable: ${nameList}` : ''}`
-        };
+          .limit(20);
+
+        let bestScore = 0;
+        for (const u of (allActive ?? []) as { id: string; full_name: string }[]) {
+          // Score against full name AND each word (first name, last name separately)
+          const scores = [u.full_name, ...u.full_name.split(' ')]
+            .map(n => nameSimilarity(slots.assignee_name!, n));
+          const score = Math.max(...scores);
+          if (score > bestScore) { bestScore = score; target = u; }
+        }
+        if (bestScore < 0.65) {
+          // Still no close match — show who is available
+          const nameList = ((allActive ?? []) as { full_name: string }[]).map(u => u.full_name).join(', ');
+          return { success: false, reply: lang === 'hi'
+            ? `❌ "*${slots.assignee_name}*" नाम का कोई user नहीं मिला।${nameList ? `\n\nउपलब्ध: ${nameList}` : ''}`
+            : `❌ No user found matching "*${slots.assignee_name}*".${nameList ? `\n\nAvailable: ${nameList}` : ''}`
+          };
+        }
       }
-      query = query.eq('assignee_id', target.id);
+      query = query.eq('assignee_id', target!.id);
     }
     // else: privileged user with no filter → show all org tasks
 

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Zap, Eye, EyeOff, Mail, Lock, User, ArrowRight, Loader2, AlertCircle, CheckCircle2, Building2, Phone, BriefcaseBusiness, Users, Clock3 } from 'lucide-react';
+import { Zap, Eye, EyeOff, Mail, Lock, User, ArrowRight, Loader2, AlertCircle, CheckCircle2, Building2, Phone, BriefcaseBusiness, Users, Clock3, Smartphone } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
 export default function LoginPage() {
@@ -31,10 +31,23 @@ export default function LoginPage() {
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true); reset();
-    const { error: err } = await supabase.auth.signInWithPassword({ email, password });
+
+    let loginEmail = email.trim();
+
+    // If input is not an email, treat as WhatsApp/mobile number — look up email
+    if (!loginEmail.includes('@')) {
+      const res = await fetch('/api/auth/lookup-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier: loginEmail }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error ?? 'No account found for this number'); setLoading(false); return; }
+      loginEmail = data.email;
+    }
+
+    const { error: err } = await supabase.auth.signInWithPassword({ email: loginEmail, password });
     if (err) { setError(err.message); setLoading(false); return; }
-    // Hard navigate so the server layout re-runs with the new session cookie.
-    // Middleware will redirect /dashboard → /setup if profile doesn't exist yet.
     window.location.href = '/dashboard';
   }
 
@@ -111,10 +124,10 @@ export default function LoginPage() {
           {tab === 'login' && (
             <form onSubmit={handleLogin} className="space-y-4">
               <div className="space-y-1.5">
-                <label className="label">Email address</label>
+                <label className="label">Email or WhatsApp number</label>
                 <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-surface-500 pointer-events-none" />
-                  <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="admin@company.com" required autoFocus autoComplete="email" className="input pl-9" />
+                  <Smartphone className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-surface-500 pointer-events-none" />
+                  <input type="text" value={email} onChange={e => setEmail(e.target.value)} placeholder="admin@company.com or 9876543210" required autoFocus autoComplete="email" className="input pl-9" />
                 </div>
               </div>
               <div className="space-y-1.5">

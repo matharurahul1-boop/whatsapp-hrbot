@@ -2,7 +2,7 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Zap, User, Mail, Lock, Eye, EyeOff, ArrowRight, Loader2, AlertCircle, Building2, CheckCircle2 } from 'lucide-react';
+import { Zap, User, Mail, Lock, Eye, EyeOff, ArrowRight, Loader2, AlertCircle, Building2, CheckCircle2, Phone } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
 function JoinForm() {
@@ -25,6 +25,7 @@ function JoinForm() {
   const [success,   setSuccess]   = useState(false);
   const [name,      setName]      = useState('');
   const [email,     setEmail]     = useState('');
+  const [waNumber,  setWaNumber]  = useState('');
   const [password,  setPassword]  = useState('');
   const [showPw,    setShowPw]    = useState(false);
 
@@ -53,7 +54,7 @@ function JoinForm() {
 
     const res  = await fetch('/api/auth/join', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ orgId, role, fullName: name }),
+      body: JSON.stringify({ orgId, role, fullName: name, waNumber }),
     });
     const json = await res.json();
     if (!res.ok) { setError(json.error ?? 'Failed to join'); setLoading(false); return; }
@@ -136,6 +137,14 @@ function JoinForm() {
                 <div className="relative">
                   <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-surface-500 pointer-events-none" />
                   <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@company.com" required autoComplete="email" className="input pl-9" />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="label">WhatsApp number</label>
+                <div className="relative">
+                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-surface-500 pointer-events-none" />
+                  <input type="tel" value={waNumber} onChange={e => setWaNumber(e.target.value)} placeholder="+91 98765 43210" required className="input pl-9" />
                 </div>
               </div>
 

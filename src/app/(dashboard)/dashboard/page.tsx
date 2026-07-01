@@ -14,7 +14,7 @@ import ActivityFeed from '@/components/dashboard/ActivityFeed';
 import AttendanceHeatmap from '@/components/dashboard/AttendanceHeatmap';
 
 export const metadata = { title: 'Dashboard — HRBot' };
-export const revalidate = 60;
+export const dynamic = 'force-dynamic';
 
 export default async function DashboardPage() {
   const supabase = await createClient();

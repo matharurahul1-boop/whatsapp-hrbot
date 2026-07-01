@@ -5,7 +5,7 @@ import EmployeeGrid from '@/components/employees/EmployeeGrid';
 import InvitePanel from '@/components/employees/InvitePanel';
 
 export const metadata = { title: 'Team — HRBot' };
-export const revalidate = 60;
+export const dynamic = 'force-dynamic';
 
 export default async function EmployeesPage() {
   const supabase = await createClient();

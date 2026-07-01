@@ -519,6 +519,22 @@ function buildSystemPrompt(user: AgentUser): string {
   const time = new Date().toLocaleTimeString('en-IN', {
     timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit',
   });
+
+  // Dynamic dates for examples — computed fresh so they never equal "today"
+  // and confuse the model into treating today's date as "tomorrow".
+  function exampleDate(offsetDays: number): { display: string; iso: string } {
+    const ist = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    ist.setDate(ist.getDate() + offsetDays);
+    const display = ist.toLocaleDateString('en-IN', {
+      timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric',
+    });
+    const yr = ist.getFullYear();
+    const mo = String(ist.getMonth() + 1).padStart(2, '0');
+    const dy = String(ist.getDate()).padStart(2, '0');
+    return { display, iso: `${yr}-${mo}-${dy}` };
+  }
+  const tmr  = exampleDate(1);  // tomorrow
+  const dat2 = exampleDate(2);  // day after tomorrow
   const role        = user.role;
   const isEmployee  = role === 'employee';
   const isManager   = role === 'manager';
@@ -614,15 +630,15 @@ Reminders fire at 9 AM IST (morning cron). Always confirm before calling configu
 
 Single-turn task creation (title + deadline + priority all in one message):
 User: "create a task Fix login bug due tomorrow 5pm priority high"
-You: I'll create task *Fix login bug* for *you* due *2 Jul 2026, 05:00 PM* with *high* priority. Go ahead? (Yes / No)
+You: I'll create task *Fix login bug* for *you* due *${tmr.display}, 05:00 PM* with *high* priority. Go ahead? (Yes / No)
 User: "yes"
-You: [call create_task(title="Fix login bug", deadline="2026-07-02 17:00", priority="high")]
+You: [call create_task(title="Fix login bug", deadline="${tmr.iso} 17:00", priority="high")]
 
 Task creation for someone else:
-User: "create a task Design mockups for Tushar due Friday 9am priority medium"
-You: I'll create task *Design mockups* for *Tushar* due *3 Jul 2026, 09:00 AM* with *medium* priority. Go ahead? (Yes / No)
+User: "create a task Design mockups for Tushar due day after tomorrow 9am priority medium"
+You: I'll create task *Design mockups* for *Tushar* due *${dat2.display}, 09:00 AM* with *medium* priority. Go ahead? (Yes / No)
 User: "yes"
-You: [call create_task(title="Design mockups", assignee="Tushar", deadline="2026-07-03 09:00", priority="medium")]
+You: [call create_task(title="Design mockups", assignee="Tushar", deadline="${dat2.iso} 09:00", priority="medium")]
 
 Multi-turn — title given, deadline + priority missing:
 User: "I want to create a task"
@@ -632,17 +648,17 @@ You: Got it — *Fix login bug*. When is the deadline? (e.g. tomorrow 5pm, 10 Ju
 User: "tomorrow 5pm"
 You: And the priority? (low / medium / high / urgent)
 User: "high"
-You: I'll create task *Fix login bug* for *you* due *2 Jul 2026, 05:00 PM* with *high* priority. Go ahead? (Yes / No)
+You: I'll create task *Fix login bug* for *you* due *${tmr.display}, 05:00 PM* with *high* priority. Go ahead? (Yes / No)
 User: "Create the task"  ← this IS the confirmation
-You: [call create_task(title="Fix login bug", deadline="2026-07-02 17:00", priority="high")]
+You: [call create_task(title="Fix login bug", deadline="${tmr.iso} 17:00", priority="high")]
 
 Multi-turn — title + deadline given, priority missing:
-User: "create task Automation tool deadline 19 June"
-You: Got it — *Automation tool* due *19 Jun 2026, 09:00 AM*. What's the priority? (low / medium / high / urgent)
+User: "create task Automation tool deadline day after tomorrow"
+You: Got it — *Automation tool* due *${dat2.display}, 09:00 AM*. What's the priority? (low / medium / high / urgent)
 User: "medium"
-You: I'll create task *Automation tool* for *you* due *19 Jun 2026, 09:00 AM* with *medium* priority. Go ahead? (Yes / No)
+You: I'll create task *Automation tool* for *you* due *${dat2.display}, 09:00 AM* with *medium* priority. Go ahead? (Yes / No)
 User: "yes"
-You: [call create_task(title="Automation tool", deadline="2026-06-19 09:00", priority="medium")]
+You: [call create_task(title="Automation tool", deadline="${dat2.iso} 09:00", priority="medium")]
 
 Field update (ALWAYS bold both the task name AND the field name):
 User: "update the assigned to of Design Review to Rahul"
@@ -650,7 +666,7 @@ You: I'll update *Design Review* — set *assignee* to *Rahul*. Go ahead? (Yes /
 User: "change the title of Fix Bug to Fix Login Bug"
 You: I'll update *Fix Bug* — set *title* to *Fix Login Bug*. Go ahead? (Yes / No)
 User: "update deadline of Fix Bug to tomorrow 3pm"
-You: I'll update *Fix Bug* — set *deadline* to *2 Jul 2026, 03:00 PM*. Go ahead? (Yes / No)
+You: I'll update *Fix Bug* — set *deadline* to *${tmr.display}, 03:00 PM*. Go ahead? (Yes / No)
 
 Read-only query:
 User: "list my tasks"
@@ -670,7 +686,7 @@ Setting due date on an existing task:
 User: "What's the due date of X?"
 Bot: [call get_task_details → sees no deadline] "No due date set. Do you want to add one?"
 User: "Yes, for tomorrow"
-Bot: I'll update *X* — set *deadline* to *17 Jun 2026*. Go ahead? (Yes / No)
+Bot: I'll update *X* — set *deadline* to *${tmr.display}*. Go ahead? (Yes / No)
 ← ALWAYS use update_task here. NEVER call create_task for an already-existing task.
 
 ## IMPORTANT: Never use example text as real data

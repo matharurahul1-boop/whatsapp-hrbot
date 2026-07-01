@@ -132,12 +132,15 @@ async function handleOneMessage(
 
   // 4. AI agent — use waitUntil so Vercel keeps the function alive after
   //    returning 200 OK to Meta (background tasks are otherwise killed).
-  const text = extractText(msg);
-  if (text?.trim()) {
-    const flightKey = `${orgId}:${msg.from}`;
+  const text      = extractText(msg);
+  const isAudio   = msg.type === 'audio';
+  const flightKey = `${orgId}:${msg.from}`;
+
+  if (text?.trim() || isAudio) {
     waitUntil((async () => {
-      // If a previous message from this user is still being processed, wait
-      // briefly then either proceed (if it finished) or send a holding reply.
+      // Concurrency guard applies to both text AND audio messages.
+      // Prevents a rapid second message from the same sender interleaving
+      // with the first (e.g. two quick voice notes creating duplicate tasks).
       if (inFlight.has(flightKey)) {
         await new Promise(r => setTimeout(r, 4_000));
         if (inFlight.has(flightKey)) {
@@ -147,25 +150,19 @@ async function handleOneMessage(
       }
       inFlight.add(flightKey);
       try {
-        if (isPolicyQuestion(text)) {
-          await dispatchPolicyBot(msg.from, text, orgId).catch(err =>
-            console.error('[WA PolicyBot] Error:', err)
-          );
+        if (isAudio) {
+          await handleAudioMessage(msg.from, msg.audio?.id ?? '', orgId);
+        } else if (isPolicyQuestion(text!)) {
+          await dispatchPolicyBot(msg.from, text!, orgId);
         } else {
-          await dispatchAgent(msg.from, text, orgId).catch(err =>
-            console.error('[WA Agent] Error:', err)
-          );
+          await dispatchAgent(msg.from, text!, orgId);
         }
+      } catch (err) {
+        console.error('[WA] Dispatch error:', err);
       } finally {
         inFlight.delete(flightKey);
       }
     })());
-  } else if (msg.type === 'audio') {
-    waitUntil(
-      handleAudioMessage(msg.from, msg.audio?.id ?? '', orgId).catch(err =>
-        console.error('[WA Audio] Error:', err)
-      )
-    );
   } else if (['image','document','video','sticker'].includes(msg.type)) {
     sendText(msg.from,
       '📎 I received your file. I can only process text and voice messages.',
@@ -463,7 +460,12 @@ async function handleAudioMessage(from: string, mediaId: string, orgId: string):
   const preview = transcript.length > 120 ? transcript.slice(0, 120) + '…' : transcript;
   await sendText(from, `🎙️ Heard: "${preview}"`, orgId).catch(() => {});
 
-  await dispatchAgent(from, transcript, orgId, true);
+  // Route transcribed audio the same way as text: policy questions → policy bot
+  if (isPolicyQuestion(transcript)) {
+    await dispatchPolicyBot(from, transcript, orgId);
+  } else {
+    await dispatchAgent(from, transcript, orgId, true);
+  }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────

@@ -233,8 +233,11 @@ function parseConfirmationMessage(lastMsg: string): ConfirmationParsed | null {
     const titleM = lastMsg.match(/create\s+task\s+\*([^*]+)\*/i);
     if (!titleM) return null;
     const args: Record<string, string> = { title: titleM[1].trim() };
+    // "for *Tushar*" — extract assignee when creating on behalf of someone
+    const assigneeM = lastMsg.match(/\bfor\s+\*([^*]+)\*/i);
     const priorityM = lastMsg.match(/\*(urgent|high|medium|low)\*/i);
     const deadlineM = lastMsg.match(/due\s+\*([^*]+)\*/i);
+    if (assigneeM) args.assignee = assigneeM[1].trim();
     if (priorityM) args.priority = priorityM[1].toLowerCase();
     if (deadlineM) {
       const raw  = deadlineM[1];

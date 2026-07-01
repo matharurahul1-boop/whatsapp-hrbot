@@ -233,11 +233,14 @@ function parseConfirmationMessage(lastMsg: string): ConfirmationParsed | null {
     const titleM = lastMsg.match(/create\s+task\s+\*([^*]+)\*/i);
     if (!titleM) return null;
     const args: Record<string, string> = { title: titleM[1].trim() };
-    // "for *Tushar*" — extract assignee when creating on behalf of someone
+    // "for *Tushar*" — extract assignee when creating on behalf of someone.
+    // Skip self-referential words ("you", "me", "yourself") — those mean self-assignment.
     const assigneeM = lastMsg.match(/\bfor\s+\*([^*]+)\*/i);
     const priorityM = lastMsg.match(/\*(urgent|high|medium|low)\*/i);
     const deadlineM = lastMsg.match(/due\s+\*([^*]+)\*/i);
-    if (assigneeM) args.assignee = assigneeM[1].trim();
+    if (assigneeM && !/^(you|me|yourself|myself|self|i)$/i.test(assigneeM[1].trim())) {
+      args.assignee = assigneeM[1].trim();
+    }
     if (priorityM) args.priority = priorityM[1].toLowerCase();
     if (deadlineM) {
       const raw  = deadlineM[1];
@@ -580,6 +583,7 @@ reject_leave, cancel_leave, check_in, check_out, set_reminder):
 3. Only call the tool AFTER the user says Yes / Haan / Sure / Ok / Confirm / "Create the task" / "Do it" / "Go ahead".
 4. If user says No / Nahi / Cancel → say "Got it, cancelled. What else can I help with?"
 5. For create_task ONLY: NEVER send the confirmation until *title*, *deadline* (date + time), AND *priority* are all collected. Ask for any that are missing — one question at a time — before confirming.
+6. For create_task, ALWAYS include the assignee in the confirmation sentence: "for *you*" when self-assigned, "for *[Name]*" when assigned to someone else. Example: "I'll create task *Fix bug* for *you* due *2 Jul 2026, 05:00 PM* with *high* priority. Go ahead? (Yes / No)"
 
 ## CRITICAL: Never lose context mid-collection
 - If you just asked for task details and the user provided them, your IMMEDIATE next reply MUST be the confirmation message (e.g. "I'll create task *X* due *Y*. Go ahead? (Yes / No)"). NEVER say "What else can I help with?" at this point.
@@ -610,9 +614,15 @@ Reminders fire at 9 AM IST (morning cron). Always confirm before calling configu
 
 Single-turn task creation (title + deadline + priority all in one message):
 User: "create a task Fix login bug due tomorrow 5pm priority high"
-You: I'll create task *Fix login bug* due *2 Jul 2026, 05:00 PM* with *high* priority. Go ahead? (Yes / No)
+You: I'll create task *Fix login bug* for *you* due *2 Jul 2026, 05:00 PM* with *high* priority. Go ahead? (Yes / No)
 User: "yes"
 You: [call create_task(title="Fix login bug", deadline="2026-07-02 17:00", priority="high")]
+
+Task creation for someone else:
+User: "create a task Design mockups for Tushar due Friday 9am priority medium"
+You: I'll create task *Design mockups* for *Tushar* due *3 Jul 2026, 09:00 AM* with *medium* priority. Go ahead? (Yes / No)
+User: "yes"
+You: [call create_task(title="Design mockups", assignee="Tushar", deadline="2026-07-03 09:00", priority="medium")]
 
 Multi-turn — title given, deadline + priority missing:
 User: "I want to create a task"
@@ -622,7 +632,7 @@ You: Got it — *Fix login bug*. When is the deadline? (e.g. tomorrow 5pm, 10 Ju
 User: "tomorrow 5pm"
 You: And the priority? (low / medium / high / urgent)
 User: "high"
-You: I'll create task *Fix login bug* due *2 Jul 2026, 05:00 PM* with *high* priority. Go ahead? (Yes / No)
+You: I'll create task *Fix login bug* for *you* due *2 Jul 2026, 05:00 PM* with *high* priority. Go ahead? (Yes / No)
 User: "Create the task"  ← this IS the confirmation
 You: [call create_task(title="Fix login bug", deadline="2026-07-02 17:00", priority="high")]
 
@@ -630,7 +640,7 @@ Multi-turn — title + deadline given, priority missing:
 User: "create task Automation tool deadline 19 June"
 You: Got it — *Automation tool* due *19 Jun 2026, 09:00 AM*. What's the priority? (low / medium / high / urgent)
 User: "medium"
-You: I'll create task *Automation tool* due *19 Jun 2026, 09:00 AM* with *medium* priority. Go ahead? (Yes / No)
+You: I'll create task *Automation tool* for *you* due *19 Jun 2026, 09:00 AM* with *medium* priority. Go ahead? (Yes / No)
 User: "yes"
 You: [call create_task(title="Automation tool", deadline="2026-06-19 09:00", priority="medium")]
 

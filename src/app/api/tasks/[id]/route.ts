@@ -64,18 +64,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (!profile || !task) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   if (task.organization_id !== profile.organization_id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  // Split combined datetime into separate date + time columns
+  // Convert combined datetime-local value to full ISO with IST offset, or null to clear
   const { deadline: deadlineISO, ...parsedRest } = parsed.data;
   const deadlineFields: Record<string, unknown> = {};
   if (deadlineISO !== undefined) {
-    if (deadlineISO === null) {
-      deadlineFields.deadline = null;
-      deadlineFields.due_time = null;
-    } else {
-      const [dl, dt] = deadlineISO.split('T');
-      deadlineFields.deadline = dl;
-      deadlineFields.due_time = dt;
-    }
+    deadlineFields.deadline = deadlineISO === null ? null : deadlineISO + ':00+05:30';
   }
 
   // ── Build updateData — filtered by role ──────────────────────────────────────
@@ -119,13 +112,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   await writeAuditLog({ org_id: profile.organization_id, actor_id: user.id, action: 'UPDATE', table_name: 'tasks', record_id: id, old_data: task, new_data: updated });
 
-  // Re-schedule reminders if deadline/time/reminders changed
+  // Re-schedule reminders if deadline or reminders changed
   const deadlineFieldChanged =
     updateData.deadline  !== undefined ||
-    updateData.due_time  !== undefined ||
     updateData.reminders !== undefined;
   if (deadlineFieldChanged) {
-    await scheduleTaskReminders({ id: updated.id, organization_id: profile.organization_id, deadline: updated.deadline ?? null, due_time: updated.due_time ?? null, reminders: updated.reminders ?? [] });
+    await scheduleTaskReminders({ id: updated.id, organization_id: profile.organization_id, deadline: updated.deadline ?? null, reminders: updated.reminders ?? [] });
   }
 
   const { data: actor } = await db.from('users').select('full_name').eq('id', user.id).single();

@@ -4,7 +4,7 @@ import { useState }    from 'react';
 import { useRouter }   from 'next/navigation';
 import {
   Zap, AlertCircle, Loader2,
-  LogOut, Building2, User, ArrowRight,
+  LogOut, Building2, User, ArrowRight, Phone, BriefcaseBusiness, Users,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
@@ -20,12 +20,16 @@ export default function SetupForm({ userId, email, prefillName }: Props) {
 
   const [fullName, setFullName] = useState(prefillName);
   const [orgName,  setOrgName]  = useState('');
+  const [waNumber, setWaNumber] = useState('');
+  const [department, setDepartment] = useState('Human Resources');
+  const [designation, setDesignation] = useState('Administrator');
+  const [companySize, setCompanySize] = useState('1-10');
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState('');
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
-    if (!fullName.trim() || !orgName.trim()) return;
+    if (!fullName.trim() || !orgName.trim() || !waNumber.trim() || !department.trim() || !designation.trim()) return;
     setLoading(true);
     setError('');
 
@@ -33,7 +37,10 @@ export default function SetupForm({ userId, email, prefillName }: Props) {
       const res  = await fetch('/api/auth/setup', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ fullName, orgName, userId, email }),
+        body: JSON.stringify({
+          fullName, orgName, waNumber, department, designation, companySize,
+          timezone: 'Asia/Kolkata', workdayStart: '09:00', workdayEnd: '18:00',
+        }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Setup failed');
@@ -133,9 +140,45 @@ export default function SetupForm({ userId, email, prefillName }: Props) {
               </div>
             </div>
 
+            <div className="space-y-1.5">
+              <label className="label">WhatsApp number</label>
+              <div className="relative">
+                <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-surface-500 pointer-events-none" />
+                <input type="tel" value={waNumber} onChange={e => setWaNumber(e.target.value)} placeholder="+91 98765 43210" required className="input pl-9" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="label">Department</label>
+                <div className="relative">
+                  <Users className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-surface-500 pointer-events-none" />
+                  <input value={department} onChange={e => setDepartment(e.target.value)} required className="input pl-9" />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="label">Job title</label>
+                <div className="relative">
+                  <BriefcaseBusiness className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-surface-500 pointer-events-none" />
+                  <input value={designation} onChange={e => setDesignation(e.target.value)} required className="input pl-9" />
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="label">Company size</label>
+              <select value={companySize} onChange={e => setCompanySize(e.target.value)} className="input">
+                <option value="1-10">1–10 employees</option>
+                <option value="11-50">11–50 employees</option>
+                <option value="51-200">51–200 employees</option>
+                <option value="201-500">201–500 employees</option>
+                <option value="501+">501+ employees</option>
+              </select>
+            </div>
+
             <button
               type="submit"
-              disabled={loading || !fullName.trim() || !orgName.trim()}
+              disabled={loading || !fullName.trim() || !orgName.trim() || !waNumber.trim() || !department.trim() || !designation.trim()}
               className="w-full flex items-center justify-center gap-2 h-10 rounded-lg bg-brand-gradient text-white text-sm font-semibold mt-1 transition-all shadow-glow-sm hover:opacity-90 disabled:opacity-50"
             >
               {loading

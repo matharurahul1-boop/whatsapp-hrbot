@@ -45,3 +45,10 @@ export const todayIST = todayISO;
 export function istNow(): string {
   return new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
 }
+
+/** Convert a UTC ISO datetime string to YYYY-MM-DDTHH:MM in IST for datetime-local inputs */
+export function toISTInputValue(isoStr: string): string {
+  const d = new Date(isoStr);
+  if (isNaN(d.getTime())) return isoStr;
+  return d.toLocaleString('sv-SE', { timeZone: 'Asia/Kolkata' }).slice(0, 16).replace(' ', 'T');
+}

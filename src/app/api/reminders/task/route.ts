@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json().catch(() => ({}));
-  const { task_id, reminder, scheduled_deadline, scheduled_due_time } = body;
+  const { task_id, reminder, scheduled_deadline } = body;
 
   if (!task_id || !reminder) {
     return NextResponse.json({ error: 'Missing task_id or reminder' }, { status: 400 });
@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
   const { data: task } = await db
     .from('tasks')
     .select(`
-      id, title, deadline, due_time, reminders, organization_id, status,
+      id, title, deadline, reminders, organization_id, status,
       assignee:users!tasks_assignee_id_fkey(id, full_name, wa_number, metadata)
     `)
     .eq('id', task_id)
@@ -40,12 +40,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, skipped: 'task_completed' });
   }
 
-  // Bail if deadline/time changed since reminder was scheduled
-  // Normalize undefined (optional chaining on null) → null for strict equality
-  if (
-    task.deadline !== scheduled_deadline ||
-    (task.due_time?.slice(0, 5) ?? null) !== (scheduled_due_time ?? null)
-  ) {
+  // Bail if deadline changed since reminder was scheduled
+  if (task.deadline !== scheduled_deadline) {
     return NextResponse.json({ ok: true, skipped: 'deadline_changed' });
   }
 
@@ -82,8 +78,7 @@ export async function POST(req: NextRequest) {
       waNumber:     assignee.wa_number,
       assigneeName: assignee.full_name,
       taskTitle:    task.title,
-      deadline:     task.deadline,
-      dueTime:      task.due_time,
+      deadline:     task.deadline as string,
       reminderType: reminder,
     });
   }

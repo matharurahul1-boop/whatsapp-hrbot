@@ -140,6 +140,10 @@ async function runAttendanceReminders(type: string): Promise<NextResponse> {
 
     // ── Task deadline reminder (tasks due tomorrow) ─────────────────────────
     if (type === 'deadline') {
+      // Query tasks whose deadline falls within tomorrow (IST) using timestamp bounds
+      const tomorrowStart = `${tomorrow}T00:00:00+05:30`;
+      const tomorrowEnd   = `${tomorrow}T23:59:59+05:30`;
+
       const { data: dueTasks } = await db
         .from('tasks')
         .select(`
@@ -147,7 +151,8 @@ async function runAttendanceReminders(type: string): Promise<NextResponse> {
           assignee:users!tasks_assignee_id_fkey(id, full_name, wa_number)
         `)
         .eq('organization_id', org.id)
-        .eq('deadline', tomorrow)
+        .gte('deadline', tomorrowStart)
+        .lte('deadline', tomorrowEnd)
         .not('status', 'in', '("done","cancelled")')
         .is('deleted_at', null);
 
@@ -159,8 +164,7 @@ async function runAttendanceReminders(type: string): Promise<NextResponse> {
           waNumber:     assignee.wa_number,
           assigneeName: assignee.full_name,
           taskTitle:    task.title,
-          deadline:     task.deadline ?? tomorrow,
-          dueTime:      (task as Record<string, unknown>).due_time as string | null ?? null,
+          deadline:     task.deadline ?? tomorrowStart,
         });
         processed++;
         await new Promise(r => setTimeout(r, 150));
@@ -209,24 +213,26 @@ async function runTaskDueDateReminders(): Promise<NextResponse> {
 
   for (const [offsetKey, offsetMs] of Object.entries(REMINDER_OFFSETS)) {
     const targetMs   = now.getTime() + offsetMs;
-    const targetDate = new Date(targetMs).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    // Query tasks whose deadline falls within ±WINDOW_MS of the target
+    const targetLow  = new Date(targetMs - WINDOW_MS).toISOString();
+    const targetHigh = new Date(targetMs + WINDOW_MS).toISOString();
 
     const { data: tasks } = await db
       .from('tasks')
       .select(`
-        id, title, deadline, due_time, reminders, organization_id,
+        id, title, deadline, reminders, organization_id,
         assignee:users!tasks_assignee_id_fkey(id, full_name, wa_number, metadata)
       `)
-      .eq('deadline', targetDate)
-      .not('due_time', 'is', null)
+      .gte('deadline', targetLow)
+      .lte('deadline', targetHigh)
       .contains('reminders', [offsetKey])
       .not('status', 'in', '("done","cancelled")')
       .is('deleted_at', null);
 
+    // Secondary filter: ensure reminder window is exact (±30 min of fire time)
     const inWindow = (tasks ?? []).filter(task => {
-      const dueTime = (task as Record<string, unknown>).due_time as string;
-      const deadlineUTC = new Date(`${task.deadline}T${dueTime.slice(0, 5)}+05:30`);
-      const reminderUTC = deadlineUTC.getTime() - offsetMs;
+      const deadlineMs  = new Date(task.deadline as string).getTime();
+      const reminderUTC = deadlineMs - offsetMs;
       return Math.abs(now.getTime() - reminderUTC) <= WINDOW_MS;
     });
 
@@ -260,8 +266,7 @@ async function runTaskDueDateReminders(): Promise<NextResponse> {
           waNumber:     assignee.wa_number,
           assigneeName: assignee.full_name,
           taskTitle:    task.title,
-          deadline:     task.deadline ?? targetDate,
-          dueTime:      (task as Record<string, unknown>).due_time as string | null ?? null,
+          deadline:     task.deadline as string,
           reminderType: offsetKey,
         });
       }

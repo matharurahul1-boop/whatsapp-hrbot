@@ -10,16 +10,14 @@ const REMINDER_OFFSETS: Record<string, number> = {
 interface ScheduleInput {
   id: string;
   organization_id: string;
-  deadline: string | null;
-  due_time: string | null;
+  deadline: string | null;  // full ISO datetime (timestamptz from DB)
   reminders: string[] | null;
 }
 
 export async function scheduleTaskReminders(task: ScheduleInput): Promise<void> {
-  if (!task.deadline || !task.due_time || !task.reminders?.length) return;
+  if (!task.deadline || !task.reminders?.length) return;
 
-  const timeStr     = task.due_time.slice(0, 5); // HH:MM
-  const deadlineUTC = new Date(`${task.deadline}T${timeStr}+05:30`).getTime();
+  const deadlineUTC = new Date(task.deadline).getTime();
   const now         = Date.now();
 
   const rows: Array<{
@@ -29,7 +27,6 @@ export async function scheduleTaskReminders(task: ScheduleInput): Promise<void> 
     task_reminder: string;
     fire_at: string;
     scheduled_deadline: string;
-    scheduled_due_time: string;
   }> = [];
 
   for (const reminder of task.reminders) {
@@ -38,13 +35,12 @@ export async function scheduleTaskReminders(task: ScheduleInput): Promise<void> 
     const fireAt = deadlineUTC - offset;
     if (fireAt <= now) continue;
     rows.push({
-      organization_id:   task.organization_id,
-      type:              'task',
-      task_id:           task.id,
-      task_reminder:     reminder,
-      fire_at:           new Date(fireAt).toISOString(),
+      organization_id:    task.organization_id,
+      type:               'task',
+      task_id:            task.id,
+      task_reminder:      reminder,
+      fire_at:            new Date(fireAt).toISOString(),
       scheduled_deadline: task.deadline,
-      scheduled_due_time: timeStr,
     });
   }
 

@@ -16,8 +16,20 @@ const USE_GROQ   = true;
 const USE_CLAUDE = false;
 const USE_GEMINI = false;
 
-// Multiple Groq keys for rate-limit rotation (comma-separated in GROQ_API_KEY)
-const GROQ_KEYS    = (process.env.GROQ_API_KEY || 'not-configured').split(',').map(k => k.trim()).filter(Boolean);
+// Rotate across every configured free-tier key. GROQ_API_KEY may also contain
+// a comma-separated list for backwards compatibility.
+const GROQ_KEYS = [
+  ...(process.env.GROQ_API_KEY ?? '').split(','),
+  process.env.GROQ_API_KEY_2,
+  process.env.GROQ_API_KEY_3,
+  process.env.GROQ_API_KEY_4,
+  process.env.GROQ_API_KEY_5,
+  process.env.GROQ_API_KEY_6,
+  process.env.GROQ_API_KEY_7,
+  process.env.GROQ_API_KEY_8,
+  process.env.GROQ_API_KEY_9,
+  process.env.GROQ_API_KEY_10,
+].map(k => k?.trim()).filter((k): k is string => Boolean(k));
 const groqClients  = GROQ_KEYS.map(k => new Groq({ apiKey: k }));
 let   groqKeyIndex = 0; // round-robins across serverless warm instances
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY ?? '' });
@@ -31,7 +43,7 @@ const openai    = new OpenAI({
 const AI_MODEL_GROQ   = 'llama-3.3-70b-versatile';
 const AI_MODEL_CLAUDE = 'claude-haiku-4-5-20251001';
 const AI_MODEL_GEMINI = 'gemini-2.0-flash';
-const AI_MODEL_OR     = 'openai/gpt-oss-20b:free';
+const AI_MODEL_OR     = 'openrouter/free';
 
 type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
@@ -616,6 +628,44 @@ async function runGroqLoop(
     return out;
   }
 
+  async function runOpenRouterFallback(): Promise<string> {
+    const tools: OpenAI.Chat.ChatCompletionTool[] = HRBOT_TOOLS.map(t => ({
+      type: 'function' as const,
+      function: { name: t.name, description: t.description, parameters: normalizeSchema(t.parameters) },
+    }));
+    const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+      { role: 'system', content: buildSystemPrompt(user) },
+      ...history.map(m => ({ role: m.role, content: m.content } as OpenAI.Chat.ChatCompletionMessageParam)),
+      { role: 'user', content: effectiveMessage },
+    ];
+
+    try {
+      let response = await openai.chat.completions.create({
+        model: AI_MODEL_OR, messages, tools, max_tokens: 512,
+      });
+      for (let round = 0; round < 4; round++) {
+        const choice = response.choices[0];
+        const toolCalls = choice.message.tool_calls ?? [];
+        if (toolCalls.length === 0) return choice.message.content?.trim() || '';
+        messages.push(choice.message);
+        for (const call of toolCalls) {
+          if (call.type !== 'function') continue;
+          let args: Record<string, string> = {};
+          try { args = JSON.parse(call.function.arguments); } catch { /* empty args */ }
+          const output = await dispatchTool(call.function.name, args, user, orgId);
+          messages.push({ role: 'tool', tool_call_id: call.id, content: output });
+        }
+        response = await openai.chat.completions.create({
+          model: AI_MODEL_OR, messages, tools, max_tokens: 512,
+        });
+      }
+      return 'I had trouble processing that — please try again.';
+    } catch (err) {
+      console.error('[Agent] Free OpenRouter fallback failed:', err);
+      return "I'm a bit busy right now. Please try again in a few seconds.";
+    }
+  }
+
   if (USE_GROQ) {
     // ── Groq Llama 3.3 70B — primary backend (free tier) ──────────────────
     const groqTools: Groq.Chat.ChatCompletionTool[] = HRBOT_TOOLS.map(t => ({
@@ -680,15 +730,12 @@ async function runGroqLoop(
           continue; // try next key
         }
 
-        console.error(`[Agent] Groq[${clientIdx}] error (status ${status}):`, errMsg);
-        if (status === 429) {
-          return isDev ? `⏳ *[DEV] Groq 429 (all keys):* ${errMsg}` : "I'm a bit busy right now. Please try again in a few seconds.";
-        }
-        return isDev ? `⚠️ *[DEV] Groq ${status}:* ${errMsg}` : '⚠️ Something went wrong. Please try again.';
+        console.error(`[Agent] Groq[${clientIdx}] error (status ${status}) — using free OpenRouter:`, errMsg);
+        return runOpenRouterFallback();
       }
     }
 
-    return '⚠️ Something went wrong. Please try again.';
+    return runOpenRouterFallback();
 
   } else if (USE_CLAUDE) {
     // ── Claude Haiku 4.5 — primary backend ────────────────────────────────

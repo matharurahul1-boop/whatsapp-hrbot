@@ -293,13 +293,16 @@ async function dispatchAgent(from: string, text: string, orgId: string, isAudio 
     } catch (err: unknown) {
       const isTimeout = err instanceof Error && err.name === 'AbortError';
       console.error(`[WA Agent] n8n ${isTimeout ? 'timed out' : 'error'} for ${from}:`, err);
-      await sendText(
-        from,
-        isTimeout
-          ? '⏱️ I\'m taking too long to respond. Please try again in a moment.'
-          : '⚠️ Something went wrong. Please try again.',
-        orgId
-      ).catch(() => {});
+      // Render Free can sleep after inactivity. Keep WhatsApp functional by
+      // running the same agent locally on Vercel while n8n wakes up.
+      try {
+        console.log(`[WA Agent] Falling back to local agent for ${from}`);
+        const result = await runMasterAgent(text, from, orgId);
+        await sendText(from, result.reply, orgId);
+      } catch (fallbackErr) {
+        console.error(`[WA Agent] Local fallback failed for ${from}:`, fallbackErr);
+        await sendText(from, '⚠️ Something went wrong. Please try again.', orgId).catch(() => {});
+      }
     }
 
   } else {

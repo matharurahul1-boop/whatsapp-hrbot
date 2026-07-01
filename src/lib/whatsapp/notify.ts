@@ -113,18 +113,18 @@ export async function notifyTaskDeadlineReminder(opts: {
   assigneeName: string;
   taskTitle: string;
   deadline: string;
-  dueTime?: string | null;
   reminderType?: string | null;
 }): Promise<void> {
   return fire('TaskDeadline', async () => {
-    // Format due time: "02:19:00" or "02:19" → "2:19 AM"
-    let timeStr = '';
-    if (opts.dueTime) {
-      const [h, m] = opts.dueTime.split(':').map(Number);
-      const ampm  = h >= 12 ? 'PM' : 'AM';
-      const h12   = h % 12 || 12;
-      timeStr = ` at *${h12}:${String(m).padStart(2, '0')} ${ampm}*`;
-    }
+    // Format full ISO datetime in IST (e.g. "15 Jul 2026, 02:30 PM")
+    const d = new Date(opts.deadline);
+    const deadlineStr = isNaN(d.getTime())
+      ? fmtDate(opts.deadline)
+      : d.toLocaleString('en-IN', {
+          timeZone: 'Asia/Kolkata',
+          day: 'numeric', month: 'short', year: 'numeric',
+          hour: '2-digit', minute: '2-digit', hour12: true,
+        });
 
     const label = opts.reminderType ? REMINDER_LABEL[opts.reminderType] : null;
 
@@ -132,7 +132,7 @@ export async function notifyTaskDeadlineReminder(opts: {
       `⏰ *Deadline reminder, ${firstName(opts.assigneeName)}!*` +
       (label ? ` _(${label})_` : '') + `\n\n` +
       `*${opts.taskTitle}*\n` +
-      `Due: *${fmtDate(opts.deadline)}*${timeStr}\n\n` +
+      `Due: *${deadlineStr}*\n\n` +
       `Reply *my tasks* to view and update your tasks.`;
 
     await sendText(opts.waNumber, msg, opts.orgId);

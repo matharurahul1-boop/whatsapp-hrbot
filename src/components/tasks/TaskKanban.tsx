@@ -14,7 +14,7 @@ import { Avatar } from '@/components/ui/Avatar';
 import TaskCard from './TaskCard';
 import { ExpandText } from '@/components/ui/ExpandText';
 import { cn } from '@/lib/utils/cn';
-import { formatDate, formatTime } from '@/lib/utils/date';
+import { formatDateTime } from '@/lib/utils/date';
 
 type TaskStatus = 'todo' | 'in_progress' | 'done' | 'cancelled';
 type ViewMode   = 'kanban' | 'list';
@@ -53,7 +53,6 @@ interface Task {
   status:      string;
   priority:    string;
   deadline:    string | null;
-  due_time:    string | null;
   description: string | null;
   reminders:   string[] | null;
   assignee:    { id: string; full_name: string; avatar_url: string | null } | null;
@@ -171,11 +170,8 @@ function ListRow({
   const [status,   setStatus]   = useState<TaskStatus>(task.status as TaskStatus);
   const [updating, setUpdating] = useState(false);
 
-  const overdue = task.deadline && status !== 'done' && status !== 'cancelled' && (
-    task.due_time
-      ? new Date(`${task.deadline}T${task.due_time.slice(0, 5)}`) < new Date()
-      : task.deadline < new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
-  );
+  const overdue = task.deadline && status !== 'done' && status !== 'cancelled' &&
+    new Date(task.deadline) < new Date();
   const pri     = PRI_CFG[task.priority] ?? PRI_CFG.low;
   const stCfg   = STATUS_CFG[status] ?? STATUS_CFG.todo;
 
@@ -267,7 +263,7 @@ function ListRow({
           <span className={cn('flex items-center justify-end gap-1 text-xs font-medium', overdue ? 'text-danger' : 'text-surface-500')}>
             {overdue && <AlertTriangle className="h-3 w-3 shrink-0" />}
             <Clock className="h-3 w-3 shrink-0" />
-            {formatDate(task.deadline)}{task.due_time ? `, ${formatTime(task.due_time)}` : ''}
+            {formatDateTime(task.deadline)}
           </span>
         ) : (
           <span className="text-xs text-surface-400">—</span>

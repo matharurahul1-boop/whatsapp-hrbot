@@ -86,9 +86,11 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const attendance = attendanceRes.data;
     const pendingLeave = leaveRes.data ?? [];
 
-    const overdue   = tasks.filter((t: any) => t.deadline && t.deadline < today);
-    const dueToday  = tasks.filter((t: any) => t.deadline === today);
-    const upcoming  = tasks.filter((t: any) => !t.deadline || t.deadline > today);
+    const todayStartMs = new Date(`${today}T00:00:00+05:30`).getTime();
+    const todayEndMs   = new Date(`${today}T23:59:59+05:30`).getTime();
+    const overdue   = tasks.filter((t: any) => t.deadline && new Date(t.deadline).getTime() < todayStartMs);
+    const dueToday  = tasks.filter((t: any) => t.deadline && new Date(t.deadline).getTime() >= todayStartMs && new Date(t.deadline).getTime() <= todayEndMs);
+    const upcoming  = tasks.filter((t: any) => !t.deadline || new Date(t.deadline).getTime() > todayEndMs);
 
     // Time greeting
     let emoji = '🌅'; let greeting = 'Good morning';
@@ -238,12 +240,13 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       }
     }
 
-    let dueDate: string | null = null;
-    let dueTime: string | null = null;
+    // Build full ISO datetime for deadline (default 9 AM IST if no time given)
+    let deadlineISO: string | null = null;
     if (slots.deadline) {
       const parts = slots.deadline.split(' ');
-      dueDate = parts[0];
-      dueTime = parts[1] ?? null;
+      const date  = parts[0];
+      const time  = parts[1] ?? '09:00';
+      deadlineISO = `${date}T${time}:00+05:30`;
     }
 
     const { data: task, error } = await db
@@ -253,8 +256,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
         title:           slots.title!,
         assignee_id:     assignedTo,
         created_by:      user_id,
-        deadline:        dueDate,
-        due_time:        dueTime,
+        deadline:        deadlineISO,
         priority:        (slots.priority as string) ?? 'medium',
         status:          'todo',
         source:          'whatsapp',
@@ -302,7 +304,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     let query = db
       .from('tasks')
-      .select(`id, title, status, deadline, due_time, priority, assignee:users!tasks_assignee_id_fkey(full_name)`)
+      .select(`id, title, status, deadline, priority, assignee:users!tasks_assignee_id_fkey(full_name)`)
       .eq('organization_id', org_id)
       .is('deleted_at', null)
       .neq('status', 'done')
@@ -343,21 +345,20 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       };
     }
 
-    const overdue  = (tasks as any[]).filter((t) => t.deadline && t.deadline < today);
-    const dueToday = (tasks as any[]).filter((t) => t.deadline === today);
-    const rest     = (tasks as any[]).filter((t) => !t.deadline || t.deadline > today);
+    const nowMs   = Date.now();
+    const todayStartMs = new Date(`${today}T00:00:00+05:30`).getTime();
+    const todayEndMs   = new Date(`${today}T23:59:59+05:30`).getTime();
+
+    const overdue  = (tasks as any[]).filter((t) => t.deadline && new Date(t.deadline).getTime() < todayStartMs);
+    const dueToday = (tasks as any[]).filter((t) => t.deadline && new Date(t.deadline).getTime() >= todayStartMs && new Date(t.deadline).getTime() <= todayEndMs);
+    const rest     = (tasks as any[]).filter((t) => !t.deadline || new Date(t.deadline).getTime() > todayEndMs);
 
     const formatTask = (t: any, i: number) => {
       const pEmoji = priorityEmoji(t.priority);
       let due = '';
       if (t.deadline) {
-        due = ` — ${formatDate(t.deadline)}`;
-        if (t.due_time) {
-          const [h, m] = t.due_time.split(':').map(Number);
-          const ampm = h >= 12 ? 'PM' : 'AM';
-          const h12  = h % 12 || 12;
-          due += ` at ${h12}:${String(m).padStart(2, '0')} ${ampm}`;
-        }
+        const d = new Date(t.deadline);
+        due = ` — ${d.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}`;
       }
       const assignee = user_role !== 'employee' && t.assignee?.full_name ? ` _(${t.assignee.full_name})_` : '';
       return `${i + 1}. ${pEmoji} *${t.title}*${due}${assignee}`;
@@ -567,8 +568,9 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       patch.title = value;
     } else if (field === 'deadline') {
       const parts = value.split(' ');
-      patch.deadline = parts[0];
-      if (parts[1]) patch.due_time = parts[1];
+      const date  = parts[0];
+      const time  = parts[1] ?? '09:00';
+      patch.deadline = `${date}T${time}:00+05:30`;
     } else if (field === 'priority') {
       const PRIORITY_MAP: Record<string, string> = {
         urgent: 'urgent', critical: 'urgent', asap: 'urgent', top: 'urgent', highest: 'urgent',
@@ -732,7 +734,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     let query = db
       .from('tasks')
-      .select(`id, title, status, deadline, due_time, priority, description,
+      .select(`id, title, status, deadline, priority, description,
         assignee:users!tasks_assignee_id_fkey(full_name),
         created_by:users!tasks_created_by_fkey(full_name)`)
       .eq('organization_id', org_id)
@@ -756,7 +758,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       `*Title:* ${t.title}`,
       `*Status:* ${statusEmoji[t.status] ?? ''} ${t.status}`,
       `*Priority:* ${priorityEmoji(t.priority)} ${t.priority ?? 'medium'}`,
-      t.deadline ? `*Due:* ${formatDate(t.deadline)}${t.due_time ? ` at ${t.due_time}` : ''}` : null,
+      t.deadline ? `*Due:* ${new Date(t.deadline).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}` : null,
       t.assignee?.full_name    ? `*Assigned to:* ${t.assignee.full_name}` : null,
       t.created_by?.full_name  ? `*Created by:* ${t.created_by.full_name}` : null,
       t.description ? `\n*Notes:* ${t.description}` : null,

@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input, Textarea, SelectNative } from '@/components/ui/Input';
-import { formatDate, formatTime } from '@/lib/utils/date';
+import { formatDateTime, toISTInputValue } from '@/lib/utils/date';
 import { cn } from '@/lib/utils/cn';
 
 type TaskStatus = 'todo' | 'in_progress' | 'done' | 'cancelled';
@@ -23,10 +23,6 @@ const STATUS_CFG: Record<TaskStatus, { label: string; icon: React.ReactNode; pil
   done:        { label: 'Done',        icon: <CheckCircle2 className="h-3 w-3" />, pill: 'bg-success/10 text-success'         },
   cancelled:   { label: 'Cancelled',   icon: <XCircle      className="h-3 w-3" />, pill: 'bg-danger/10 text-danger'           },
 };
-
-function todayIST(): string {
-  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-}
 
 const PRI_DOT: Record<string, string> = {
   urgent: 'bg-danger  shadow-[0_0_4px_rgba(239,68,68,0.5)]',
@@ -54,7 +50,7 @@ const REMINDER_OPTS = [
 interface TaskCardProps {
   task: {
     id: string; title: string; status: string; priority: string;
-    deadline: string | null; due_time: string | null; description: string | null;
+    deadline: string | null; description: string | null;
     reminders: string[] | null;
     assignee: { id: string; full_name: string; avatar_url: string | null } | null;
   };
@@ -73,28 +69,23 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
   const [status,        setStatus]        = useState<TaskStatus>(task.status as TaskStatus);
   const [saveError,     setSaveError]     = useState<string | null>(null);
 
-  // Track saved deadline/due_time locally so re-opening edit immediately
-  // shows the latest saved values without waiting for router.refresh().
+  // Track saved deadline locally so re-opening edit immediately
+  // shows the latest saved value without waiting for router.refresh().
   const [savedDeadline,  setSavedDeadline]  = useState<string | null>(task.deadline);
-  const [savedDueTime,   setSavedDueTime]   = useState<string | null>(task.due_time);
   const [savedReminders, setSavedReminders] = useState<string[]>(task.reminders?.length ? task.reminders : ['1_hour']);
 
   const [form, setForm] = useState({
     title:       task.title,
     description: task.description ?? '',
     assignee_id: task.assignee?.id ?? '',
-    // Combine date + time into datetime-local format (YYYY-MM-DDTHH:MM)
-    deadline:    task.deadline && task.due_time ? `${task.deadline}T${task.due_time.slice(0, 5)}` : (task.deadline ?? ''),
+    // Convert ISO datetime from DB to YYYY-MM-DDTHH:MM in IST for datetime-local input
+    deadline:    task.deadline ? toISTInputValue(task.deadline) : '',
     priority:    task.priority,
     status:      task.status as TaskStatus,
     reminders:   task.reminders?.length ? task.reminders : ['1_hour'],
   });
 
-  const overdue = savedDeadline && status !== 'done' && (
-    savedDueTime
-      ? new Date(`${savedDeadline}T${savedDueTime.slice(0, 5)}`) < new Date()
-      : savedDeadline < todayIST()
-  );
+  const overdue = savedDeadline && status !== 'done' && new Date(savedDeadline) < new Date();
   const cfg     = STATUS_CFG[status] ?? STATUS_CFG.todo;
 
   function setField(field: string, value: string) {
@@ -107,9 +98,7 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
       title:       task.title,
       description: task.description ?? '',
       assignee_id: task.assignee?.id ?? '',
-      deadline:    savedDeadline && savedDueTime
-        ? `${savedDeadline}T${savedDueTime.slice(0, 5)}`
-        : (savedDeadline ?? ''),
+      deadline:    savedDeadline ? toISTInputValue(savedDeadline) : '',
       priority:    task.priority,
       status:      status,
       reminders:   savedReminders,
@@ -140,10 +129,8 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
         body:    JSON.stringify(body),
       });
       if (res.ok) {
-        // Split combined datetime back for local display state
-        const [dl, dt] = form.deadline ? form.deadline.split('T') : [null, null];
-        setSavedDeadline(dl || null);
-        setSavedDueTime(dt || null);
+        // Store full IST ISO string locally for display until router.refresh() completes
+        setSavedDeadline(form.deadline ? form.deadline + ':00+05:30' : null);
         setSavedReminders(form.reminders);
         setStatus(form.status);
         onStatusChange?.(task.id, form.status);
@@ -417,7 +404,7 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
               <span className="text-surface-400 text-2xs">·</span>
               <span className={cn('flex items-center gap-1 text-2xs font-medium', overdue ? 'text-danger' : 'text-surface-600')}>
                 <Clock className="h-3 w-3" />
-                {overdue ? '⚠ ' : ''}{formatDate(task.deadline)}{task.due_time ? `, ${formatTime(task.due_time)}` : ''}
+                {overdue ? '⚠ ' : ''}{formatDateTime(task.deadline)}
               </span>
             </>
           )}

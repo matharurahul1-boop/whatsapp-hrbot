@@ -112,14 +112,13 @@ export async function POST(req: NextRequest) {
     // HR+ can assign to anyone in the org — no extra check
   }
 
-  // Split combined datetime into separate date + time columns
+  // Store full ISO datetime with IST offset (datetime-local gives YYYY-MM-DDTHH:MM)
   const { deadline: deadlineISO, ...taskFields } = parsed.data;
-  const [deadlineDate, dueTime] = deadlineISO.split('T');
+  const deadlineWithTZ = deadlineISO + ':00+05:30';
 
   const { data: task, error } = await db.from('tasks').insert({
     ...taskFields,
-    deadline:        deadlineDate,
-    due_time:        dueTime,
+    deadline:        deadlineWithTZ,
     reminders:       parsed.data.reminders ?? ['1_hour'],
     organization_id: profile.organization_id,
     created_by:      user.id,
@@ -129,7 +128,7 @@ export async function POST(req: NextRequest) {
 
   await writeAuditLog({ org_id: profile.organization_id, actor_id: user.id, action: 'CREATE', table_name: 'tasks', record_id: task.id, new_data: task });
 
-  await scheduleTaskReminders({ id: task.id, organization_id: profile.organization_id, deadline: task.deadline ?? null, due_time: task.due_time ?? null, reminders: task.reminders ?? [] });
+  await scheduleTaskReminders({ id: task.id, organization_id: profile.organization_id, deadline: task.deadline ?? null, reminders: task.reminders ?? [] });
 
   // ── WhatsApp notification — only when assigned to someone else ───────────────
   const assigneeId = parsed.data.assignee_id;

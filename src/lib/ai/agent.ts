@@ -57,7 +57,8 @@ type ChatMessage = { role: 'user' | 'assistant'; content: string };
 const QUICK_ROUTES: Array<{ re: RegExp; tool: string }> = [
   { re: /^(hi+|hey+|hello+|good\s*(morning|afternoon|evening|night)|namaste|namaskar|hlo+|hii+|greetings?|start|shuru)\s*[!.]*$/i,           tool: 'daily_briefing'      },
   { re: /^(today'?s?\s*(summary|briefing|update|status)|briefing|morning\s*update|daily\s*(brief|update|status)|what'?s?\s*up)\s*[!.?]*$/i,  tool: 'daily_briefing'      },
-  { re: /^(list\s*(all\s*)?tasks?|my\s*tasks?|show\s*(all\s*)?tasks?|tasks?|pending\s*tasks?|(give\s*me\s*)?(the\s*)?list(\s*of\s*(all\s*)?tasks?)?|open\s*tasks?|due\s*tasks?)$/i, tool: 'list_tasks' },
+  // list_tasks intentionally excluded — AI handles all task-listing phrasings
+  // so it can correctly pass assignee_name="mine" for self-queries.
   { re: /^(leave\s*balance|my\s*leave\s*balance|leaves?\s*left|check\s*leave|how\s*many\s*leaves?)$/i,                                        tool: 'check_leave_balance' },
   { re: /^(my\s*attendance|attendance\s*report|show\s*attendance|attendance|my\s*check\s*in\s*history)$/i,                                     tool: 'my_attendance'       },
   { re: /^(list\s*leaves?|my\s*leaves?|leave\s*requests?|leaves?|my\s*leave\s*history)$/i,                                                    tool: 'list_leaves'         },
@@ -329,11 +330,11 @@ const HRBOT_TOOLS: any[] = [
   },
   {
     name: 'list_tasks',
-    description: "List pending/active tasks. For managers/admins, pass assignee_name to show tasks for a specific person (e.g. 'Pranay', 'Tushar'). Without assignee_name, managers see ALL org tasks.",
+    description: "List pending/active tasks. Pass assignee_name='mine' when the user asks for their OWN tasks ('my tasks', 'list mine', 'list of mine', 'show my tasks'). Pass assignee_name='[Name]' for a specific person (managers/admins only). Omit assignee_name only for 'list all tasks' (privileged sees all org tasks).",
     parameters: {
       type: 'OBJECT',
       properties: {
-        assignee_name: { type: 'STRING', description: 'Filter by assignee full name or first name (managers/admins only).' },
+        assignee_name: { type: 'STRING', description: "'mine' = caller's own tasks. First/full name = that person's tasks (privileged only). Omit = all org tasks (privileged) or own tasks (employees)." },
       },
     },
   },
@@ -608,6 +609,27 @@ reject_leave, cancel_leave, check_in, check_out, set_reminder):
 ## Read-only tools — call immediately, NO confirmation needed:
 daily_briefing, list_tasks, get_task_details, check_leave_balance, list_leaves, my_attendance${isPrivileged ? ', team_attendance, list_users' : ''}
 
+## CRITICAL: Task listing rules — call list_tasks IMMEDIATELY for ANY of these phrasings:
+
+Self-listing (user asking for their OWN tasks) — ALWAYS pass assignee_name="mine":
+- "my tasks" / "list mine" / "list of mine" / "show mine" / "mine tasks"
+- "list my tasks" / "show my tasks" / "get my tasks" / "give me my tasks"
+- "what are my tasks" / "my pending tasks" / "tasks assigned to me"
+
+All-org listing (privileged only) — call list_tasks() with NO assignee_name:
+- "list all tasks" / "show all tasks" / "all tasks" / "list tasks"
+- "pending tasks" / "open tasks" / "due tasks" / "org tasks" / "team tasks"
+
+Specific-person listing (managers/admins/hr only) — pass assignee_name="[Name]":
+- "list [Name]'s tasks" / "show [Name]'s tasks" / "[Name]'s tasks"
+- "list of [Name]" / "list [Name]" / "show [Name]" / "tasks of [Name]"
+- Examples: "list tushar" → list_tasks(assignee_name="Tushar")
+           "list of pranay" → list_tasks(assignee_name="Pranay")
+           "show rahul tasks" → list_tasks(assignee_name="Rahul")
+
+RULE: NEVER pass assignee_name="my" or assignee_name="me". Use assignee_name="mine" for self-queries.
+RULE: NEVER return task data as text. ALWAYS call list_tasks and return the result verbatim.
+
 ## Task discovery — users often ask about tasks by describing them or checking details:
 - "What's the status of X?" / "Tell me about X task" / "Details of X" → get_task_details(task_title="X")
 - "Who is working on X?" / "When is X due?" → get_task_details(task_title="X")
@@ -620,11 +642,6 @@ Users can configure their task deadline reminders via natural language:
 - "Enable task reminders" → configure_reminders(enabled="true")
 - "Remind me on WhatsApp only" → configure_reminders(channel="whatsapp")
 Reminders fire at 9 AM IST (morning cron). Always confirm before calling configure_reminders.
-
-## Asking for tasks by person (managers/admins only)
-- "List Pranay's tasks" → call list_tasks(assignee_name="Pranay")
-- "Show Tushar's tasks" → call list_tasks(assignee_name="Tushar")
-- "List all tasks" / "show all org tasks" → call list_tasks() with NO assignee_name
 
 ## Examples
 
@@ -668,9 +685,15 @@ You: I'll update *Fix Bug* — set *title* to *Fix Login Bug*. Go ahead? (Yes / 
 User: "update deadline of Fix Bug to tomorrow 3pm"
 You: I'll update *Fix Bug* — set *deadline* to *${tmr.display}, 03:00 PM*. Go ahead? (Yes / No)
 
-Read-only query:
-User: "list my tasks"
+Read-only task listing (all variants → call list_tasks immediately, return verbatim):
+User: "list my tasks" / "my tasks" / "list mine" / "list of mine" / "show mine"
+You: [call list_tasks(assignee_name="mine"), return result verbatim]
+
+User: "list all tasks" / "list tasks" / "pending tasks"
 You: [call list_tasks(), return result verbatim]
+
+User: "list tushar's tasks" / "list of tushar" / "list tushar" / "show tushar tasks"
+You: [call list_tasks(assignee_name="Tushar"), return result verbatim]
 
 Get task details (read-only, call immediately, no confirmation):
 User: "What's the status of Fix login bug?" / "details of automation task" / "show me the design review task"
@@ -812,48 +835,11 @@ async function runGroqLoop(
     saveContext(conversationId, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
   }
 
-  // ── 0. "My/mine tasks" quick-route — always shows caller's own tasks ─────
-  // Two branches:
-  //   A) verb present  → tasks? optional:  "list mine", "list of mine", "list my tasks"
-  //   B) no verb       → tasks required:   "my tasks", "mine tasks"
-  // Passes assignee_name="mine" so the isSelfQuery path in the executor fires.
-  const MY_TASKS_RE = /^(?:(?:(?:list|show|get|give\s+me)\s+(?:of\s+)?(?:my|mine)(?:\s+tasks?)?)|(?:(?:of\s+)?(?:my|mine)\s+tasks?))\s*[!.?]*$/i;
-  if (MY_TASKS_RE.test(message.trim())) {
-    console.log(`[Agent] My-tasks quick-route: "${message}" → list_tasks(mine)`);
-    return dispatchTool('list_tasks', { assignee_name: 'mine' }, user, orgId);
-  }
-
-  // ── 1. Quick-route deterministic patterns — bypass AI entirely ────────────
+  // ── 1. Quick-route deterministic patterns — bypass AI for unambiguous commands ─
   const directTool = quickRoute(message);
   if (directTool) {
     console.log(`[Agent] Quick-route: "${message}" → ${directTool}`);
     return dispatchTool(directTool, {}, user, orgId);
-  }
-
-  // "List [Name]'s tasks" / "Show [Name]'s tasks" — privileged users only
-  const isPrivilegedUser = ['manager', 'hr', 'admin', 'super_admin'].includes(user.role);
-  const GENERIC_NAME_RE = /^(all|my|mine|our|the|any|pending|team|org|your|own|me|self|tasks?|his|her|their)$/i;
-  const tasksByNameMatch = message.match(
-    /\b(?:list|show|get)\s+(?:of\s+)?([a-z][a-z\s]{1,30}?)(?:'s|'s|s)?\s+tasks?\b/i
-  );
-  if (tasksByNameMatch && isPrivilegedUser) {
-    const assigneeName = tasksByNameMatch[1].trim();
-    if (!GENERIC_NAME_RE.test(assigneeName)) {
-      console.log(`[Agent] Name-task quick-route: "${message}" → list_tasks(assignee_name="${assigneeName}")`);
-      return dispatchTool('list_tasks', { assignee_name: assigneeName }, user, orgId);
-    }
-  }
-
-  // Also catch "list of [name]" / "list [name]" without "tasks" keyword — e.g. "list of tushar", "list tushar"
-  const tasksByNameShortMatch = message.match(
-    /^(?:list|show|get)\s+(?:of\s+)?([a-z][a-z\s]{1,30}?)\s*[!.?]*$/i
-  );
-  if (tasksByNameShortMatch && isPrivilegedUser && !tasksByNameMatch) {
-    const assigneeName = tasksByNameShortMatch[1].trim();
-    if (!GENERIC_NAME_RE.test(assigneeName)) {
-      console.log(`[Agent] Name-short quick-route: "${message}" → list_tasks(assignee_name="${assigneeName}")`);
-      return dispatchTool('list_tasks', { assignee_name: assigneeName }, user, orgId);
-    }
   }
 
   // ── 2. Confirmation / context injection ──────────────────────────────────

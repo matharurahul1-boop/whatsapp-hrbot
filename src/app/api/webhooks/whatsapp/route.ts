@@ -109,9 +109,24 @@ async function handleOneMessage(
   orgId:   string,
   rawBody: string
 ): Promise<void> {
+  // Validate message ID — guard against malformed/missing/oversized IDs
+  if (!msg.id || typeof msg.id !== 'string' || msg.id.length > 128) {
+    console.warn('[WA Webhook] ⚠️ Invalid or missing message ID — skipping', msg.id);
+    return;
+  }
+
   console.log(`[WA Webhook] Incoming message from ${msg.from}, type=${msg.type}, id=${msg.id}`);
 
-  // 1. Dedup: check if this message_id was already processed (webhook retry guard)
+  // 1. Fast in-process dedup by message ID (handles same-instance Meta retries without a DB hit)
+  const msgFlightKey = `mid:${msg.id}`;
+  if (inFlight.has(msgFlightKey)) {
+    console.log(`[WA Webhook] ⏭️ In-flight duplicate ${msg.id} — skipping`);
+    return;
+  }
+  inFlight.add(msgFlightKey);
+  setTimeout(() => inFlight.delete(msgFlightKey), 30_000);
+
+  // 2. Persistent dedup: check DB for cross-instance retries
   const db = createAdminClient();
   const { data: existing } = await db
     .from('wa_logs')

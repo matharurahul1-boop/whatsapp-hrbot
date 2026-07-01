@@ -359,9 +359,17 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
         .limit(5);
       const target = targetRows?.[0];
       if (!target) {
+        const { data: allActive } = await db
+          .from('users')
+          .select('full_name')
+          .eq('organization_id', org_id)
+          .eq('is_active', true)
+          .neq('id', user_id)
+          .limit(8);
+        const nameList = (allActive ?? []).map((u: any) => u.full_name).join(', ');
         return { success: false, reply: lang === 'hi'
-          ? `❌ "${slots.assignee_name}" नाम का कोई user नहीं मिला।`
-          : `❌ No user found matching "${slots.assignee_name}".`
+          ? `❌ "*${slots.assignee_name}*" नाम का कोई user नहीं मिला।${nameList ? `\n\nउपलब्ध: ${nameList}` : ''}`
+          : `❌ No user found matching "*${slots.assignee_name}*".${nameList ? `\n\nAvailable: ${nameList}` : ''}`
         };
       }
       query = query.eq('assignee_id', target.id);

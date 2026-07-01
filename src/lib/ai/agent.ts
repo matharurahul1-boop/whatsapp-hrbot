@@ -55,13 +55,15 @@ type ChatMessage = { role: 'user' | 'assistant'; content: string };
 // still go through Groq so confirmation prompts are preserved.
 
 const QUICK_ROUTES: Array<{ re: RegExp; tool: string }> = [
-  { re: /^(hi+|hey+|hello+|good\s*(morning|afternoon|evening|night)|namaste|namaskar|hlo+|hii+|greetings?)\s*[!.]*$/i, tool: 'daily_briefing' },
-  { re: /^(list\s*(all\s*)?tasks?|my\s*tasks?|show\s*(all\s*)?tasks?|tasks?|pending\s*tasks?|(give\s*me\s*)?(the\s*)?list(\s*of\s*(all\s*)?tasks?)?)$/i, tool: 'list_tasks' },
-  { re: /^(leave\s*balance|my\s*leave\s*balance|leaves?\s*left|check\s*leave)$/i,                                      tool: 'check_leave_balance' },
-  { re: /^(my\s*attendance|attendance\s*report|show\s*attendance|attendance)$/i,                                        tool: 'my_attendance'  },
-  { re: /^(list\s*leaves?|my\s*leaves?|leave\s*requests?|leaves?)$/i,                                                  tool: 'list_leaves'    },
-  { re: /^(team\s*attendance|who\s*(is\s*)?absent|absent\s*today)$/i,                                                  tool: 'team_attendance'},
-  { re: /^(help|\?|commands?)$/i,                                                                                       tool: 'help'           },
+  { re: /^(hi+|hey+|hello+|good\s*(morning|afternoon|evening|night)|namaste|namaskar|hlo+|hii+|greetings?|start|shuru)\s*[!.]*$/i,           tool: 'daily_briefing'      },
+  { re: /^(today'?s?\s*(summary|briefing|update|status)|briefing|morning\s*update|daily\s*(brief|update|status)|what'?s?\s*up)\s*[!.?]*$/i,  tool: 'daily_briefing'      },
+  { re: /^(list\s*(all\s*)?tasks?|my\s*tasks?|show\s*(all\s*)?tasks?|tasks?|pending\s*tasks?|(give\s*me\s*)?(the\s*)?list(\s*of\s*(all\s*)?tasks?)?|open\s*tasks?|due\s*tasks?)$/i, tool: 'list_tasks' },
+  { re: /^(leave\s*balance|my\s*leave\s*balance|leaves?\s*left|check\s*leave|how\s*many\s*leaves?)$/i,                                        tool: 'check_leave_balance' },
+  { re: /^(my\s*attendance|attendance\s*report|show\s*attendance|attendance|my\s*check\s*in\s*history)$/i,                                     tool: 'my_attendance'       },
+  { re: /^(list\s*leaves?|my\s*leaves?|leave\s*requests?|leaves?|my\s*leave\s*history)$/i,                                                    tool: 'list_leaves'         },
+  { re: /^(team\s*attendance|who\s*(is\s*)?absent|absent\s*today|who\s*checked\s*in|attendance\s*today)$/i,                                    tool: 'team_attendance'     },
+  { re: /^(list\s*(all\s*)?users?|team\s*members?|employees?|all\s*employees?|who\s*is\s*in\s*(the\s*)?team)$/i,                               tool: 'list_users'          },
+  { re: /^(help|\?|commands?|what\s*can\s*(you|u)\s*do|options?)$/i,                                                                           tool: 'help'                },
 ];
 
 function quickRoute(message: string): string | null {
@@ -105,38 +107,53 @@ const MONTH_MAP: Record<string, string> = {
   october:'10', nov:'11', november:'11', dec:'12', december:'12',
 };
 
+// Return current time as IST wall-clock Date.
+// On Vercel (UTC process), new Date() gives UTC — this corrects it to IST.
+function istNowDate(): Date {
+  return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+}
+
+function ymd(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 function naturalDateToISO(text: string): string | null {
   const t = text.trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
 
-  const now  = new Date();
+  // Use IST wall-clock for all relative date calculations
+  const now  = istNowDate();
   const yr   = now.getFullYear();
   const nowM = now.getMonth();  // 0-indexed
   const nowD = now.getDate();
 
   // Relative keywords
-  if (/\btoday\b/i.test(t)) return now.toISOString().split('T')[0];
+  if (/\btoday\b/i.test(t)) return ymd(now);
+  if (/\bday after tomorrow\b/i.test(t)) {
+    const d = new Date(now); d.setDate(d.getDate() + 2);
+    return ymd(d);
+  }
   if (/\btomorrow\b/i.test(t)) {
     const d = new Date(now); d.setDate(d.getDate() + 1);
-    return d.toISOString().split('T')[0];
+    return ymd(d);
   }
   // "in N days"
   const inDays = t.match(/\bin\s+(\d+)\s+days?\b/i);
   if (inDays) {
     const d = new Date(now); d.setDate(d.getDate() + parseInt(inDays[1]));
-    return d.toISOString().split('T')[0];
+    return ymd(d);
   }
   // "next week"
   if (/\bnext\s+week\b/i.test(t)) {
     const d = new Date(now); d.setDate(d.getDate() + 7);
-    return d.toISOString().split('T')[0];
+    return ymd(d);
   }
   // "end of month"
   if (/\bend\s+of\s+month\b/i.test(t)) {
     const d = new Date(yr, nowM + 1, 0);
-    return d.toISOString().split('T')[0];
+    return ymd(d);
   }
-  // "next Monday/Tuesday/..."
+  // "next Monday/Tuesday/..." or bare day name
   const DAY_MAP: Record<string,number> = { sun:0,sunday:0,mon:1,monday:1,tue:2,tuesday:2,wed:3,wednesday:3,thu:4,thursday:4,fri:5,friday:5,sat:6,saturday:6 };
   const dayM = t.match(/\b(next\s+)?(sunday|monday|tuesday|wednesday|thursday|friday|saturday|sun|mon|tue|wed|thu|fri|sat)\b/i);
   if (dayM) {
@@ -145,7 +162,7 @@ function naturalDateToISO(text: string): string | null {
       const d = new Date(now);
       const diff = ((target - d.getDay()) + 7) % 7 || 7;
       d.setDate(d.getDate() + diff);
-      return d.toISOString().split('T')[0];
+      return ymd(d);
     }
   }
 
@@ -370,10 +387,11 @@ const HRBOT_TOOLS: any[] = [
     parameters: {
       type: 'OBJECT',
       properties: {
-        leave_type: { type: 'STRING', description: 'casual | sick | annual | maternity' },
-        start_date: { type: 'STRING', description: 'YYYY-MM-DD' },
-        end_date:   { type: 'STRING', description: 'YYYY-MM-DD — omit if single day' },
-        reason:     { type: 'STRING', description: 'Optional reason' },
+        leave_type:    { type: 'STRING', description: 'casual | sick | annual | maternity' },
+        start_date:    { type: 'STRING', description: 'YYYY-MM-DD' },
+        end_date:      { type: 'STRING', description: 'YYYY-MM-DD — omit if single day or if duration_days given' },
+        duration_days: { type: 'STRING', description: 'Number of days when user says "for 3 days" instead of giving an end date. E.g. "3"' },
+        reason:        { type: 'STRING', description: 'Optional reason' },
       },
       required: ['leave_type', 'start_date'],
     },
@@ -1153,7 +1171,7 @@ async function dispatchTool(
     });
 
     if (result.notify?.length) {
-      sendUserNotifications(result.notify, orgId).catch(() => {});
+      sendUserNotifications(result.notify, orgId).catch(err => console.warn('[Agent] Notify failed:', err));
     }
 
     // WhatsApp hard limit: 4096 chars. Truncate gracefully.

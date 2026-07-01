@@ -1040,6 +1040,7 @@ async function dispatchTool(
     const slots: Record<string, string | null> = {
       title:         input.task_title   ?? input.title         ?? null,
       assignee:      input.assignee                            ?? null,
+      assignee_name: input.assignee_name                       ?? null,
       deadline:      input.deadline                            ?? null,
       priority:      input.priority                            ?? null,
       update_field:  input.update_field                        ?? null,

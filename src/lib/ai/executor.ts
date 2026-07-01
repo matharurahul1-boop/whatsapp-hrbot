@@ -542,6 +542,12 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     await db.from('tasks').update({ deleted_at: new Date().toISOString() }).eq('id', task.id);
 
+    await writeAuditLog({
+      org_id, actor_id: user_id, actor_type: 'user',
+      action: 'DELETE_TASK', table_name: 'tasks',
+      record_id: task.id, new_data: { deleted_at: new Date().toISOString() }, source: 'whatsapp',
+    });
+
     return {
       success: true,
       reply: lang === 'hi'
@@ -662,15 +668,21 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       record_id: task.id, new_data: patch, source: 'whatsapp',
     });
 
-    // Use the stored value in the reply (e.g. "urgent" not "critical", new title not old title).
-    const displayValue = String(patch.title ?? patch.priority ?? patch.status ?? patch.assignee_id ?? patch.deadline ?? value);
-    const displayField = field === 'assignee' ? 'assignee' : field;
-    const displayTitle = field === 'title' ? (value) : task.title;
+    // Use human-readable values in the reply (avoid showing UUIDs for assignee).
+    let displayValue: string;
+    if (field === 'assignee') {
+      // foundUser.full_name was used to set patch.assignee_id — use original value string (the name)
+      displayValue = value;
+    } else {
+      displayValue = String(patch.title ?? patch.priority ?? patch.status ?? patch.deadline ?? value);
+    }
+    const displayField = field ?? 'field';
+    const displayTitle = field === 'title' ? value : task.title;
     return {
       success: true,
       reply: lang === 'hi'
         ? `✅ *"${displayTitle}"* — ${displayField} अपडेट हो गया!`
-        : `✅ *"${displayTitle}"* — *${displayField}* updated to *${field === 'title' ? value : displayValue}*!`,
+        : `✅ *"${displayTitle}"* — *${displayField}* updated to *${displayValue}*!`,
     };
   },
 

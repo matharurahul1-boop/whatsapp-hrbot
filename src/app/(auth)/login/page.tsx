@@ -1,9 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Zap, Eye, EyeOff, Mail, Lock, User, ArrowRight, Loader2, AlertCircle, CheckCircle2, Building2, Phone, BriefcaseBusiness, Users, Clock3, Smartphone } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+
+const REMEMBER_KEY = 'hrbot_remember_id';
 
 export default function LoginPage() {
   const router   = useRouter();
@@ -21,10 +23,18 @@ export default function LoginPage() {
   const [companySize, setCompanySize] = useState('1-10');
   const [workdayStart, setWorkdayStart] = useState('09:00');
   const [workdayEnd, setWorkdayEnd] = useState('18:00');
-  const [showPw,   setShowPw]   = useState(false);
+  const [showPw,      setShowPw]      = useState(false);
+  const [rememberMe,  setRememberMe]  = useState(false);
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState('');
   const [info,     setInfo]     = useState('');
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(REMEMBER_KEY);
+      if (saved) { setEmail(saved); setRememberMe(true); }
+    } catch {}
+  }, []);
 
   function reset() { setError(''); setInfo(''); }
 
@@ -48,6 +58,15 @@ export default function LoginPage() {
 
     const { error: err } = await supabase.auth.signInWithPassword({ email: loginEmail, password });
     if (err) { setError(err.message); setLoading(false); return; }
+
+    try {
+      if (rememberMe) {
+        localStorage.setItem(REMEMBER_KEY, email.trim());
+      } else {
+        localStorage.removeItem(REMEMBER_KEY);
+      }
+    } catch {}
+
     window.location.href = '/dashboard';
   }
 
@@ -140,6 +159,15 @@ export default function LoginPage() {
                   </button>
                 </div>
               </div>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={e => setRememberMe(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded border-surface-400 accent-brand-500 cursor-pointer"
+                />
+                <span className="text-xs text-surface-600">Remember me for 30 days</span>
+              </label>
               <button type="submit" disabled={loading} className="w-full flex items-center justify-center gap-2 h-10 rounded-lg bg-brand-gradient text-white text-sm font-semibold mt-1 transition-all shadow-glow-sm hover:opacity-90 disabled:opacity-50">
                 {loading ? <><Loader2 className="h-4 w-4 animate-spin" />Signing in…</> : <>Sign In <ArrowRight className="h-4 w-4" /></>}
               </button>

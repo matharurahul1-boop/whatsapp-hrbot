@@ -185,7 +185,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
   // ── TASK TOOLS ──────────────────────────────────────────────────────────────
 
-  async CREATE_TASK({ slots, org_id, user_id, user_role }): Promise<ToolResult> {
+  async CREATE_TASK({ slots, org_id, user_id, user_role, user_name }): Promise<ToolResult> {
     const db   = createAdminClient();
     const lang = (slots._lang as 'en' | 'hi') ?? 'en';
 

@@ -2,10 +2,10 @@ import Anthropic                from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI }  from '@google/generative-ai';
 import OpenAI                  from 'openai';
 import Groq                    from 'groq-sdk';
-import { loadSession, saveMessage } from './memory';
+import { loadSession, saveMessage, saveContext } from './memory';
 import { sendText }            from '@/lib/whatsapp/client';
 import { EMPTY_CONTEXT }       from './types';
-import type { AgentTurn, AgentUser } from './types';
+import type { AgentTurn, AgentUser, ConversationContext } from './types';
 
 // ── AI backend ────────────────────────────────────────────────────────────────
 // USE_GROQ    = true  → Groq Llama 3.3 70B (primary — free tier, fast tool use)
@@ -197,25 +197,27 @@ function extractTimeFromText(text: string): string | null {
   return null;
 }
 
-// ─── Parse confirmation message → call tool directly ─────────────────────────
+// ─── Parse confirmation message → { tool, args } ─────────────────────────────
 //
-// When the user says "yes", we extract the pending action from the bot's last
-// message and call the tool directly — no second Groq round-trip needed.
+// Extracts the pending action from a "Go ahead? (Yes / No)" bot message.
+// Used both for (a) storing in context_state after Groq confirms, and
+// (b) direct tool execution when user says "yes".
 
-async function executeFromConfirmation(
-  lastMsg: string,
-  user:    AgentUser,
-  orgId:   string,
-): Promise<string | null> {
+interface ConfirmationParsed {
+  tool: string;
+  args: Record<string, string>;
+}
+
+function parseConfirmationMessage(lastMsg: string): ConfirmationParsed | null {
   const lower = lastMsg.toLowerCase();
 
   // CREATE_TASK: "I'll create task *Title* ... Go ahead?"
   if (/i.?ll\s+create\s+task/i.test(lastMsg)) {
-    const titleM    = lastMsg.match(/create\s+task\s+\*([^*]+)\*/i);
+    const titleM = lastMsg.match(/create\s+task\s+\*([^*]+)\*/i);
     if (!titleM) return null;
+    const args: Record<string, string> = { title: titleM[1].trim() };
     const priorityM = lastMsg.match(/\*(urgent|high|medium|low)\*/i);
     const deadlineM = lastMsg.match(/due\s+\*([^*]+)\*/i);
-    const args: Record<string, string> = { title: titleM[1].trim() };
     if (priorityM) args.priority = priorityM[1].toLowerCase();
     if (deadlineM) {
       const raw  = deadlineM[1];
@@ -223,36 +225,35 @@ async function executeFromConfirmation(
       const time = extractTimeFromText(raw);
       if (iso) args.deadline = time ? `${iso} ${time}` : `${iso} 09:00`;
     }
-    return dispatchTool('create_task', args, user, orgId);
+    return { tool: 'create_task', args };
   }
 
   // CHECK_IN
   if (lower.includes('check-in') || lower.includes('check in') || lower.includes('mark your attendance')) {
-    return dispatchTool('check_in', {}, user, orgId);
+    return { tool: 'check_in', args: {} };
   }
 
   // CHECK_OUT
-  if (lower.includes('check-out') || lower.includes('check out') || lower.includes("mark your check-out")) {
-    return dispatchTool('check_out', {}, user, orgId);
+  if (lower.includes('check-out') || lower.includes('check out') || lower.includes('mark your check-out')) {
+    return { tool: 'check_out', args: {} };
   }
 
   // COMPLETE_TASK: "I'll mark *Title* as complete"
   const completeM = lastMsg.match(/mark\s+\*([^*]+)\*\s+as\s+complet/i);
-  if (completeM) return dispatchTool('complete_task', { task_title: completeM[1].trim() }, user, orgId);
+  if (completeM) return { tool: 'complete_task', args: { task_title: completeM[1].trim() } };
 
   // DELETE_TASK: "I'll delete task *Title*"
   const deleteM = lastMsg.match(/delete\s+task\s+\*([^*]+)\*/i);
-  if (deleteM) return dispatchTool('delete_task', { task_title: deleteM[1].trim() }, user, orgId);
+  if (deleteM) return { tool: 'delete_task', args: { task_title: deleteM[1].trim() } };
 
   // UPDATE_TASK: "I'll update *Title* — set *field* to *value*"
-  // Also handles "set its title to *value*" (field not bolded)
   const updateM = lastMsg.match(/update\s+\*([^*]+)\*[\s—–-]+set\s+(?:\*([^*]+)\*|(?:its\s+)?(\w+))\s+to\s+\*([^*]+)\*/i);
   if (updateM) {
-    return dispatchTool('update_task', {
+    return { tool: 'update_task', args: {
       task_title:   updateM[1].trim(),
       update_field: (updateM[2] ?? updateM[3] ?? '').trim().toLowerCase(),
       update_value: updateM[4].trim(),
-    }, user, orgId);
+    }};
   }
 
   // APPLY_LEAVE: "I'll apply *type* leave from *date*"
@@ -266,17 +267,28 @@ async function executeFromConfirmation(
         start_date: naturalDateToISO(startM[1]) ?? startM[1],
       };
       if (endM) args.end_date = naturalDateToISO(endM[1]) ?? endM[1];
-      return dispatchTool('apply_leave', args, user, orgId);
+      return { tool: 'apply_leave', args };
     }
   }
 
   // APPROVE / REJECT LEAVE
   const approveM = lastMsg.match(/approve\s+\*([^*]+)\*['']?s?\s+leave/i);
-  if (approveM) return dispatchTool('approve_leave', { employee_name: approveM[1].trim() }, user, orgId);
+  if (approveM) return { tool: 'approve_leave', args: { employee_name: approveM[1].trim() } };
   const rejectM  = lastMsg.match(/reject\s+\*([^*]+)\*['']?s?\s+leave/i);
-  if (rejectM)  return dispatchTool('reject_leave',  { employee_name: rejectM[1].trim()  }, user, orgId);
+  if (rejectM)  return { tool: 'reject_leave',  args: { employee_name: rejectM[1].trim()  } };
 
-  return null; // can't parse — fall back to Groq
+  return null;
+}
+
+// Execute from parsed confirmation — used as history-text fallback when context_state has no payload.
+async function executeFromConfirmation(
+  lastMsg: string,
+  user:    AgentUser,
+  orgId:   string,
+): Promise<string | null> {
+  const parsed = parseConfirmationMessage(lastMsg);
+  if (!parsed) return null;
+  return dispatchTool(parsed.tool, parsed.args, user, orgId);
 }
 
 // ─── Tool definitions (Gemini native FunctionDeclaration format) ───────────────
@@ -631,7 +643,7 @@ export async function runMasterAgent(
     };
   }
 
-  const { user, conversation_id, recent_messages } = session;
+  const { user, conversation_id, context, recent_messages } = session;
 
   await saveMessage(conversation_id, orgId, 'user', 'inbound', message).catch(() => {});
 
@@ -643,8 +655,27 @@ export async function runMasterAgent(
         content: m.content as string,
       }));
 
-    const reply = await runGroqLoop(message, history, user, orgId);
+    const reply = await runGroqLoop(message, history, user, orgId, context, conversation_id);
     const finalReply = reply || 'What else can I help you with?';
+
+    // Persist context_state based on what the reply contains:
+    // - "Go ahead? (Yes / No)"  → CONFIRMING with stored payload (fast next-turn)
+    // - anything else           → reset to IDLE (clear stale flow state)
+    const isConfirmPrompt = /go ahead\?/i.test(finalReply) || /\(yes \/ no\)/i.test(finalReply);
+    if (isConfirmPrompt) {
+      const parsed = parseConfirmationMessage(finalReply);
+      if (parsed) {
+        saveContext(conversation_id, {
+          ...EMPTY_CONTEXT,
+          language:        context.language,
+          flow_state:      'CONFIRMING',
+          confirm_message: finalReply,
+          confirm_payload: { tool: parsed.tool, args: parsed.args },
+        }).catch(() => {});
+      }
+    } else if (context.flow_state !== 'IDLE') {
+      saveContext(conversation_id, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
+    }
 
     await saveMessage(conversation_id, orgId, 'assistant', 'outbound', finalReply, {
       latency_ms: Date.now() - start,
@@ -670,11 +701,39 @@ export async function runMasterAgent(
 // ─── Gemini tool-use loop ─────────────────────────────────────────────────────
 
 async function runGroqLoop(
-  message: string,
-  history: ChatMessage[],
-  user:    AgentUser,
-  orgId:   string,
+  message:        string,
+  history:        ChatMessage[],
+  user:           AgentUser,
+  orgId:          string,
+  context:        ConversationContext,
+  conversationId: string,
 ): Promise<string> {
+
+  // ── 0. Context-state shortcircuit — fastest path, zero Groq calls ─────────
+  //
+  // When context_state holds a stored confirmation payload (set after Groq
+  // generated the last "Go ahead?" message), we execute directly from it.
+  // This is 300–600ms faster than a Groq round-trip.
+  if (context.flow_state === 'CONFIRMING' && context.confirm_payload) {
+    const payload = context.confirm_payload as { tool: string; args: Record<string, string> };
+
+    if (isYes(message)) {
+      console.log(`[Agent] Context shortcircuit: YES → ${payload.tool}`);
+      const result = await dispatchTool(payload.tool, payload.args, user, orgId);
+      saveContext(conversationId, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
+      return result;
+    }
+
+    if (isNo(message)) {
+      console.log('[Agent] Context shortcircuit: NO → cancel');
+      saveContext(conversationId, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
+      return 'Got it, cancelled. What else can I help with? 😊';
+    }
+
+    // User sent something else (correction/clarification) — clear stored confirmation
+    // so Groq can re-evaluate and generate a new one if needed.
+    saveContext(conversationId, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
+  }
 
   // ── 1. Quick-route deterministic patterns — bypass AI entirely ────────────
   const directTool = quickRoute(message);

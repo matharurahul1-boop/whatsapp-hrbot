@@ -17,8 +17,18 @@ export type { ConversationContext };
 //           Scope: identity, role, preferences
 //           TTL: permanent (updated via onboarding/admin)
 
-const IDLE_TIMEOUT_MS     = 30 * 60 * 1000; // 30 minutes
-const CONTEXT_WINDOW_SIZE = 14;             // Last N messages — covers full create_task flow (title→deadline→priority→confirm = 10 turns)
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+
+// Adaptive history window: load only as many messages as the current flow needs.
+// AWAITING_CONFIRMATION: stored payload handles yes/no — just need recent messages for fallback display.
+// SLOT_FILLING: full history so Groq can see what slots have been collected.
+// IDLE: light context for quick commands (hi, list tasks, check-in).
+function historyLimit(flowState: string): number {
+  if (flowState === 'CONFIRMING') return 3;
+  if (flowState === 'SLOT_FILLING')          return 10;
+  if (flowState === 'IDLE')                  return 4;
+  return 6;
+}
 
 // ─── Load Full Agent Session ──────────────────────────────────────────────────
 
@@ -91,7 +101,7 @@ export async function loadSession(
     .select('role, content, created_at')
     .eq('conversation_id', conversation.id)
     .order('created_at', { ascending: false })
-    .limit(CONTEXT_WINDOW_SIZE);
+    .limit(historyLimit(context.flow_state));
 
   const recent_messages = (messages ?? []).reverse();
 

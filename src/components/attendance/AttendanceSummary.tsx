@@ -10,7 +10,7 @@ export default async function AttendanceSummary({ orgId }: { orgId: string }) {
   const { data: records } = await db
     .from('attendance_records')
     .select(`
-      id, status, check_in_time,
+      id, status, check_in_time, check_out_time,
       employee:users!attendance_records_employee_id_fkey(id, full_name, avatar_url)
     `)
     .eq('organization_id', orgId)
@@ -62,16 +62,21 @@ export default async function AttendanceSummary({ orgId }: { orgId: string }) {
       {records && records.length > 0 ? (
         <ul className="divide-y divide-surface-300/40 pb-2">
           {records.slice(0, 6).map(r => {
-            const emp = r.employee as { id?: string; full_name?: string; avatar_url?: string } | null;
-            const time = r.check_in_time
-              ? new Date(r.check_in_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+            const emp     = r.employee as { id?: string; full_name?: string; avatar_url?: string } | null;
+            const fmt     = (t: string | null) => t
+              ? new Date(t).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
               : null;
+            const inTime  = fmt(r.check_in_time);
+            const outTime = fmt(r.check_out_time);
             return (
               <li key={r.id} className="flex items-center gap-3 px-5 py-2.5">
                 <Avatar src={emp?.avatar_url} name={emp?.full_name} size="xs" />
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-medium text-surface-900 truncate">{emp?.full_name ?? '—'}</p>
-                  {time && <p className="text-2xs text-surface-600">{time}</p>}
+                  <div className="flex gap-2 mt-0.5">
+                    {inTime  && <p className="text-2xs text-success">In: {inTime}</p>}
+                    {outTime && <p className="text-2xs text-danger">Out: {outTime}</p>}
+                  </div>
                 </div>
                 <StatusBadge status={r.status} />
               </li>

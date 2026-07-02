@@ -498,18 +498,23 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     return { success: true, reply: lines.join('\n') };
   },
 
-  async COMPLETE_TASK({ slots, org_id, user_id, user_name }): Promise<ToolResult> {
+  async COMPLETE_TASK({ slots, org_id, user_id, user_name, user_role }): Promise<ToolResult> {
     const db   = createAdminClient();
     const lang = (slots._lang as 'en' | 'hi') ?? 'en';
+    const isPrivileged = ['manager', 'hr', 'admin', 'super_admin'].includes(user_role);
 
-    const { data: tasks } = await db
+    let query = db
       .from('tasks')
       .select('id, title, created_by')
       .eq('organization_id', org_id)
-      .eq('assignee_id', user_id)
       .ilike('title', `%${slots.title}%`)
       .neq('status', 'done')
       .limit(1);
+
+    // Employees can only complete their own tasks; managers+ can complete any org task
+    if (!isPrivileged) query = query.eq('assignee_id', user_id);
+
+    const { data: tasks } = await query;
 
     const task = tasks?.[0] as any;
     if (!task) return { success: false, reply: REPLIES.taskNotFound(slots.title!, lang) };

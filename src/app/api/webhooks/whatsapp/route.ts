@@ -306,8 +306,9 @@ async function sendAgentReply(to: string, text: string, orgId: string): Promise<
       to,
       body.length > 1024 ? body.slice(0, 1021) + '…' : body,
       [
-        { id: 'yes', title: '✅ Yes, proceed' },
-        { id: 'no',  title: '❌ No, cancel'  },
+        { id: 'yes',  title: '✅ Yes, proceed'  },
+        { id: 'edit', title: '✏️ Edit details'   },
+        { id: 'no',   title: '❌ No, cancel'     },
       ],
       orgId
     );

@@ -993,6 +993,29 @@ async function runGroqLoop(
       return 'Got it, cancelled. What else can I help with? 😊';
     }
 
+    if (/^edit$/i.test(message.trim()) && payload.tool === 'create_task') {
+      console.log('[Agent] Context shortcircuit: EDIT → pre-filled fields form');
+      saveContext(conversationId, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
+      const a = payload.args;
+      // Format stored "YYYY-MM-DD HH:MM" deadline for readable display
+      let dlRef = a.deadline ?? '';
+      if (dlRef) {
+        const [dp, tp = '17:00'] = dlRef.split(' ');
+        const [y, mo, d] = dp.split('-');
+        const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        const h = parseInt(tp.split(':')[0]), mn = tp.split(':')[1] ?? '00';
+        dlRef = `${parseInt(d)} ${MON[parseInt(mo)-1]} ${y}, ${h > 12 ? h-12 : h || 12}:${mn} ${h >= 12 ? 'PM' : 'AM'} IST`;
+      }
+      const ref = [
+        `📝 *Title:* ${a.title || '(not set)'}`,
+        `📅 *Deadline:* ${dlRef || '(not set)'}`,
+        `🔴 *Priority:* ${a.priority || '(not set)'}`,
+        `👤 *Assign To:* ${a.assignee || '(you)'}`,
+        ...(a.description ? [`💬 *Description:* ${a.description}`] : []),
+      ].join('\n');
+      return `Current details:\n${ref}\n\nPlease provide the following:\n📝 *Title* (Required)\n📅 *Deadline* (Required) — e.g. tomorrow 5pm (defaults to 5:00 PM IST if no time given)\n🔴 *Priority* (Required) — High / Medium / Low / Urgent\n👤 *Assign To* (Optional — defaults to you if not provided)\n💬 *Description* (Optional)`;
+    }
+
     // User sent something else (correction/clarification) — clear stored confirmation
     // so Groq can re-evaluate and generate a new one if needed.
     saveContext(conversationId, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
@@ -1052,6 +1075,9 @@ async function runGroqLoop(
     } else if (isNo(message)) {
       console.log(`[Agent] Cancellation detected ("${message}")`);
       return 'Got it, cancelled. What else can I help with? 😊';
+    } else if (/^edit$/i.test(message.trim())) {
+      console.log(`[Agent] Edit detected ("${message}") — re-show fields form`);
+      return 'Sure! Please provide the following:\n📝 *Title* (Required)\n📅 *Deadline* (Required) — e.g. tomorrow 5pm (defaults to 5:00 PM IST if no time given)\n🔴 *Priority* (Required) — High / Medium / Low / Urgent\n👤 *Assign To* (Optional — defaults to you if not provided)\n💬 *Description* (Optional)';
     }
   } else if (CREATE_SHORTCUT.test(message.trim()) && history.length >= 2) {
     // User said "Create the task" but bot's last message wasn't a confirmation prompt.

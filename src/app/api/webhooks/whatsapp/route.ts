@@ -385,26 +385,42 @@ async function transcribeAudio(mediaId: string, orgId: string): Promise<string |
              : mimeType.startsWith('audio/wav')  ? '.wav'
              : '.ogg';
 
-  const tryKey = async (apiKey: string): Promise<string | null | 'rate_limited'> => {
+  // Use plain audio/ogg for the blob — some Groq key setups reject the full
+  // "audio/ogg; codecs=opus" MIME type that WhatsApp sends.
+  const blobType = mimeType.split(';')[0].trim();
+
+  const tryKey = async (apiKey: string): Promise<string | null | 'skip'> => {
     const form = new FormData();
-    form.append('file', new Blob([buffer], { type: mimeType }), `audio${ext}`);
+    form.append('file', new Blob([buffer], { type: blobType }), `audio${ext}`);
     form.append('model', 'whisper-large-v3-turbo');
-    // 'auto' lets Whisper detect Hindi, Hinglish, and English automatically
 
-    const res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
-      method:  'POST',
-      headers: { Authorization: `Bearer ${apiKey}` },
-      body:    form,
-    });
+    let res: Response;
+    try {
+      res = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+        method:  'POST',
+        headers: { Authorization: `Bearer ${apiKey}` },
+        body:    form,
+      });
+    } catch (netErr) {
+      console.warn('[WA Audio] Network error reaching Groq Whisper:', netErr);
+      return 'skip';
+    }
 
-    if (res.status === 429) return 'rate_limited';
-    if (!res.ok) throw new Error(`Groq Whisper ${res.status}: ${await res.text()}`);
+    if (res.status === 429 || res.status >= 500) {
+      console.warn(`[WA Audio] Groq Whisper key returned ${res.status} — trying next`);
+      return 'skip';
+    }
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '(unreadable)');
+      console.error(`[WA Audio] Groq Whisper ${res.status} error: ${body}`);
+      return 'skip'; // try other keys in case this one is misconfigured
+    }
 
     const data = await res.json();
     return (data.text as string)?.trim() || null;
   };
 
-  // Rotate through all 10 Groq keys for Whisper (same keys used by n8n AI Agent)
   const groqKeys = [
     process.env.GROQ_API_KEY,   process.env.GROQ_API_KEY_2,
     process.env.GROQ_API_KEY_3, process.env.GROQ_API_KEY_4,
@@ -413,13 +429,15 @@ async function transcribeAudio(mediaId: string, orgId: string): Promise<string |
     process.env.GROQ_API_KEY_9, process.env.GROQ_API_KEY_10,
   ].filter(Boolean) as string[];
 
+  console.log(`[WA Audio] Trying ${groqKeys.length} keys, mimeType=${mimeType}, blobType=${blobType}, ext=${ext}, size=${buffer.byteLength}b`);
+
   for (let i = 0; i < groqKeys.length; i++) {
     const r = await tryKey(groqKeys[i]);
-    if (r !== 'rate_limited') return r;
-    console.warn(`[WA Audio] Key ${i + 1} rate-limited for Whisper — trying next`);
+    if (r !== 'skip') return r;
+    console.warn(`[WA Audio] Key ${i + 1}/${groqKeys.length} skipped`);
   }
 
-  throw new Error('All Groq keys rate-limited for Whisper');
+  throw new Error('All Groq Whisper keys exhausted');
 }
 
 async function handleAudioMessage(from: string, mediaId: string, orgId: string): Promise<void> {

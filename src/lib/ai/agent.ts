@@ -1145,7 +1145,7 @@ async function runGroqLoop(
           for (const tc of toolCalls) {
             console.log(`[Agent] Groq[${clientIdx}] tool call: ${tc.function.name}`, tc.function.arguments);
             let args: Record<string, string> = {};
-            try { args = JSON.parse(tc.function.arguments); } catch { /* empty args */ }
+            try { const p = JSON.parse(tc.function.arguments); if (p && typeof p === 'object') args = p; } catch { /* empty args */ }
             const output = await dispatchTool(tc.function.name, args, user, orgId);
             groqMessages.push({ role: 'tool', tool_call_id: tc.id, content: output });
           }

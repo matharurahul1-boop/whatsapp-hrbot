@@ -32,7 +32,7 @@ export default async function DashboardPage() {
 
   const orgId = profile.organization_id;
   const isAdmin = ['super_admin', 'admin', 'hr', 'manager'].includes(profile.role);
-  const today = new Date().toISOString().split('T')[0];
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   const hour  = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   const firstName = profile.full_name?.split(' ')[0] ?? 'there';

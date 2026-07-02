@@ -19,7 +19,7 @@ const PRIMARY = [
   { href: '/dashboard',  label: 'Home',  Icon: LayoutDashboard, color: 'text-brand-400',  roles: ALL },
   { href: '/tasks',      label: 'Tasks', Icon: CheckSquare,     color: 'text-violet-400', roles: ALL },
   { href: '/leave',      label: 'Leave', Icon: Calendar,        color: 'text-amber-400',  roles: ALL },
-  { href: '/attendance', label: 'Time',  Icon: Clock,           color: 'text-cyan-400',   roles: ALL },
+  { href: '/attendance', label: 'Attendance', Icon: Clock,       color: 'text-cyan-400',   roles: ALL },
 ];
 
 const MORE_ITEMS = [

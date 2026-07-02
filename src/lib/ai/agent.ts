@@ -1004,24 +1004,37 @@ async function runGroqLoop(
     // Case B: Short natural-language correction (one or two lines)
     if (!usedFullForm) {
       const txt = message.trim();
-      // Assignee: "assign to X" / "for X" / "assignee X"
-      const asgn = txt.match(/^(?:assign(?:ee)?\s+to\s+|for\s+)(.+)$/i);
+      // Assignee: "assign to X" / "for X" / "assignee X" — anywhere in the message
+      const asgn = txt.match(/\bassign(?:ee)?\s+to\s+(.+?)(?:\s+and\b|$)/i)
+                ?? txt.match(/^for\s+(.+?)(?:\s+and\b|$)/i);
       if (asgn) merged.assignee = asgn[1].trim();
 
-      // Deadline: "deadline <date>" / "due <date>" / "by <date>"
-      const dlM = txt.match(/^(?:deadline|due|by)\s+(?:to\s+)?(.+)$/i);
+      // Deadline: "deadline [time] [is] <date/time>" / "due <date>" — anywhere in message
+      // Also handles time-only: "deadline is 4pm" → keep base date, update time
+      const dlM = txt.match(/\b(?:deadline(?:\s+time)?|due|by)\s*(?:(?:time\s+)?is\s+|to\s+)?(.+?)(?:\s+and\b|$)/i);
       if (dlM) {
-        const iso2 = naturalDateToISO(dlM[1]);
-        if (iso2) merged.deadline = `${iso2} ${extractTimeFromText(dlM[1]) ?? '17:00'}`;
+        const dlPart = dlM[1].trim();
+        const time2  = extractTimeFromText(dlPart);
+        const hasDateWords = /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|mon|tue|wed|thu|fri|sat|sun|tomorrow|today|next\s|\d+\s*(?:st|nd|rd|th))/i.test(dlPart);
+        if (hasDateWords) {
+          const iso2 = naturalDateToISO(dlPart);
+          if (iso2) merged.deadline = `${iso2} ${time2 ?? '17:00'}`;
+        } else if (time2) {
+          // Pure time — keep the base date, update only the time
+          const baseDate = (base.deadline ?? '').split(' ')[0];
+          merged.deadline = `${baseDate || naturalDateToISO('today') || ''} ${time2}`;
+        }
       }
 
-      // Priority: "high" / "medium" / "low" / "urgent" (standalone or "make it high")
-      const priM = txt.match(/\b(high|medium|low|urgent)\b/i);
-      if (priM && !asgn && !dlM) merged.priority = priM[1].toLowerCase();
-
-      // Title: "title <new title>" / "rename to <new title>"
-      const titleM = txt.match(/^(?:title|rename\s+to)\s+(.+)$/i);
+      // Title: "title [is] X" / "rename to X" — anywhere in message
+      const titleM = txt.match(/\b(?:title|name|rename\s+to)\s+(?:is\s+)?(.+?)(?:\s+and\b|$)/i);
       if (titleM) merged.title = titleM[1].trim();
+
+      // Priority — anywhere in message (standalone word or "X priority")
+      const priM = txt.match(/\b(high|medium|low|urgent)\s+priority\b/i)
+                ?? txt.match(/\bpriority\s+(?:is\s+)?(high|medium|low|urgent)\b/i)
+                ?? (!asgn && !dlM && !titleM ? txt.match(/^(high|medium|low|urgent)$/i) : null);
+      if (priM) merged.priority = (priM[1] ?? priM[2] ?? '').toLowerCase();
     }
 
     // Resolve typed assignee to full name via DB lookup

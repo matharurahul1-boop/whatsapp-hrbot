@@ -288,5 +288,6 @@ function hydrateContext(
     language:           (raw.language as SupportedLanguage) ?? 'en',
     turn_count:         (raw.turn_count as number) ?? 0,
     pending_transcript: (raw.pending_transcript as string | null) ?? null,
+    edit_base_payload:  (raw.edit_base_payload  as Record<string, string> | null) ?? null,
   };
 }

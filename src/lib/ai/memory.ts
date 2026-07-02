@@ -24,9 +24,9 @@ const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 // SLOT_FILLING: full history so Groq can see what slots have been collected.
 // IDLE: light context for quick commands (hi, list tasks, check-in).
 function historyLimit(flowState: string): number {
-  if (flowState === 'CONFIRMING') return 3;
-  if (flowState === 'SLOT_FILLING')          return 10;
-  if (flowState === 'IDLE')                  return 4;
+  if (flowState === 'CONFIRMING' || flowState === 'AUDIO_CONFIRM') return 3;
+  if (flowState === 'SLOT_FILLING') return 10;
+  if (flowState === 'IDLE')         return 4;
   return 6;
 }
 
@@ -275,16 +275,17 @@ function hydrateContext(
   }
 
   return {
-    flow:            (raw.flow as ConversationContext['flow']) ?? null,
-    flow_state:      (raw.flow_state as ConversationContext['flow_state']) ?? 'IDLE',
-    module:          (raw.module as ConversationContext['module']) ?? null,
-    slots:           (raw.slots as Record<string, string | null>) ?? {},
-    pending_slot:    (raw.pending_slot as string | null) ?? null,
-    confirm_payload: (raw.confirm_payload as Record<string, unknown> | null) ?? null,
-    confirm_message: (raw.confirm_message as string | null) ?? null,
-    retry_count:     (raw.retry_count as number) ?? 0,
-    error_context:   (raw.error_context as string | null) ?? null,
-    language:        (raw.language as SupportedLanguage) ?? 'en',
-    turn_count:      (raw.turn_count as number) ?? 0,
+    flow:               (raw.flow as ConversationContext['flow']) ?? null,
+    flow_state:         (raw.flow_state as ConversationContext['flow_state']) ?? 'IDLE',
+    module:             (raw.module as ConversationContext['module']) ?? null,
+    slots:              (raw.slots as Record<string, string | null>) ?? {},
+    pending_slot:       (raw.pending_slot as string | null) ?? null,
+    confirm_payload:    (raw.confirm_payload as Record<string, unknown> | null) ?? null,
+    confirm_message:    (raw.confirm_message as string | null) ?? null,
+    retry_count:        (raw.retry_count as number) ?? 0,
+    error_context:      (raw.error_context as string | null) ?? null,
+    language:           (raw.language as SupportedLanguage) ?? 'en',
+    turn_count:         (raw.turn_count as number) ?? 0,
+    pending_transcript: (raw.pending_transcript as string | null) ?? null,
   };
 }

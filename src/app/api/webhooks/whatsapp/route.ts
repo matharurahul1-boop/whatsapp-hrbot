@@ -12,6 +12,8 @@ import { verifyWebhookSignature, verifyWebhookChallenge } from '@/lib/whatsapp/v
 import { sendText, sendButtons, markMessageRead, downloadMediaContent } from '@/lib/whatsapp/client';
 import { createAdminClient }                              from '@/lib/supabase/admin';
 import { runMasterAgent }                                 from '@/lib/ai/agent';
+import { loadSession, saveContext }                       from '@/lib/ai/memory';
+import { EMPTY_CONTEXT }                                  from '@/lib/ai/types';
 import type { WAWebhookPayload, WAMessage, WAValue }      from '@/types/whatsapp.types';
 import { rateLimit }                                      from '@/lib/rate-limit';
 
@@ -444,16 +446,33 @@ async function handleAudioMessage(from: string, mediaId: string, orgId: string):
 
   console.log(`[WA Audio] Transcript for ${from}: "${transcript.slice(0, 100)}"`);
 
-  // Echo a short confirmation so the user knows what was heard
-  const preview = transcript.length > 120 ? transcript.slice(0, 120) + '…' : transcript;
-  await sendText(from, `🎙️ Heard: "${preview}"`, orgId).catch(() => {});
-
-  // Route transcribed audio the same way as text: policy questions → policy bot
-  if (isPolicyQuestion(transcript)) {
-    await dispatchPolicyBot(from, transcript, orgId);
-  } else {
-    await dispatchAgent(from, transcript, orgId);
+  // Save AUDIO_CONFIRM state so the agent knows to process the transcript on "Yes"
+  const session = await loadSession(from, orgId).catch(() => null);
+  if (session) {
+    await saveContext(session.conversation_id, {
+      ...EMPTY_CONTEXT,
+      language:           session.context.language,
+      flow_state:         'AUDIO_CONFIRM',
+      pending_transcript: transcript,
+    }).catch(() => {});
   }
+
+  // Show transcript preview + Yes / No buttons
+  const preview  = transcript.length > 900 ? transcript.slice(0, 900) + '…' : transcript;
+  const bodyText = `🎙️ I heard:\n\n"${preview}"\n\nShall I go ahead?`;
+
+  await sendButtons(
+    from,
+    bodyText,
+    [
+      { id: 'audio_yes', title: 'Yes' },
+      { id: 'audio_no',  title: 'No'  },
+    ],
+    orgId
+  ).catch(async () => {
+    // Fallback: if interactive buttons fail (e.g. AISensy), send plain text
+    await sendText(from, `${bodyText}\n\nReply *Yes* or *No*`, orgId).catch(() => {});
+  });
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────

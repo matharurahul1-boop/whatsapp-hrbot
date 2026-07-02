@@ -4,6 +4,7 @@ export type FlowState =
   | 'IDLE'            // No active flow
   | 'SLOT_FILLING'    // Collecting missing required info
   | 'CONFIRMING'      // Waiting for user yes/no
+  | 'AUDIO_CONFIRM'   // Voice message transcribed, waiting for yes/no before dispatch
   | 'EXECUTING'       // Running tool (internal, not persisted long)
   | 'COMPLETE';       // Flow done, about to reset
 
@@ -98,6 +99,8 @@ export interface ConversationContext {
   // Persists across flow resets so follow-up messages like "update the same task"
   // don't have to re-specify the task title.
   last_task_title?: string | null;
+  // Stores the transcribed text from a voice message while waiting for yes/no.
+  pending_transcript?: string | null;
 }
 
 export const EMPTY_CONTEXT: ConversationContext = {
@@ -112,6 +115,7 @@ export const EMPTY_CONTEXT: ConversationContext = {
   error_context: null,
   language: 'en',
   turn_count: 0,
+  pending_transcript: null,
 };
 
 // ─── Classified Intent ─────────────────────────────────────────────────────────

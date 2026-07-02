@@ -678,6 +678,12 @@ Read-only (call IMMEDIATELY, no confirmation):
 - "my attendance" / "show attendance" / "attendance report" / "check-in history" / "when did I check in" / "meri attendance" → my_attendance()${isPrivileged ? `
 - "team attendance" / "who's in" / "who checked in" / "who's absent today" / "office attendance" / "attendance today" → team_attendance()` : ''}
 
+## CRITICAL: Attendance time rule
+Check-in and check-out ALWAYS record the *current time* — no custom times allowed.
+If the user's message contains any specific time (e.g. "check me in at 9am", "I arrived at 8:30", "mark attendance for 10 AM", "log checkout at 6pm"):
+→ Reply IMMEDIATELY (no tool call): "⏰ Attendance can only be recorded at the *current time*. Custom times are not allowed.\n\nIf you need to correct a past record, please ask your HR or Admin to update it manually."
+→ Do NOT call check_in() or check_out(). Do NOT proceed with confirmation.
+
 Action — check-in (confirm first):
 - "I'm in" / "check in" / "checking in" / "I'm here" / "aaya" / "reached office" / "mark my attendance" / "log attendance" / "office aa gaya"
 → confirm: "Mark your attendance as *checked in* for today? (Yes / No)" → check_in()
@@ -889,6 +895,18 @@ export async function runMasterAgent(
         role:    (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
         content: m.content as string,
       }));
+
+    // ── Guard: reject check-in/out requests that specify a custom time ────────
+    const CHECK_ACTION_RE   = /\b(?:check\s*[-\s]?in|check\s*[-\s]?out|checkin|checkout|mark\s+(?:my\s+)?attend|attendance)\b/i;
+    const CUSTOM_TIME_RE    = /\bat\s+\d{1,2}(?:[:.]\d{2})?\s*(?:am|pm|baje)?\b|\b\d{1,2}[:.]\d{2}\s*(?:am|pm)\b|\b\d{1,2}\s*(?:am|pm)\b/i;
+    if (context.flow_state === 'IDLE' && CHECK_ACTION_RE.test(message) && CUSTOM_TIME_RE.test(message)) {
+      const lang = context.language ?? 'en';
+      const timeReply = lang === 'hi'
+        ? `⏰ हाजिरी हमेशा *अभी के समय* पर ही दर्ज होती है। कस्टम समय की अनुमति नहीं है।\n\nकिसी पुरानी एंट्री को ठीक करवाने के लिए HR या Admin से संपर्क करें।`
+        : `⏰ Attendance can only be recorded at the *current time*. Custom times are not allowed.\n\nIf you need to correct a past record, please ask your HR or Admin to update it manually.`;
+      await saveMessage(conversation_id, orgId, 'assistant', 'outbound', timeReply).catch(() => {});
+      return { reply: timeReply, new_context: context };
+    }
 
     // ── Early check-in guard: skip confirmation if already checked in today ──
     const CHECK_IN_INTENT_RE  = /\b(?:check\s*[-\s]?in|(?:mark|log|please\s+mark)\s+(?:my\s+)?at+end|at+endan)/i;

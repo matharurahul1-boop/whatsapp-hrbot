@@ -1040,19 +1040,26 @@ async function runGroqLoop(
       if (priM) merged.priority = (priM[1] ?? priM[2] ?? '').toLowerCase();
     }
 
-    // Resolve typed assignee to canonical full_name (fuzzy, same logic as executor)
+    // Resolve typed assignee to canonical full_name (fuzzy). If not found, error immediately.
     let displayAssignee = merged.assignee;
     if (merged.assignee) {
       const { createAdminClient: mkDb } = await import('@/lib/supabase/admin');
       const db2 = mkDb();
-      const { data: ilikeFound } = await db2.from('users').select('full_name')
-        .eq('organization_id', orgId).eq('is_active', true)
-        .ilike('full_name', `%${merged.assignee}%`).limit(1).maybeSingle();
-      if ((ilikeFound as { full_name: string } | null)?.full_name) {
-        displayAssignee = (ilikeFound as { full_name: string }).full_name;
+
+      // Fetch all active org members once (used for both ilike check and fuzzy fallback)
+      const { data: allActive } = await db2.from('users').select('full_name')
+        .eq('organization_id', orgId).eq('is_active', true).order('full_name').limit(50);
+
+      // 1. Exact substring match
+      const ilikeMatch = (allActive ?? []).find(u =>
+        (u as { full_name: string }).full_name.toLowerCase().includes(merged.assignee!.toLowerCase()) ||
+        merged.assignee!.toLowerCase().includes((u as { full_name: string }).full_name.toLowerCase())
+      ) as { full_name: string } | undefined;
+
+      if (ilikeMatch) {
+        displayAssignee = ilikeMatch.full_name;
       } else {
-        const { data: allActive } = await db2.from('users').select('full_name')
-          .eq('organization_id', orgId).eq('is_active', true).limit(50);
+        // 2. Fuzzy fallback
         const sim = (a: string, b: string) => {
           const al = a.toLowerCase().replace(/\s+/g, ''), bl = b.toLowerCase().replace(/\s+/g, '');
           if (!al || !bl) return 0;
@@ -1069,7 +1076,20 @@ async function runGroqLoop(
           const score = Math.max(...[u.full_name, ...u.full_name.split(' ')].map(n => sim(merged.assignee!, n)));
           if (score > bestScore) { bestScore = score; bestName = u.full_name; }
         }
-        if (bestScore >= 0.65) displayAssignee = bestName;
+
+        if (bestScore >= 0.65) {
+          displayAssignee = bestName;
+        } else {
+          // Not found — return error immediately, keep EDITING state so user can retry
+          const names = ((allActive ?? []) as { full_name: string }[])
+            .map(u => `· ${u.full_name}`).join('\n') || '(none)';
+          saveContext(conversationId, {
+            ...EMPTY_CONTEXT, language: context.language,
+            flow_state: 'EDITING', edit_base_payload: base,
+          }).catch(() => {});
+          ctxRef.handled = true;
+          return `❌ No team member found matching *${merged.assignee}*.\n\nAvailable team members:\n${names}\n\nPlease try again with a correct name.`;
+        }
       }
     }
 

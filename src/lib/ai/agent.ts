@@ -888,7 +888,7 @@ export async function runMasterAgent(
       }));
 
     // ── Early check-in guard: skip confirmation if already checked in today ──
-    const CHECK_IN_INTENT_RE  = /\b(check\s*[-\s]?in|mark\s+(?:my\s+)?attend|attendan[sc]e|aaya|office|reached|arrived|log\s+(?:my\s+)?attend)\b/i;
+    const CHECK_IN_INTENT_RE  = /\b(?:check\s*[-\s]?in|(?:mark|log|please\s+mark)\s+(?:my\s+)?at+end|at+endan)/i;
     const CHECK_OUT_INTENT_RE = /\b(check\s*[-\s]?out|checkout|leaving|sign\s*out|nikal|ja\s+raha)\b/i;
     if (
       context.flow_state === 'IDLE' &&

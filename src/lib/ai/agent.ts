@@ -807,6 +807,7 @@ function stripGroqFiller(text: string): string {
 function shouldHaveCalledTool(msg: string): boolean {
   const m = msg.toLowerCase().trim();
   return (
+    // ── Read-only tool queries ──────────────────────────────────────────────
     // Task listing
     /\b(list|show|get|my|mine|what'?s?\s+my)\b.*\btasks?\b/i.test(m) ||
     /\blist\s+(mine|of\s+(mine|my))\b/i.test(m) ||
@@ -814,11 +815,28 @@ function shouldHaveCalledTool(msg: string): boolean {
     // Leave balance / history
     /\b(leave\s+balance|leaves?\s+(left|remaining|balance)|how\s+many\s+leaves?|kitni\s+leave)\b/i.test(m) ||
     /\b(my\s+leaves?|list\s+leaves?|leave\s+(history|requests?)|show\s+(my\s+)?leave)\b/i.test(m) ||
-    // Attendance
+    // Attendance read-only
     /\b(my\s+attendance|show\s+attendance|attendance\s+(report|history)|check.in\s+history)\b/i.test(m) ||
     /\b(team\s+attendance|who'?s?\s+(absent|present|in\s+office|checked\s+in)|who\s+(is\s+)?in)\b/i.test(m) ||
     // Users
-    /\b(list\s+users?|team\s+members?|list\s+employees?|who'?s?\s+in\s+(the\s+)?team)\b/i.test(m)
+    /\b(list\s+users?|team\s+members?|list\s+employees?|who'?s?\s+in\s+(the\s+)?team)\b/i.test(m) ||
+    // ── Action intents — Groq should reply with confirmation, not filler ───
+    /\b(done\s+with|finished|mark\s+.{1,40}\s+(?:as\s+)?(?:done|complete)|complete\s+(?:task\s+)?the)\b/i.test(m) ||
+    /\b(apply\s+(?:for\s+)?leave|take\s+(?:a\s+)?(?:day\s+off|leave)|i.?m\s+sick|sick\s+(?:leave|today|tomorrow))\b/i.test(m) ||
+    /\b(create\s+(?:a\s+)?task|add\s+(?:a\s+)?task|new\s+task)\b/i.test(m) ||
+    /\b(delete\s+(?:task\s+)?the|remove\s+task|assign\s+task|update\s+(?:task\s+)?the)\b/i.test(m)
+  );
+}
+
+// Returns true when Groq's reply is a useless generic phrase that ignores the intent
+function isGroqGenericFiller(reply: string): boolean {
+  const r = reply.toLowerCase().trim();
+  return (
+    r === '' ||
+    /^what else (?:can|would) (?:i|you)/i.test(r) ||
+    /^is there anything else/i.test(r) ||
+    /^i('?m| am) not sure (what|how)/i.test(r) ||
+    (r.length < 80 && /^(sorry|i (didn'?t|couldn'?t|can'?t)|i don'?t (understand|recognize))/i.test(r))
   );
 }
 
@@ -943,6 +961,22 @@ async function runGroqLoop(
   if (directTool) {
     console.log(`[Agent] Quick-route: "${message}" → ${directTool}`);
     return dispatchTool(directTool, {}, user, orgId);
+  }
+
+  // ── 1a. Quick-confirmation routes for check-in / check-out ────────────────
+  // These are zero-slot action tools — no argument to extract, so we generate
+  // the confirmation text directly instead of asking Groq (which often misses them).
+  // parseConfirmationMessage + context_state handle the "Yes" execution path.
+  const CHECK_IN_PHRASES = /^(?:please\s+)?(?:check\s*[-\s]?in|i.?m\s+(?:in|here|back)|aaya|i.?ve?\s+(?:reached|arrived)|mark\s+(?:my\s+)?attendance|log\s+(?:my\s+)?attendance|office\s+(?:aa\s+gaya|mein\s+hoon|pohonch\s+gaya))\s*[!.?]*$/i;
+  if (CHECK_IN_PHRASES.test(message.trim())) {
+    console.log(`[Agent] Check-in quick-confirm: "${message}"`);
+    return 'Mark your attendance as *checked in* for today? (Yes / No)';
+  }
+
+  const CHECK_OUT_PHRASES = /^(?:please\s+)?(?:check\s*[-\s]?out|i.?m\s+(?:leaving|done|going|out)|leaving\s+now|going\s+home|done\s+for\s+(?:the\s+)?today?|signing\s+off|bye\s*bye?|ja\s+raha|nikal\s+raha)\s*[!.?]*$/i;
+  if (CHECK_OUT_PHRASES.test(message.trim())) {
+    console.log(`[Agent] Check-out quick-confirm: "${message}"`);
+    return 'Mark your attendance as *checked out* for today? (Yes / No)';
   }
 
   // ── 2. Confirmation / context injection ──────────────────────────────────
@@ -1071,14 +1105,21 @@ async function runGroqLoop(
 
           if (toolCalls.length === 0) {
             const textReply = stripGroqFiller(choice.message.content?.trim() || '');
-            // Round 0 only: if this looks like a read-only query but Groq returned
-            // text instead of calling a tool, inject an enforcement message and retry once.
-            if (round === 0 && shouldHaveCalledTool(message)) {
-              console.warn(`[Agent] Groq text-responded to tool query "${message}" — enforcing retry`);
+            // Round 0 only: retry if Groq (a) skipped a required tool call, or
+            // (b) gave a generic filler response to a message with clear intent.
+            const needsRetry = round === 0 && (
+              shouldHaveCalledTool(message) ||
+              (isGroqGenericFiller(textReply) && message.trim().length > 5)
+            );
+            if (needsRetry) {
+              console.warn(`[Agent] Groq gave inadequate response to "${message}" ("${textReply.slice(0,60)}") — enforcing retry`);
               groqMessages.push({ role: 'assistant', content: textReply });
               groqMessages.push({
                 role: 'user',
-                content: '[SYSTEM ENFORCEMENT] You responded with text but this request requires a tool call. Do NOT write a text reply — call the correct tool immediately (e.g. list_tasks, check_leave_balance, my_attendance, team_attendance, list_leaves, list_users). Return the tool result verbatim.',
+                content: '[SYSTEM ENFORCEMENT] Your last response did not address the user\'s request. Fix this now:\n' +
+                  '• For READ-ONLY requests (list tasks, leave balance, attendance, users): call the correct tool immediately.\n' +
+                  '• For ACTION requests (check-in, check-out, complete task, apply leave, create task, delete task): reply with a confirmation message ending with "Go ahead? (Yes / No)".\n' +
+                  'Do NOT say "What else can I help with?" — respond to the actual intent.',
               });
               resp = await client.chat.completions.create({
                 model: AI_MODEL_GROQ, messages: groqMessages, tools: groqTools, max_tokens: 512,

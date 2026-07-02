@@ -626,7 +626,7 @@ reject_leave, cancel_leave, check_in, check_out, set_reminder):
 📝 *Title* (Required)
 📅 *Deadline* (Required) — e.g. tomorrow 5pm
 🔴 *Priority* (Required) — High / Medium / Low
-👤 *Assign To* (Optional)
+👤 *Assign To* (Optional — defaults to you if not provided)
 💬 *Description* (Optional)"
 NEVER send the confirmation until all three Required fields are collected.
 6. For create_task, ALWAYS include the assignee in the confirmation sentence: "for *you*" when self-assigned, "for *[Name]*" when assigned to someone else. Example: "I'll create task *Fix bug* for *you* due *2 Jul 2026, 05:00 PM* with *high* priority. Go ahead? (Yes / No)"
@@ -739,7 +739,7 @@ Sure! Please provide the following:
 📝 *Title* (Required)
 📅 *Deadline* (Required) — e.g. tomorrow 5pm
 🔴 *Priority* (Required) — High / Medium / Low
-👤 *Assign To* (Optional)
+👤 *Assign To* (Optional — defaults to you if not provided)
 💬 *Description* (Optional)
 User: "Fix login bug, tomorrow 5pm, high priority" → You: I'll create task *Fix login bug* for *you* due *${tmr.display}, 05:00 PM* with *high* priority. Go ahead? (Yes / No)
 User: "yes" → [call create_task(title="Fix login bug", deadline="${tmr.iso} 17:00", priority="high")]

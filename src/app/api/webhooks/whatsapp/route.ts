@@ -297,7 +297,7 @@ async function updateDeliveryStatus(
 // and deliver the message as WhatsApp interactive buttons instead of text.
 // Button IDs "yes" / "no" already match isYes / isNo regex in agent.ts, so
 // the context-state shortcircuit handles button taps with zero extra code.
-const CONFIRM_SUFFIX_RE = /\s*Go ahead\?\s*\(Yes\s*\/\s*No\)\s*$/i;
+const CONFIRM_SUFFIX_RE = /\s*\(Yes\s*\/\s*No\)\s*$/i;
 
 async function sendAgentReply(to: string, text: string, orgId: string): Promise<void> {
   if (CONFIRM_SUFFIX_RE.test(text)) {

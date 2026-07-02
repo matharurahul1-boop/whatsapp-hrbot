@@ -624,7 +624,7 @@ reject_leave, cancel_leave, check_in, check_out, set_reminder):
 5. For create_task ONLY: If *title*, *deadline*, or *priority* are not all provided in the user's message, ask for ALL missing fields in ONE single message using this format:
 "Sure! Please provide the following:
 📝 *Title* (Required)
-📅 *Deadline* (Required) — e.g. tomorrow 5pm (defaults to 5:00 PM if no time given)
+📅 *Deadline* (Required) — e.g. tomorrow 5pm (defaults to 5:00 PM IST if no time given)
 🔴 *Priority* (Required) — High / Medium / Low / Urgent
 👤 *Assign To* (Optional — defaults to you if not provided)
 💬 *Description* (Optional)"
@@ -737,7 +737,7 @@ Task creation — multi-turn (ask ALL fields at once in one message):
 User: "I want to create a task" → You:
 Sure! Please provide the following:
 📝 *Title* (Required)
-📅 *Deadline* (Required) — e.g. tomorrow 5pm (defaults to 5:00 PM if no time given)
+📅 *Deadline* (Required) — e.g. tomorrow 5pm (defaults to 5:00 PM IST if no time given)
 🔴 *Priority* (Required) — High / Medium / Low / Urgent
 👤 *Assign To* (Optional — defaults to you if not provided)
 💬 *Description* (Optional)
@@ -1026,7 +1026,7 @@ async function runGroqLoop(
   const CREATE_TASK_BARE = /^(?:please\s+)?(?:create|add|make|new)\s+(?:a\s+)?(?:task|todo|work\s*item|reminder)\s*[!.?]*$/i;
   if (CREATE_TASK_BARE.test(message.trim())) {
     console.log(`[Agent] Create-task quick-form: "${message}"`);
-    return 'Sure! Please provide the following:\n📝 *Title* (Required)\n📅 *Deadline* (Required) — e.g. tomorrow 5pm (defaults to 5:00 PM if no time given)\n🔴 *Priority* (Required) — High / Medium / Low / Urgent\n👤 *Assign To* (Optional — defaults to you if not provided)\n💬 *Description* (Optional)';
+    return 'Sure! Please provide the following:\n📝 *Title* (Required)\n📅 *Deadline* (Required) — e.g. tomorrow 5pm (defaults to 5:00 PM IST if no time given)\n🔴 *Priority* (Required) — High / Medium / Low / Urgent\n👤 *Assign To* (Optional — defaults to you if not provided)\n💬 *Description* (Optional)';
   }
 
   // ── 2. Confirmation / context injection ──────────────────────────────────

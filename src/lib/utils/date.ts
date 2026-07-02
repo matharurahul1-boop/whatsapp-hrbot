@@ -15,9 +15,12 @@ export function formatTime(timeStr: string): string {
 
 export function formatDateTime(dateStr: string): string {
   try {
-    const d = new Date(dateStr);
-    // date-fns format() uses the process local timezone (UTC on Vercel).
-    // Add IST offset so the UTC value equals the IST wall-clock time.
+    // tasks.deadline is a `timestamp` (no-tz) column — PostgreSQL strips the +05:30
+    // suffix and stores the IST wall-clock time as-is. Treat no-tz strings as IST
+    // so the offset isn't double-counted. Strings that already carry tz info
+    // (Z suffix or ±HH:MM) are parsed as-is and then converted to IST for display.
+    const hasOffset = /Z$|[+-]\d{2}:\d{2}$/.test(dateStr.trim());
+    const d = new Date(hasOffset ? dateStr : dateStr.replace(' ', 'T') + '+05:30');
     const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
     const istDate = new Date(d.getTime() + IST_OFFSET_MS);
     return format(istDate, 'dd MMM yyyy, hh:mm a');

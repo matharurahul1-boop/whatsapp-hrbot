@@ -263,7 +263,7 @@ function ListRow({
           <span className={cn('flex items-center justify-end gap-1 text-xs font-medium', overdue ? 'text-danger' : 'text-surface-500')}>
             {overdue && <AlertTriangle className="h-3 w-3 shrink-0" />}
             <Clock className="h-3 w-3 shrink-0" />
-            {formatDateTime(task.deadline)}
+            {formatDateTime(task.deadline)} IST
           </span>
         ) : (
           <span className="text-xs text-surface-400">—</span>

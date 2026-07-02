@@ -43,6 +43,17 @@ export default function CheckInWidget({ todayRecord, firstName }: CheckInWidgetP
   const checkedIn  = !!record?.check_in_time;
   const checkedOut = !!record?.check_out_time;
 
+  // Keep local state in sync with server-refreshed prop (e.g. after router.refresh())
+  useEffect(() => { setRecord(todayRecord); }, [todayRecord]);
+
+  // While checked in but not yet out, poll every 30s so WhatsApp-triggered
+  // checkouts are reflected without a manual page refresh
+  useEffect(() => {
+    if (!checkedIn || checkedOut) return;
+    const id = setInterval(() => router.refresh(), 30_000);
+    return () => clearInterval(id);
+  }, [checkedIn, checkedOut, router]);
+
   // Live elapsed time since check-in
   const elapsed = checkedIn && !checkedOut && record?.check_in_time
     ? Math.floor((now.getTime() - new Date(record.check_in_time).getTime()) / 60000)

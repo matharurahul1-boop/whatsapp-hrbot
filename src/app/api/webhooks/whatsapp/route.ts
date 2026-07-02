@@ -302,14 +302,21 @@ const CONFIRM_SUFFIX_RE = /\s*\(Yes\s*\/\s*No\)\s*$/i;
 async function sendAgentReply(to: string, text: string, orgId: string): Promise<void> {
   if (CONFIRM_SUFFIX_RE.test(text)) {
     const body = text.replace(CONFIRM_SUFFIX_RE, '').trimEnd();
+    const isTaskAction = /I'll (?:create task|update\b)/i.test(body);
+    const buttons = isTaskAction
+      ? [
+          { id: 'yes',  title: '✅ Yes, proceed' },
+          { id: 'edit', title: '✏️ Edit details'  },
+          { id: 'no',   title: '❌ No, cancel'    },
+        ]
+      : [
+          { id: 'yes', title: '✅ Yes, proceed' },
+          { id: 'no',  title: '❌ No, cancel'   },
+        ];
     await sendButtons(
       to,
       body.length > 1024 ? body.slice(0, 1021) + '…' : body,
-      [
-        { id: 'yes',  title: '✅ Yes, proceed'  },
-        { id: 'edit', title: '✏️ Edit details'   },
-        { id: 'no',   title: '❌ No, cancel'     },
-      ],
+      buttons,
       orgId
     );
   } else {

@@ -4,8 +4,10 @@ export type FlowState =
   | 'IDLE'            // No active flow
   | 'SLOT_FILLING'    // Collecting missing required info
   | 'CONFIRMING'      // Waiting for user yes/no
-  | 'AUDIO_CONFIRM'   // Voice message transcribed, waiting for yes/no before dispatch
-  | 'EXECUTING'       // Running tool (internal, not persisted long)
+  | 'AUDIO_CONFIRM'      // Voice message transcribed, waiting for yes/no before dispatch
+  | 'AUDIO_FIELD_SELECT' // User said No; waiting for them to pick which field to correct
+  | 'AUDIO_FIELD_VALUE'  // Field selected; waiting for the new value to apply
+  | 'EXECUTING'          // Running tool (internal, not persisted long)
   | 'COMPLETE';       // Flow done, about to reset
 
 // ─── Intent & Module ──────────────────────────────────────────────────────────

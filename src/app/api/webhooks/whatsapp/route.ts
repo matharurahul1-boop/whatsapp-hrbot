@@ -9,11 +9,12 @@ export const maxDuration = 60;
 // (Not distributed — only effective within one warm Vercel instance.)
 const inFlight = new Set<string>();
 import { verifyWebhookSignature, verifyWebhookChallenge } from '@/lib/whatsapp/verify';
-import { sendText, sendButtons, markMessageRead, downloadMediaContent } from '@/lib/whatsapp/client';
+import { sendText, sendButtons, sendList, markMessageRead, downloadMediaContent } from '@/lib/whatsapp/client';
 import { createAdminClient }                              from '@/lib/supabase/admin';
 import { runMasterAgent }                                 from '@/lib/ai/agent';
 import { loadSession, saveContext }                       from '@/lib/ai/memory';
 import { EMPTY_CONTEXT }                                  from '@/lib/ai/types';
+import type { SupportedLanguage }                         from '@/lib/ai/types';
 import type { WAWebhookPayload, WAMessage, WAValue }      from '@/types/whatsapp.types';
 import { rateLimit }                                      from '@/lib/rate-limit';
 
@@ -170,10 +171,16 @@ async function handleOneMessage(
       try {
         if (isAudio) {
           await handleAudioMessage(msg.from, msg.audio?.id ?? '', orgId);
-        } else if (isPolicyQuestion(text!)) {
-          await dispatchPolicyBot(msg.from, text!, orgId);
         } else {
-          await dispatchAgent(msg.from, text!, orgId);
+          // Check if sender is mid-audio-correction flow before normal dispatch
+          const handledByAudioFlow = await handleAudioFlow(msg.from, text!, orgId);
+          if (!handledByAudioFlow) {
+            if (isPolicyQuestion(text!)) {
+              await dispatchPolicyBot(msg.from, text!, orgId);
+            } else {
+              await dispatchAgent(msg.from, text!, orgId);
+            }
+          }
         }
       } catch (err) {
         console.error('[WA] Dispatch error:', err);
@@ -310,8 +317,6 @@ async function sendAgentReply(to: string, text: string, orgId: string): Promise<
 }
 
 // ── AI agent dispatch ─────────────────────────────────────────────────────
-// Standalone branch: all messages processed by the local Groq agent directly.
-// No n8n dependency. To re-enable n8n, merge from the `main` branch.
 async function dispatchAgent(from: string, text: string, orgId: string): Promise<void> {
   try {
     console.log(`[WA Agent] → local Groq agent: from=${from}`);
@@ -321,6 +326,187 @@ async function dispatchAgent(from: string, text: string, orgId: string): Promise
     console.error(`[WA Agent] error for ${from}:`, err);
     await sendText(from, '⚠️ Something went wrong. Please try again.', orgId).catch(() => {});
   }
+}
+
+// ── Audio correction flow ─────────────────────────────────────────────────
+//
+// After audio is transcribed and shown with Yes/No, "No" opens a guided
+// field-correction flow: pick which part is wrong → type new value →
+// corrected transcript re-confirmed. Works for tasks, leave, attendance, etc.
+
+type AudioField = { id: string; title: string; description: string };
+
+function getFieldsForTranscript(transcript: string): AudioField[] {
+  const t = transcript.toLowerCase();
+
+  if (/\b(check.?out|leaving|done for today|signing off|nikal|ja raha)\b/i.test(t)) {
+    return [
+      { id: 'date', title: 'Date',  description: 'Which date to check out' },
+      { id: 'time', title: 'Time',  description: 'What time to record'     },
+    ];
+  }
+  if (/\b(check.?in|aaya|office|reached|arrived|mark attendance|log attendance)\b/i.test(t)) {
+    return [
+      { id: 'date', title: 'Date',  description: 'Which date to check in' },
+      { id: 'time', title: 'Time',  description: 'What time to record'    },
+    ];
+  }
+  if (/\b(leave|sick|holiday|vacation|day off|casual|earned|maternity|paternity)\b/i.test(t)) {
+    return [
+      { id: 'leave_type', title: 'Leave Type', description: 'Sick, Casual, Earned…' },
+      { id: 'start_date', title: 'Start Date', description: 'When leave starts'     },
+      { id: 'end_date',   title: 'End Date',   description: 'When leave ends'       },
+      { id: 'reason',     title: 'Reason',     description: 'Reason for leave'      },
+    ];
+  }
+  // Default: task fields
+  return [
+    { id: 'title',       title: 'Title',       description: 'Task name'          },
+    { id: 'priority',    title: 'Priority',    description: 'High, Medium, Low'  },
+    { id: 'deadline',    title: 'Deadline',    description: 'Due date and time'  },
+    { id: 'assign_to',   title: 'Assign To',   description: 'Person to assign'   },
+    { id: 'description', title: 'Description', description: 'Task details'       },
+  ];
+}
+
+function fieldPrompt(field: string): string {
+  switch (field.toLowerCase().replace(/_/g, ' ')) {
+    case 'title':       return '📝 What should the title be?';
+    case 'priority':    return '🔴 What priority? Reply *High*, *Medium*, or *Low*.';
+    case 'deadline':    return '📅 What should the deadline be? (e.g. "tomorrow 3pm", "next Friday")';
+    case 'assign to':   return '👤 Who should it be assigned to?';
+    case 'description': return '💬 What should the description be?';
+    case 'leave type':  return '🏖️ What type of leave? (Sick, Casual, Earned, etc.)';
+    case 'start date':  return '📅 What\'s the start date?';
+    case 'end date':    return '📅 What\'s the end date?';
+    case 'reason':      return '📝 What\'s the reason for leave?';
+    case 'date':        return '📅 Which date? (e.g. "today", "tomorrow")';
+    case 'time':        return '⏰ What time?';
+    default:            return `What should the ${field} be?`;
+  }
+}
+
+async function showFieldSelection(
+  from: string,
+  conversationId: string,
+  transcript: string,
+  language: SupportedLanguage,
+  orgId: string,
+): Promise<void> {
+  const fields = getFieldsForTranscript(transcript);
+
+  await saveContext(conversationId, {
+    ...EMPTY_CONTEXT,
+    language,
+    flow_state:         'AUDIO_FIELD_SELECT',
+    pending_transcript: transcript,
+  }).catch(() => {});
+
+  if (fields.length <= 3) {
+    await sendButtons(
+      from,
+      '✏️ What part needs to change?',
+      fields.map(f => ({ id: f.id, title: f.title })),
+      orgId,
+    ).catch(async () => {
+      // Fallback: plain text list
+      const list = fields.map((f, i) => `${i + 1}. ${f.title}`).join('\n');
+      await sendText(from, `✏️ What part needs to change?\n\n${list}\n\nReply with the number or name.`, orgId).catch(() => {});
+    });
+  } else {
+    await sendList(
+      from,
+      '✏️ What part needs to change?',
+      'Select field',
+      [{ title: 'Fields', rows: fields.map(f => ({ id: f.id, title: f.title, description: f.description })) }],
+      orgId,
+    ).catch(async () => {
+      const list = fields.map((f, i) => `${i + 1}. ${f.title} — ${f.description}`).join('\n');
+      await sendText(from, `✏️ What part needs to change?\n\n${list}\n\nReply with the number or name.`, orgId).catch(() => {});
+    });
+  }
+}
+
+// Main audio-flow dispatcher — called instead of dispatchAgent when in an audio flow state.
+async function handleAudioFlow(
+  from: string,
+  text: string,
+  orgId: string,
+): Promise<boolean> {
+  // Load session to check flow state (cheap indexed query)
+  const session = await loadSession(from, orgId).catch(() => null);
+  if (!session) return false;
+
+  const { conversation_id, context } = session;
+  const { flow_state, pending_transcript, pending_slot, language } = context;
+
+  // ── AUDIO_CONFIRM: user tapped Yes or No on the transcript preview ────────
+  if (flow_state === 'AUDIO_CONFIRM') {
+    const transcript = pending_transcript ?? '';
+    const YES_RE = /^(yes|yeah|yep|sure|ok|okay|go\s*ahead|proceed|confirm|haan|haa|theek\s*hai|bilkul|kar\s*(do|dein?)|let'?s\s*do\s*it|sounds?\s*good)\s*[!.]*$/i;
+    const NO_RE  = /^(no|nahi|nope|cancel|stop|mat\s*karo|band\s*karo|back)\s*[!.]*$/i;
+
+    if (YES_RE.test(text.trim())) {
+      console.log(`[AudioFlow] AUDIO_CONFIRM YES → dispatching transcript`);
+      await saveContext(conversation_id, { ...EMPTY_CONTEXT, language }).catch(() => {});
+      if (isPolicyQuestion(transcript)) {
+        await dispatchPolicyBot(from, transcript, orgId);
+      } else {
+        await dispatchAgent(from, transcript, orgId);
+      }
+      return true;
+    }
+
+    if (NO_RE.test(text.trim())) {
+      console.log(`[AudioFlow] AUDIO_CONFIRM NO → showing field selection`);
+      await showFieldSelection(from, conversation_id, transcript, language, orgId);
+      return true;
+    }
+
+    // User typed something else — clear audio confirm and process as new message
+    console.log(`[AudioFlow] AUDIO_CONFIRM: unrecognised reply ("${text}") — clearing state`);
+    await saveContext(conversation_id, { ...EMPTY_CONTEXT, language }).catch(() => {});
+    return false; // fall through to normal dispatch
+  }
+
+  // ── AUDIO_FIELD_SELECT: user chose which field to change ──────────────────
+  if (flow_state === 'AUDIO_FIELD_SELECT') {
+    // text is the title from list_reply or button_reply (e.g. "Title", "Priority")
+    // Also accept number responses for the plain-text fallback
+    const fields   = getFieldsForTranscript(pending_transcript ?? '');
+    const numMatch = /^(\d+)$/.exec(text.trim());
+    let   field    = text.trim();
+    if (numMatch) {
+      const idx = parseInt(numMatch[1], 10) - 1;
+      field = fields[idx]?.title ?? field;
+    }
+
+    console.log(`[AudioFlow] AUDIO_FIELD_SELECT → field: "${field}"`);
+    await saveContext(conversation_id, {
+      ...EMPTY_CONTEXT,
+      language,
+      flow_state:         'AUDIO_FIELD_VALUE',
+      pending_transcript: pending_transcript,
+      pending_slot:       field,
+    }).catch(() => {});
+
+    await sendText(from, fieldPrompt(field), orgId).catch(() => {});
+    return true;
+  }
+
+  // ── AUDIO_FIELD_VALUE: user typed the new value ───────────────────────────
+  if (flow_state === 'AUDIO_FIELD_VALUE') {
+    const field      = pending_slot ?? 'field';
+    const transcript = pending_transcript ?? '';
+    const corrected  = `${transcript} [CORRECTION: Change ${field} to "${text}"]`;
+
+    console.log(`[AudioFlow] AUDIO_FIELD_VALUE field="${field}" value="${text}" → re-dispatching`);
+    await saveContext(conversation_id, { ...EMPTY_CONTEXT, language }).catch(() => {});
+    await dispatchAgent(from, corrected, orgId);
+    return true;
+  }
+
+  return false; // not in an audio flow state
 }
 
 // ── Policy Bot keywords ───────────────────────────────────────────────────

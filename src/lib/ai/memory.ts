@@ -24,7 +24,8 @@ const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 // SLOT_FILLING: full history so Groq can see what slots have been collected.
 // IDLE: light context for quick commands (hi, list tasks, check-in).
 function historyLimit(flowState: string): number {
-  if (flowState === 'CONFIRMING' || flowState === 'AUDIO_CONFIRM') return 3;
+  if (flowState === 'CONFIRMING' || flowState === 'AUDIO_CONFIRM' ||
+      flowState === 'AUDIO_FIELD_SELECT' || flowState === 'AUDIO_FIELD_VALUE') return 3;
   if (flowState === 'SLOT_FILLING') return 10;
   if (flowState === 'IDLE')         return 4;
   return 6;

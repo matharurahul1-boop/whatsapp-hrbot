@@ -887,6 +887,34 @@ export async function runMasterAgent(
         content: m.content as string,
       }));
 
+    // ── Early check-in guard: skip confirmation if already checked in today ──
+    const CHECK_IN_INTENT_RE  = /\b(check\s*[-\s]?in|mark\s+(?:my\s+)?attend|attendan[sc]e|aaya|office|reached|arrived|log\s+(?:my\s+)?attend)\b/i;
+    const CHECK_OUT_INTENT_RE = /\b(check\s*[-\s]?out|checkout|leaving|sign\s*out|nikal|ja\s+raha)\b/i;
+    if (
+      context.flow_state === 'IDLE' &&
+      CHECK_IN_INTENT_RE.test(message) &&
+      !CHECK_OUT_INTENT_RE.test(message)
+    ) {
+      const { createAdminClient: makeDb } = await import('@/lib/supabase/admin');
+      const todayIST = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+      const { data: att } = await makeDb()
+        .from('attendance_records')
+        .select('check_in_time')
+        .eq('employee_id', user.id)
+        .eq('date', todayIST)
+        .not('check_in_time', 'is', null)
+        .maybeSingle();
+      if (att?.check_in_time) {
+        const t = new Date(att.check_in_time).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
+        const lang = context.language ?? 'en';
+        const earlyReply = lang === 'hi'
+          ? `आप पहले से *${t}* बजे चेक-इन हैं। चेक-आउट के लिए "checkout" लिखें।`
+          : `You already checked in at *${t}*. Send "checkout" when you're leaving.`;
+        await saveMessage(conversation_id, orgId, 'assistant', 'outbound', earlyReply).catch(() => {});
+        return { reply: earlyReply, new_context: context };
+      }
+    }
+
     const reply = await runGroqLoop(message, history, user, orgId, context, conversation_id);
     const finalReply = reply || 'What else can I help you with?';
 

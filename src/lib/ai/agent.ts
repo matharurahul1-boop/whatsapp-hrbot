@@ -1081,8 +1081,19 @@ async function runGroqLoop(
         const timeFmt   = `${h > 12 ? h - 12 : h || 12}:${min} ${h >= 12 ? 'PM' : 'AM'}`;
         const dlFmt     = `${parseInt(d)} ${MONTHS[parseInt(mo) - 1]} ${y}, ${timeFmt}`;
         const priLow    = rawPri.toLowerCase();
-        const who       = assignTo ? `*${assignTo}*` : `*you*`;
-        console.log(`[Agent] Task fields direct-parsed: title="${title}" deadline="${iso} ${time}" pri="${priLow}" assignee="${assignTo}"`);
+        // Resolve typed name to full name from DB for the confirmation display
+        let displayAssignee = assignTo;
+        if (assignTo) {
+          const { createAdminClient: mkDb } = await import('@/lib/supabase/admin');
+          const { data: found } = await mkDb()
+            .from('users').select('full_name')
+            .eq('organization_id', orgId)
+            .ilike('full_name', `%${assignTo}%`)
+            .limit(1).maybeSingle();
+          if (found?.full_name) displayAssignee = found.full_name;
+        }
+        const who = displayAssignee ? `*${displayAssignee}*` : `*you*`;
+        console.log(`[Agent] Task fields direct-parsed: title="${title}" deadline="${iso} ${time}" pri="${priLow}" assignee="${displayAssignee}"`);
         return `I'll create task *${title}* for ${who} due *${dlFmt}* with *${priLow}* priority${desc ? `. Description: "${desc.slice(0, 80)}"` : ''}. Go ahead? (Yes / No)`;
       }
 

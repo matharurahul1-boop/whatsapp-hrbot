@@ -918,11 +918,13 @@ export async function runMasterAgent(
       }
     }
 
-    const reply = await runGroqLoop(message, history, user, orgId, context, conversation_id);
+    const ctxRef = { handled: false };
+    const reply = await runGroqLoop(message, history, user, orgId, context, conversation_id, ctxRef);
     const finalReply = reply || 'What else can I help you with?';
 
     // Persist context_state based on what the reply contains:
     // - "Go ahead? (Yes / No)"  → CONFIRMING with stored payload (fast next-turn)
+    // - ctxRef.handled = true   → runGroqLoop already saved a special state (e.g. EDITING)
     // - anything else           → reset to IDLE (clear stale flow state)
     const isConfirmPrompt = /go ahead\?/i.test(finalReply) || /\(yes \/ no\)/i.test(finalReply);
     if (isConfirmPrompt) {
@@ -936,7 +938,7 @@ export async function runMasterAgent(
           confirm_payload: { tool: parsed.tool, args: parsed.args },
         }).catch(() => {});
       }
-    } else if (context.flow_state !== 'IDLE') {
+    } else if (!ctxRef.handled && context.flow_state !== 'IDLE') {
       saveContext(conversation_id, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
     }
 
@@ -970,6 +972,7 @@ async function runGroqLoop(
   orgId:          string,
   context:        ConversationContext,
   conversationId: string,
+  ctxRef:         { handled: boolean } = { handled: false },
 ): Promise<string> {
 
   // ── 0. EDITING state — merge user correction with base create_task payload ──
@@ -1059,13 +1062,15 @@ async function runGroqLoop(
     const priLow = (merged.priority ?? '').toLowerCase();
     const confReply = `I'll create task *${merged.title ?? '(no title)'}* for ${who} due *${dlFmt}* with *${priLow}* priority${merged.description ? `. Description: "${merged.description.slice(0, 80)}"` : ''}. Go ahead? (Yes / No)`;
 
-    // Store new CONFIRMING state with merged payload
+    // Store new CONFIRMING state with merged payload.
+    // Signal runMasterAgent to skip its own context-reset (we already handled it here).
     saveContext(conversationId, {
       ...EMPTY_CONTEXT,
       language: context.language,
       flow_state: 'CONFIRMING',
       confirm_payload: { tool: 'create_task', args: { ...merged, assignee: displayAssignee } },
     }).catch(() => {});
+    ctxRef.handled = true;
     return confReply;
   }
 
@@ -1094,13 +1099,15 @@ async function runGroqLoop(
       if (payload.tool === 'create_task') {
         console.log('[Agent] Context shortcircuit: EDIT → EDITING state with base payload');
         const a = payload.args;
-        // Save EDITING state so the next message merges corrections with this base
+        // Save EDITING state so the next message merges corrections with this base.
+        // Set ctxRef.handled so runMasterAgent skips its own context-reset logic.
         saveContext(conversationId, {
           ...EMPTY_CONTEXT,
           language: context.language,
           flow_state: 'EDITING',
           edit_base_payload: a,
         }).catch(() => {});
+        ctxRef.handled = true;
         // Format deadline for display
         let dlRef = a.deadline ?? '';
         if (dlRef) {

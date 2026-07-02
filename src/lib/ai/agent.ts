@@ -842,12 +842,15 @@ function shouldHaveCalledTool(msg: string): boolean {
 // Returns true when Groq's reply is a useless generic phrase that ignores the intent
 function isGroqGenericFiller(reply: string): boolean {
   const r = reply.toLowerCase().trim();
+  const head = r.slice(0, 120);
   return (
     r === '' ||
     /^what else (?:can|would) (?:i|you)/i.test(r) ||
     /^is there anything else/i.test(r) ||
     /^i('?m| am) not sure (what|how)/i.test(r) ||
-    (r.length < 80 && /^(sorry|i (didn'?t|couldn'?t|can'?t)|i don'?t (understand|recognize))/i.test(r))
+    (r.length < 80 && /^(sorry|i (didn'?t|couldn'?t|can'?t)|i don'?t (understand|recognize))/i.test(r)) ||
+    // Leaked chain-of-thought: model outputs reasoning instead of a reply
+    /^(?:we need to|i need to (?:parse|analyze|check|look)|according to (?:the )?rules|the user (?:has provided|said|gave|asked for)|to handle this|let me (?:analyze|think|check|parse)|the (?:previous|last) (?:message|response|bot))/i.test(head)
   );
 }
 
@@ -1016,6 +1019,14 @@ async function runGroqLoop(
   if (CHECK_OUT_PHRASES.test(message.trim())) {
     console.log(`[Agent] Check-out quick-confirm: "${message}"`);
     return 'Mark your attendance as *checked out* for today? (Yes / No)';
+  }
+
+  // ── 1b. "Create a task" with no inline details — return fields form directly ─
+  // Bypasses Groq entirely to prevent reasoning-text leaks from complex history.
+  const CREATE_TASK_BARE = /^(?:please\s+)?(?:create|add|make|new)\s+(?:a\s+)?(?:task|todo|work\s*item|reminder)\s*[!.?]*$/i;
+  if (CREATE_TASK_BARE.test(message.trim())) {
+    console.log(`[Agent] Create-task quick-form: "${message}"`);
+    return 'Sure! Please provide the following:\n📝 *Title* (Required)\n📅 *Deadline* (Required) — e.g. tomorrow 5pm (defaults to 5:00 PM if no time given)\n🔴 *Priority* (Required) — High / Medium / Low / Urgent\n👤 *Assign To* (Optional — defaults to you if not provided)\n💬 *Description* (Optional)';
   }
 
   // ── 2. Confirmation / context injection ──────────────────────────────────

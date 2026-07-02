@@ -1047,6 +1047,14 @@ async function runGroqLoop(
     // Look in history for task details and tell AI to extract + confirm them.
     console.log(`[Agent] Create-shortcut detected ("${message}") with history — injecting context hint`);
     effectiveMessage = `${message}\n[INSTRUCTION: Look through the conversation history above. Find the task title (and deadline / priority if mentioned). If you have a title, issue a confirmation message: "I'll create task *<title>* [due *<date>*]. Go ahead? (Yes / No)". If you don't have enough details, ask for the title.]`;
+  } else {
+    // If the last bot message was asking for task fields, inject a confirmation hint
+    // so Groq knows to generate the confirmation (not "What else can I help with?")
+    const lastBot = lastBotMessage(history);
+    if (/Please provide the following|\*Title\*.*Required|\*Deadline\*.*Required/i.test(lastBot)) {
+      console.log('[Agent] Task field response detected — injecting confirmation hint');
+      effectiveMessage = `${message}\n[INSTRUCTION: The user just provided the task details above. Generate the confirmation message NOW in this exact format: "I'll create task *<title>* for *<assignee or you>* due *<deadline>* with *<priority>* priority. Go ahead? (Yes / No)". Do NOT say "What else can I help with?" here.]`;
+    }
   }
 
   // ── 3. AI loop ────────────────────────────────────────────────────────────

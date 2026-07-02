@@ -972,7 +972,91 @@ async function runGroqLoop(
   conversationId: string,
 ): Promise<string> {
 
-  // ── 0. Context-state shortcircuit — fastest path, zero Groq calls ─────────
+  // ── 0. EDITING state — merge user correction with base create_task payload ──
+  //
+  // Set when user taps "Edit details" on a create_task confirmation.
+  // Accepts either a full 5-field response OR a short natural-language correction
+  // (e.g. "Assign to Tushar Bali", "Deadline 10 Jul 3pm", "High priority").
+  if (context.flow_state === 'EDITING' && context.edit_base_payload) {
+    const base = context.edit_base_payload as Record<string, string>;
+    const lines = message.split('\n').map(l => l.trim()).filter(Boolean);
+    let merged: Record<string, string> = { ...base };
+    let usedFullForm = false;
+
+    // Case A: Full 5-field form (title + deadline + priority minimum)
+    if (lines.length >= 3) {
+      const rawPri = lines[2]?.trim() ?? '';
+      const validPri = /^(high|medium|low|urgent)$/i.test(rawPri);
+      const iso = lines[0] && lines[1] ? naturalDateToISO(lines[1]) : null;
+      if (lines[0] && iso && validPri) {
+        const time = extractTimeFromText(lines[1]) ?? '17:00';
+        merged = {
+          title:       lines[0],
+          deadline:    `${iso} ${time}`,
+          priority:    rawPri.toLowerCase(),
+          assignee:    lines[3]?.trim() ?? '',
+          description: lines.slice(4).join(' ').trim(),
+        };
+        usedFullForm = true;
+      }
+    }
+
+    // Case B: Short natural-language correction (one or two lines)
+    if (!usedFullForm) {
+      const txt = message.trim();
+      // Assignee: "assign to X" / "for X" / "assignee X"
+      const asgn = txt.match(/^(?:assign(?:ee)?\s+to\s+|for\s+)(.+)$/i);
+      if (asgn) merged.assignee = asgn[1].trim();
+
+      // Deadline: "deadline <date>" / "due <date>" / "by <date>"
+      const dlM = txt.match(/^(?:deadline|due|by)\s+(?:to\s+)?(.+)$/i);
+      if (dlM) {
+        const iso2 = naturalDateToISO(dlM[1]);
+        if (iso2) merged.deadline = `${iso2} ${extractTimeFromText(dlM[1]) ?? '17:00'}`;
+      }
+
+      // Priority: "high" / "medium" / "low" / "urgent" (standalone or "make it high")
+      const priM = txt.match(/\b(high|medium|low|urgent)\b/i);
+      if (priM && !asgn && !dlM) merged.priority = priM[1].toLowerCase();
+
+      // Title: "title <new title>" / "rename to <new title>"
+      const titleM = txt.match(/^(?:title|rename\s+to)\s+(.+)$/i);
+      if (titleM) merged.title = titleM[1].trim();
+    }
+
+    // Resolve typed assignee to full name via DB lookup
+    let displayAssignee = merged.assignee;
+    if (merged.assignee) {
+      const { createAdminClient: mkDb } = await import('@/lib/supabase/admin');
+      const { data: found } = await mkDb().from('users').select('full_name')
+        .eq('organization_id', orgId).ilike('full_name', `%${merged.assignee}%`).limit(1).maybeSingle();
+      if (found?.full_name) displayAssignee = found.full_name;
+    }
+
+    // Format deadline for display
+    const [dp = '', tp = '17:00'] = (merged.deadline ?? '').split(' ');
+    const [y, mo, d] = dp.split('-');
+    const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const h = parseInt(tp.split(':')[0]), mn = tp.split(':')[1] ?? '00';
+    const dlFmt = dp
+      ? `${parseInt(d)} ${MON[parseInt(mo)-1]} ${y}, ${h > 12 ? h-12 : h || 12}:${mn} ${h >= 12 ? 'PM' : 'AM'} IST`
+      : '(not set)';
+
+    const who = displayAssignee ? `*${displayAssignee}*` : '*you*';
+    const priLow = (merged.priority ?? '').toLowerCase();
+    const confReply = `I'll create task *${merged.title ?? '(no title)'}* for ${who} due *${dlFmt}* with *${priLow}* priority${merged.description ? `. Description: "${merged.description.slice(0, 80)}"` : ''}. Go ahead? (Yes / No)`;
+
+    // Store new CONFIRMING state with merged payload
+    saveContext(conversationId, {
+      ...EMPTY_CONTEXT,
+      language: context.language,
+      flow_state: 'CONFIRMING',
+      confirm_payload: { tool: 'create_task', args: { ...merged, assignee: displayAssignee } },
+    }).catch(() => {});
+    return confReply;
+  }
+
+  // ── 0b. Context-state shortcircuit — fastest path, zero Groq calls ─────────
   //
   // When context_state holds a stored confirmation payload (set after Groq
   // generated the last "Go ahead?" message), we execute directly from it.
@@ -993,27 +1077,39 @@ async function runGroqLoop(
       return 'Got it, cancelled. What else can I help with? 😊';
     }
 
-    if (/^edit$/i.test(message.trim()) && payload.tool === 'create_task') {
-      console.log('[Agent] Context shortcircuit: EDIT → pre-filled fields form');
-      saveContext(conversationId, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
-      const a = payload.args;
-      // Format stored "YYYY-MM-DD HH:MM" deadline for readable display
-      let dlRef = a.deadline ?? '';
-      if (dlRef) {
-        const [dp, tp = '17:00'] = dlRef.split(' ');
-        const [y, mo, d] = dp.split('-');
-        const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-        const h = parseInt(tp.split(':')[0]), mn = tp.split(':')[1] ?? '00';
-        dlRef = `${parseInt(d)} ${MON[parseInt(mo)-1]} ${y}, ${h > 12 ? h-12 : h || 12}:${mn} ${h >= 12 ? 'PM' : 'AM'} IST`;
+    if (/^edit$/i.test(message.trim())) {
+      if (payload.tool === 'create_task') {
+        console.log('[Agent] Context shortcircuit: EDIT → EDITING state with base payload');
+        const a = payload.args;
+        // Save EDITING state so the next message merges corrections with this base
+        saveContext(conversationId, {
+          ...EMPTY_CONTEXT,
+          language: context.language,
+          flow_state: 'EDITING',
+          edit_base_payload: a,
+        }).catch(() => {});
+        // Format deadline for display
+        let dlRef = a.deadline ?? '';
+        if (dlRef) {
+          const [dp, tp = '17:00'] = dlRef.split(' ');
+          const [y, mo, d] = dp.split('-');
+          const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+          const h = parseInt(tp.split(':')[0]), mn = tp.split(':')[1] ?? '00';
+          dlRef = `${parseInt(d)} ${MON[parseInt(mo)-1]} ${y}, ${h > 12 ? h-12 : h || 12}:${mn} ${h >= 12 ? 'PM' : 'AM'} IST`;
+        }
+        const ref = [
+          `📝 *Title:* ${a.title || '(not set)'}`,
+          `📅 *Deadline:* ${dlRef || '(not set)'}`,
+          `🔴 *Priority:* ${a.priority || '(not set)'}`,
+          `👤 *Assign To:* ${a.assignee || '(you)'}`,
+          ...(a.description ? [`💬 *Description:* ${a.description}`] : []),
+        ].join('\n');
+        return `Current details:\n${ref}\n\nWhat would you like to change? You can either:\n• Reply with a correction (e.g. _"Assign to Tushar Bali"_, _"Deadline 10 Jul 3pm"_, _"High priority"_)\n• Or re-enter all fields:\n📝 *Title* (Required)\n📅 *Deadline* (Required) — e.g. tomorrow 5pm (defaults to 5:00 PM IST if no time given)\n🔴 *Priority* (Required) — High / Medium / Low / Urgent\n👤 *Assign To* (Optional — defaults to you if not provided)\n💬 *Description* (Optional)`;
       }
-      const ref = [
-        `📝 *Title:* ${a.title || '(not set)'}`,
-        `📅 *Deadline:* ${dlRef || '(not set)'}`,
-        `🔴 *Priority:* ${a.priority || '(not set)'}`,
-        `👤 *Assign To:* ${a.assignee || '(you)'}`,
-        ...(a.description ? [`💬 *Description:* ${a.description}`] : []),
-      ].join('\n');
-      return `Current details:\n${ref}\n\nPlease provide the following:\n📝 *Title* (Required)\n📅 *Deadline* (Required) — e.g. tomorrow 5pm (defaults to 5:00 PM IST if no time given)\n🔴 *Priority* (Required) — High / Medium / Low / Urgent\n👤 *Assign To* (Optional — defaults to you if not provided)\n💬 *Description* (Optional)`;
+      // Non-create-task confirmation edit — just ask them to rephrase
+      console.log('[Agent] Context shortcircuit: EDIT on non-create → clear + rephrase prompt');
+      saveContext(conversationId, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
+      return 'What would you like to change? Please describe your request differently.';
     }
 
     // User sent something else (correction/clarification) — clear stored confirmation
@@ -1076,8 +1172,8 @@ async function runGroqLoop(
       console.log(`[Agent] Cancellation detected ("${message}")`);
       return 'Got it, cancelled. What else can I help with? 😊';
     } else if (/^edit$/i.test(message.trim())) {
-      console.log(`[Agent] Edit detected ("${message}") — re-show fields form`);
-      return 'Sure! Please provide the following:\n📝 *Title* (Required)\n📅 *Deadline* (Required) — e.g. tomorrow 5pm (defaults to 5:00 PM IST if no time given)\n🔴 *Priority* (Required) — High / Medium / Low / Urgent\n👤 *Assign To* (Optional — defaults to you if not provided)\n💬 *Description* (Optional)';
+      console.log(`[Agent] Edit detected ("${message}") — prompt to rephrase`);
+      return 'What would you like to change? Please describe your request differently.';
     }
   } else if (CREATE_SHORTCUT.test(message.trim()) && history.length >= 2) {
     // User said "Create the task" but bot's last message wasn't a confirmation prompt.

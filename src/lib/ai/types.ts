@@ -4,6 +4,7 @@ export type FlowState =
   | 'IDLE'            // No active flow
   | 'SLOT_FILLING'    // Collecting missing required info
   | 'CONFIRMING'      // Waiting for user yes/no
+  | 'EDITING'         // User tapped "Edit details" — waiting for corrected fields
   | 'AUDIO_CONFIRM'      // Voice message transcribed, waiting for yes/no before dispatch
   | 'AUDIO_FIELD_SELECT' // User said No; waiting for them to pick which field to correct
   | 'AUDIO_FIELD_VALUE'  // Field selected; waiting for the new value to apply
@@ -103,6 +104,8 @@ export interface ConversationContext {
   last_task_title?: string | null;
   // Stores the transcribed text from a voice message while waiting for yes/no.
   pending_transcript?: string | null;
+  // Stored during EDITING state: the original create_task args to merge corrections into.
+  edit_base_payload?: Record<string, string> | null;
 }
 
 export const EMPTY_CONTEXT: ConversationContext = {

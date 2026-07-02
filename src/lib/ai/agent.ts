@@ -247,7 +247,7 @@ function parseConfirmationMessage(lastMsg: string): ConfirmationParsed | null {
       const raw  = deadlineM[1];
       const iso  = naturalDateToISO(raw);
       const time = extractTimeFromText(raw);
-      if (iso) args.deadline = time ? `${iso} ${time}` : `${iso} 09:00`;
+      if (iso) args.deadline = time ? `${iso} ${time}` : `${iso} 17:00`;
     }
     return { tool: 'create_task', args };
   }
@@ -377,7 +377,7 @@ const HRBOT_TOOLS: any[] = [
       properties: {
         title:    { type: 'STRING', description: 'Short, clear task title' },
         assignee: { type: 'STRING', description: 'Assignee name or "me". Omit if self.' },
-        deadline: { type: 'STRING', description: 'REQUIRED. Due date and time as "YYYY-MM-DD HH:MM" (24h IST). Use 09:00 if user gives only a date. E.g. "2026-07-10 17:00"' },
+        deadline: { type: 'STRING', description: 'REQUIRED. Due date and time as "YYYY-MM-DD HH:MM" (24h IST). Use 17:00 (5 PM) if user gives only a date with no time. E.g. "2026-07-10 17:00"' },
         priority: { type: 'STRING', description: 'REQUIRED. low | medium | high | urgent' },
       },
       required: ['title', 'deadline', 'priority'],
@@ -624,12 +624,12 @@ reject_leave, cancel_leave, check_in, check_out, set_reminder):
 5. For create_task ONLY: If *title*, *deadline*, or *priority* are not all provided in the user's message, ask for ALL missing fields in ONE single message using this format:
 "Sure! Please provide the following:
 📝 *Title* (Required)
-📅 *Deadline* (Required) — e.g. tomorrow 5pm
-🔴 *Priority* (Required) — High / Medium / Low
+📅 *Deadline* (Required) — e.g. tomorrow 5pm (defaults to 5:00 PM if no time given)
+🔴 *Priority* (Required) — High / Medium / Low / Urgent
 👤 *Assign To* (Optional — defaults to you if not provided)
 💬 *Description* (Optional)"
 NEVER send the confirmation until all three Required fields are collected.
-6. For create_task, ALWAYS include the assignee in the confirmation sentence: "for *you*" when self-assigned, "for *[Name]*" when assigned to someone else. Example: "I'll create task *Fix bug* for *you* due *2 Jul 2026, 05:00 PM* with *high* priority. Go ahead? (Yes / No)"
+6. For create_task, ALWAYS include the assignee in the confirmation sentence: "for *you*" when self-assigned, "for *[Name]*" when assigned to someone else. Use the EXACT name the user typed — do NOT resolve or expand it to a full name. Example: "I'll create task *Fix bug* for *Tushar* due *2 Jul 2026, 05:00 PM* with *high* priority. Go ahead? (Yes / No)"
 
 ## CRITICAL: Never lose context mid-collection
 - If you just asked for task details and the user provided them, your IMMEDIATE next reply MUST be the confirmation message (e.g. "I'll create task *X* due *Y*. Go ahead? (Yes / No)"). NEVER say "What else can I help with?" at this point.
@@ -737,8 +737,8 @@ Task creation — multi-turn (ask ALL fields at once in one message):
 User: "I want to create a task" → You:
 Sure! Please provide the following:
 📝 *Title* (Required)
-📅 *Deadline* (Required) — e.g. tomorrow 5pm
-🔴 *Priority* (Required) — High / Medium / Low
+📅 *Deadline* (Required) — e.g. tomorrow 5pm (defaults to 5:00 PM if no time given)
+🔴 *Priority* (Required) — High / Medium / Low / Urgent
 👤 *Assign To* (Optional — defaults to you if not provided)
 💬 *Description* (Optional)
 User: "Fix login bug, tomorrow 5pm, high priority" → You: I'll create task *Fix login bug* for *you* due *${tmr.display}, 05:00 PM* with *high* priority. Go ahead? (Yes / No)

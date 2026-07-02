@@ -1202,7 +1202,11 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     if (existing?.check_in_time) {
       const t = new Date(existing.check_in_time).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
-      return { success: false, reply: REPLIES.checkInAlready(t, lang) };
+      const msSince = Date.now() - new Date(existing.check_in_time).getTime();
+      if (msSince > 5 * 60 * 1000) {
+        return { success: false, reply: REPLIES.checkInAlready(t, lang) };
+      }
+      return { success: true, reply: REPLIES.checkInSuccess(firstName, t, lang) };
     }
 
     const { data: record, error } = await db

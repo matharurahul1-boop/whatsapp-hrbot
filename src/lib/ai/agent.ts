@@ -1040,13 +1040,37 @@ async function runGroqLoop(
       if (priM) merged.priority = (priM[1] ?? priM[2] ?? '').toLowerCase();
     }
 
-    // Resolve typed assignee to full name via DB lookup
+    // Resolve typed assignee to canonical full_name (fuzzy, same logic as executor)
     let displayAssignee = merged.assignee;
     if (merged.assignee) {
       const { createAdminClient: mkDb } = await import('@/lib/supabase/admin');
-      const { data: found } = await mkDb().from('users').select('full_name')
-        .eq('organization_id', orgId).ilike('full_name', `%${merged.assignee}%`).limit(1).maybeSingle();
-      if (found?.full_name) displayAssignee = found.full_name;
+      const db2 = mkDb();
+      const { data: ilikeFound } = await db2.from('users').select('full_name')
+        .eq('organization_id', orgId).eq('is_active', true)
+        .ilike('full_name', `%${merged.assignee}%`).limit(1).maybeSingle();
+      if ((ilikeFound as { full_name: string } | null)?.full_name) {
+        displayAssignee = (ilikeFound as { full_name: string }).full_name;
+      } else {
+        const { data: allActive } = await db2.from('users').select('full_name')
+          .eq('organization_id', orgId).eq('is_active', true).limit(50);
+        const sim = (a: string, b: string) => {
+          const al = a.toLowerCase().replace(/\s+/g, ''), bl = b.toLowerCase().replace(/\s+/g, '');
+          if (!al || !bl) return 0;
+          if (bl.includes(al) || al.includes(bl)) return 0.9;
+          const ac = [...al].sort(), bc = [...bl].sort();
+          let i = 0, j = 0, c = 0;
+          while (i < ac.length && j < bc.length) {
+            if (ac[i] === bc[j]) { c++; i++; j++; } else if (ac[i]! < bc[j]!) i++; else j++;
+          }
+          return c / Math.max(ac.length, bc.length);
+        };
+        let bestScore = 0, bestName = '';
+        for (const u of (allActive ?? []) as { full_name: string }[]) {
+          const score = Math.max(...[u.full_name, ...u.full_name.split(' ')].map(n => sim(merged.assignee!, n)));
+          if (score > bestScore) { bestScore = score; bestName = u.full_name; }
+        }
+        if (bestScore >= 0.65) displayAssignee = bestName;
+      }
     }
 
     // Format deadline for display

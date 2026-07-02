@@ -243,31 +243,39 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
         };
       }
 
-      const { data: found } = await db
-        .from('users')
-        .select('id, full_name')
-        .eq('organization_id', org_id)
-        .ilike('full_name', `%${slots.assignee}%`)
-        .eq('is_active', true)
-        .limit(1)
-        .maybeSingle();
+      // 1. Exact substring match
+      const { data: ilikeRow } = await db
+        .from('users').select('id, full_name')
+        .eq('organization_id', org_id).eq('is_active', true)
+        .ilike('full_name', `%${slots.assignee}%`).limit(1).maybeSingle();
 
-      if (found) {
-        assignedTo   = found.id;
-        assigneeName = found.full_name;
-      } else {
-        const { data: available } = await db
-          .from('users').select('full_name')
-          .eq('organization_id', org_id).eq('is_active', true)
-          .order('full_name').limit(20);
-        const names = (available ?? []).map(u => `· ${u.full_name}`).join('\n') || '(none)';
-        return {
-          success: false,
-          reply: lang === 'hi'
-            ? `❌ *${slots.assignee}* नाम का कोई active user नहीं मिला।\n\nउपलब्ध:\n${names}`
-            : `❌ No active user found matching *${slots.assignee}*.\n\nAvailable:\n${names}`,
-        };
+      let resolvedUser: { id: string; full_name: string } | null = (ilikeRow as { id: string; full_name: string } | null) ?? null;
+
+      // 2. Fuzzy fallback for typos / partial names
+      if (!resolvedUser) {
+        const { data: allActive } = await db
+          .from('users').select('id, full_name')
+          .eq('organization_id', org_id).eq('is_active', true).limit(50);
+        let bestScore = 0;
+        for (const u of (allActive ?? []) as { id: string; full_name: string }[]) {
+          const scores = [u.full_name, ...u.full_name.split(' ')]
+            .map(n => nameSimilarity(slots.assignee!, n));
+          const score = Math.max(...scores);
+          if (score > bestScore) { bestScore = score; resolvedUser = u; }
+        }
+        if (bestScore < 0.65) {
+          const names = ((allActive ?? []) as { full_name: string }[]).map(u => `· ${u.full_name}`).join('\n') || '(none)';
+          return {
+            success: false,
+            reply: lang === 'hi'
+              ? `❌ *${slots.assignee}* नाम का कोई active user नहीं मिला।\n\nउपलब्ध:\n${names}`
+              : `❌ No active user found matching *${slots.assignee}*.\n\nAvailable:\n${names}`,
+          };
+        }
       }
+
+      assignedTo   = resolvedUser!.id;
+      assigneeName = resolvedUser!.full_name;
     }
 
     // Build deadline as UTC (no-tz string) so the timestamp column stores UTC.

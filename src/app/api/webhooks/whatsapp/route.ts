@@ -421,12 +421,15 @@ async function transcribeAudio(mediaId: string, orgId: string): Promise<string |
     return (data.text as string)?.trim() || null;
   };
 
+  // GROQ_API_KEY may be comma-separated (legacy format) — split it the same
+  // way as GROQ_KEYS in agent.ts so individual keys are used correctly.
   const groqKeys = [
-    process.env.GROQ_API_KEY,   process.env.GROQ_API_KEY_2,
-    process.env.GROQ_API_KEY_3, process.env.GROQ_API_KEY_4,
-    process.env.GROQ_API_KEY_5, process.env.GROQ_API_KEY_6,
-    process.env.GROQ_API_KEY_7, process.env.GROQ_API_KEY_8,
-    process.env.GROQ_API_KEY_9, process.env.GROQ_API_KEY_10,
+    ...(process.env.GROQ_API_KEY ?? '').split(',').map(k => k.trim()),
+    process.env.GROQ_API_KEY_2,  process.env.GROQ_API_KEY_3,
+    process.env.GROQ_API_KEY_4,  process.env.GROQ_API_KEY_5,
+    process.env.GROQ_API_KEY_6,  process.env.GROQ_API_KEY_7,
+    process.env.GROQ_API_KEY_8,  process.env.GROQ_API_KEY_9,
+    process.env.GROQ_API_KEY_10,
   ].filter(Boolean) as string[];
 
   console.log(`[WA Audio] Trying ${groqKeys.length} keys, mimeType=${mimeType}, blobType=${blobType}, ext=${ext}, size=${buffer.byteLength}b`);

@@ -13,17 +13,26 @@ export function formatTime(timeStr: string): string {
   return `${h % 12 || 12}:${m.toString().padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
 }
 
+/** Parse a deadline string from the DB as a UTC Date.
+ *  No-tz strings (timestamp column) are treated as UTC.
+ *  Strings with tz info (Z or ±HH:MM) are parsed as-is. */
+export function deadlineToUTCDate(dateStr: string): Date {
+  const hasOffset = /Z$|[+-]\d{2}:\d{2}$/.test(dateStr.trim());
+  return new Date(hasOffset ? dateStr : dateStr.replace(' ', 'T') + 'Z');
+}
+
 export function formatDateTime(dateStr: string): string {
   try {
-    // tasks.deadline is a `timestamp` (no-tz) column — PostgreSQL strips the +05:30
-    // suffix and stores the IST wall-clock time as-is. Treat no-tz strings as IST
-    // so the offset isn't double-counted. Strings that already carry tz info
-    // (Z suffix or ±HH:MM) are parsed as-is and then converted to IST for display.
-    const hasOffset = /Z$|[+-]\d{2}:\d{2}$/.test(dateStr.trim());
-    const d = new Date(hasOffset ? dateStr : dateStr.replace(' ', 'T') + '+05:30');
-    const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
-    const istDate = new Date(d.getTime() + IST_OFFSET_MS);
-    return format(istDate, 'dd MMM yyyy, hh:mm a');
+    const d = deadlineToUTCDate(dateStr);
+    // Intl.DateTimeFormat with explicit timeZone always gives IST regardless of
+    // whether this runs on a Vercel (UTC) server or an IST browser.
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Kolkata',
+      day: '2-digit', month: 'short', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', hour12: true,
+    }).formatToParts(d);
+    const get = (t: string) => parts.find(p => p.type === t)?.value ?? '';
+    return `${get('day')} ${get('month')} ${get('year')}, ${get('hour')}:${get('minute')} ${get('dayPeriod').toUpperCase()}`;
   } catch {
     return dateStr;
   }
@@ -54,9 +63,9 @@ export function istNow(): string {
   return new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
 }
 
-/** Convert a UTC ISO datetime string to YYYY-MM-DDTHH:MM in IST for datetime-local inputs */
+/** Convert a deadline string (UTC from DB) to YYYY-MM-DDTHH:MM in IST for datetime-local inputs */
 export function toISTInputValue(isoStr: string): string {
-  const d = new Date(isoStr);
+  const d = deadlineToUTCDate(isoStr);
   if (isNaN(d.getTime())) return isoStr;
   return d.toLocaleString('sv-SE', { timeZone: 'Asia/Kolkata' }).slice(0, 16).replace(' ', 'T');
 }

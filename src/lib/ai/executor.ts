@@ -258,13 +258,14 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       }
     }
 
-    // Build full ISO datetime for deadline (default 9 AM IST if no time given)
+    // Build deadline as UTC (no-tz string) so the timestamp column stores UTC.
+    // Convert from IST (user's timezone) to UTC by parsing with +05:30 offset.
     let deadlineISO: string | null = null;
     if (slots.deadline) {
       const parts = slots.deadline.split(' ');
       const date  = parts[0];
       const time  = parts[1] ?? '09:00';
-      deadlineISO = `${date}T${time}:00+05:30`;
+      deadlineISO = new Date(`${date}T${time}:00+05:30`).toISOString().slice(0, 19);
     }
 
     // Enforce required fields — reject early with an actionable prompt

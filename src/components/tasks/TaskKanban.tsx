@@ -14,7 +14,7 @@ import { Avatar } from '@/components/ui/Avatar';
 import TaskCard from './TaskCard';
 import { ExpandText } from '@/components/ui/ExpandText';
 import { cn } from '@/lib/utils/cn';
-import { formatDateTime } from '@/lib/utils/date';
+import { formatDateTime, deadlineToUTCDate } from '@/lib/utils/date';
 
 type TaskStatus = 'todo' | 'in_progress' | 'done' | 'cancelled';
 type ViewMode   = 'kanban' | 'list';
@@ -171,7 +171,7 @@ function ListRow({
   const [updating, setUpdating] = useState(false);
 
   const overdue = task.deadline && status !== 'done' && status !== 'cancelled' &&
-    new Date(task.deadline) < new Date();
+    deadlineToUTCDate(task.deadline) < new Date();
   const pri     = PRI_CFG[task.priority] ?? PRI_CFG.low;
   const stCfg   = STATUS_CFG[status] ?? STATUS_CFG.todo;
 
@@ -307,7 +307,7 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
 
   const now = new Date();
   const overdueCount = localTasks.filter(t =>
-    t.deadline && t.status !== 'done' && t.status !== 'cancelled' && new Date(t.deadline) < now
+    t.deadline && t.status !== 'done' && t.status !== 'cancelled' && deadlineToUTCDate(t.deadline) < now
   ).length;
 
   const filtered = useMemo(() => {

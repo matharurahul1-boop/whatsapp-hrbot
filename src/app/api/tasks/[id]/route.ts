@@ -64,11 +64,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (!profile || !task) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   if (task.organization_id !== profile.organization_id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  // Convert combined datetime-local value to full ISO with IST offset, or null to clear
+  // Convert datetime-local (IST browser value) to UTC for storage, or null to clear
   const { deadline: deadlineISO, ...parsedRest } = parsed.data;
   const deadlineFields: Record<string, unknown> = {};
   if (deadlineISO !== undefined) {
-    deadlineFields.deadline = deadlineISO === null ? null : deadlineISO + ':00+05:30';
+    deadlineFields.deadline = deadlineISO === null ? null : new Date(deadlineISO + ':00+05:30').toISOString().slice(0, 19);
   }
 
   // ── Build updateData — filtered by role ──────────────────────────────────────

@@ -112,9 +112,9 @@ export async function POST(req: NextRequest) {
     // HR+ can assign to anyone in the org — no extra check
   }
 
-  // Store full ISO datetime with IST offset (datetime-local gives YYYY-MM-DDTHH:MM)
+  // datetime-local input is in IST (browser local time). Convert to UTC for storage.
   const { deadline: deadlineISO, ...taskFields } = parsed.data;
-  const deadlineWithTZ = deadlineISO + ':00+05:30';
+  const deadlineWithTZ = new Date(deadlineISO + ':00+05:30').toISOString().slice(0, 19);
 
   const { data: task, error } = await db.from('tasks').insert({
     ...taskFields,

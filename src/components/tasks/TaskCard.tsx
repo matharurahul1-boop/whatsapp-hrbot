@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input, Textarea, SelectNative } from '@/components/ui/Input';
-import { formatDateTime, toISTInputValue } from '@/lib/utils/date';
+import { formatDateTime, toISTInputValue, deadlineToUTCDate } from '@/lib/utils/date';
 import { cn } from '@/lib/utils/cn';
 
 type TaskStatus = 'todo' | 'in_progress' | 'done' | 'cancelled';
@@ -86,7 +86,7 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
     reminders:   task.reminders?.length ? task.reminders : ['1_hour'],
   });
 
-  const overdue = savedDeadline && status !== 'done' && new Date(savedDeadline) < new Date();
+  const overdue = savedDeadline && status !== 'done' && deadlineToUTCDate(savedDeadline) < new Date();
   const cfg     = STATUS_CFG[status] ?? STATUS_CFG.todo;
 
   function setField(field: string, value: string) {

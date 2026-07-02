@@ -1059,12 +1059,35 @@ async function runGroqLoop(
     console.log(`[Agent] Create-shortcut detected ("${message}") with history — injecting context hint`);
     effectiveMessage = `${message}\n[INSTRUCTION: Look through the conversation history above. Find the task title (and deadline / priority if mentioned). If you have a title, issue a confirmation message: "I'll create task *<title>* [due *<date>*]. Go ahead? (Yes / No)". If you don't have enough details, ask for the title.]`;
   } else {
-    // If the last bot message was asking for task fields, inject a confirmation hint
-    // so Groq knows to generate the confirmation (not "What else can I help with?")
+    // If the last bot message was asking for task fields, parse the user's reply
+    // directly in code — do NOT trust Groq to generate the confirmation.
     const lastBot = lastBotMessage(history);
-    if (/Please provide the following|\*Title\*.*Required|\*Deadline\*.*Required/i.test(lastBot)) {
-      console.log('[Agent] Task field response detected — injecting confirmation hint');
-      effectiveMessage = `${message}\n[INSTRUCTION: The user just provided the task details above. Generate the confirmation message NOW in this exact format: "I'll create task *<title>* for *<assignee or you>* due *<deadline>* with *<priority>* priority. Go ahead? (Yes / No)". Do NOT say "What else can I help with?" here.]`;
+    if (/Please provide the following|\*Title\*.*Required/i.test(lastBot)) {
+      const lines   = message.split('\n').map(l => l.trim()).filter(Boolean);
+      const title   = lines[0] ?? '';
+      const rawDl   = lines[1] ?? '';
+      const rawPri  = lines[2]?.trim() ?? '';
+      const assignTo = lines[3]?.trim() ?? '';
+      const desc    = lines.slice(4).join(' ').trim();
+      const validPri = /^(high|medium|low|urgent)$/i.test(rawPri);
+      const iso     = title && rawDl ? naturalDateToISO(rawDl) : null;
+
+      if (title && iso && validPri) {
+        const time      = extractTimeFromText(rawDl) ?? '17:00';
+        const [y, mo, d] = iso.split('-');
+        const MONTHS    = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        const h         = parseInt(time.split(':')[0]);
+        const min       = time.split(':')[1];
+        const timeFmt   = `${h > 12 ? h - 12 : h || 12}:${min} ${h >= 12 ? 'PM' : 'AM'}`;
+        const dlFmt     = `${parseInt(d)} ${MONTHS[parseInt(mo) - 1]} ${y}, ${timeFmt}`;
+        const priLow    = rawPri.toLowerCase();
+        const who       = assignTo ? `*${assignTo}*` : `*you*`;
+        console.log(`[Agent] Task fields direct-parsed: title="${title}" deadline="${iso} ${time}" pri="${priLow}" assignee="${assignTo}"`);
+        return `I'll create task *${title}* for ${who} due *${dlFmt}* with *${priLow}* priority${desc ? `. Description: "${desc.slice(0, 80)}"` : ''}. Go ahead? (Yes / No)`;
+      }
+
+      // Could not parse all required fields — ask Groq but with a targeted hint
+      effectiveMessage = `${message}\n[INSTRUCTION: The user just provided task fields. Parse them and generate the confirmation message, or ask clearly for any missing/unparseable required fields (title, deadline, priority).]`;
     }
   }
 

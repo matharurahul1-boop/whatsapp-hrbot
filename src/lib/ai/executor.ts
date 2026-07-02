@@ -255,6 +255,18 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       if (found) {
         assignedTo   = found.id;
         assigneeName = found.full_name;
+      } else {
+        const { data: available } = await db
+          .from('users').select('full_name')
+          .eq('organization_id', org_id).eq('is_active', true)
+          .order('full_name').limit(20);
+        const names = (available ?? []).map(u => `· ${u.full_name}`).join('\n') || '(none)';
+        return {
+          success: false,
+          reply: lang === 'hi'
+            ? `❌ *${slots.assignee}* नाम का कोई active user नहीं मिला।\n\nउपलब्ध:\n${names}`
+            : `❌ No active user found matching *${slots.assignee}*.\n\nAvailable:\n${names}`,
+        };
       }
     }
 

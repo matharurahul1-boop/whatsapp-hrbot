@@ -5,6 +5,7 @@ import AttendanceTable from '@/components/attendance/AttendanceTable';
 import CheckInWidget from '@/components/attendance/CheckInWidget';
 import AttendanceHeatmap from '@/components/dashboard/AttendanceHeatmap';
 import { todayISO } from '@/lib/utils/date';
+import RefreshButton from '@/components/ui/RefreshButton';
 
 export const metadata = { title: 'Attendance — HRBot' };
 export const revalidate = 0;
@@ -67,6 +68,7 @@ export default async function AttendancePage() {
           <h1 className="page-title">Attendance</h1>
           <p className="page-subtitle">Last 30 days · {records.length} records</p>
         </div>
+        <RefreshButton />
       </div>
 
       {/* Check-in widget */}

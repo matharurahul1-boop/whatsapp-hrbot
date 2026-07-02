@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import LeaveBalanceCards from '@/components/leave/LeaveBalanceCards';
 import LeaveRequestsTable from '@/components/leave/LeaveRequestsTable';
 import ApplyLeaveModal from '@/components/leave/ApplyLeaveModal';
+import RefreshButton from '@/components/ui/RefreshButton';
 
 export const metadata = { title: 'Leave — HRBot' };
 export const revalidate = 0;
@@ -71,7 +72,10 @@ export default async function LeavePage() {
               : 'Apply and track your leave requests'}
           </p>
         </div>
-        <ApplyLeaveModal leaveTypes={leaveTypes} />
+        <div className="flex items-center gap-2">
+          <RefreshButton />
+          <ApplyLeaveModal leaveTypes={leaveTypes} />
+        </div>
       </div>
 
       {/* Balance cards (own balance always shown) */}

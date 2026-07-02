@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { redirect } from 'next/navigation';
 import EmployeeGrid from '@/components/employees/EmployeeGrid';
 import InvitePanel from '@/components/employees/InvitePanel';
+import RefreshButton from '@/components/ui/RefreshButton';
 
 export const metadata = { title: 'Team — HRBot' };
 export const dynamic = 'force-dynamic';
@@ -38,9 +39,10 @@ export default async function EmployeesPage() {
           <h1 className="page-title">Team</h1>
           <p className="page-subtitle">{employees?.length ?? 0} team members</p>
         </div>
-        {canInvite && (
-          <InvitePanel orgId={profile.organization_id} />
-        )}
+        <div className="flex items-center gap-2">
+          <RefreshButton />
+          {canInvite && <InvitePanel orgId={profile.organization_id} />}
+        </div>
       </div>
 
       <EmployeeGrid

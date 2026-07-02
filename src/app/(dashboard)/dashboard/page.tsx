@@ -12,6 +12,7 @@ import RecentTasks from '@/components/tasks/RecentTasks';
 import AttendanceSummary from '@/components/attendance/AttendanceSummary';
 import ActivityFeed from '@/components/dashboard/ActivityFeed';
 import AttendanceHeatmap from '@/components/dashboard/AttendanceHeatmap';
+import RefreshButton from '@/components/ui/RefreshButton';
 
 export const metadata = { title: 'Dashboard — HRBot' };
 export const dynamic = 'force-dynamic';
@@ -71,13 +72,16 @@ export default async function DashboardPage() {
   return (
     <div className="space-y-8 max-w-7xl mx-auto animate-fade-up">
       {/* ── Header ── */}
-      <div>
-        <h2 className="text-xl sm:text-2xl font-bold text-surface-950">
-          {greeting}, {firstName} 👋
-        </h2>
-        <p className="text-sm text-surface-700 mt-1">
-          {new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h2 className="text-xl sm:text-2xl font-bold text-surface-950">
+            {greeting}, {firstName} 👋
+          </h2>
+          <p className="text-sm text-surface-700 mt-1">
+            {new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+          </p>
+        </div>
+        <RefreshButton />
       </div>
 
       {/* ── KPI Cards ── */}

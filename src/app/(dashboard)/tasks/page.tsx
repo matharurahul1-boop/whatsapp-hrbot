@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { redirect } from 'next/navigation';
 import TaskKanban from '@/components/tasks/TaskKanban';
 import CreateTaskModal from '@/components/tasks/CreateTaskModal';
+import RefreshButton from '@/components/ui/RefreshButton';
 
 export const metadata = { title: 'Tasks — HRBot' };
 export const revalidate = 0;
@@ -63,7 +64,10 @@ export default async function TasksPage() {
             {tasks.length} task{tasks.length !== 1 ? 's' : ''} total
           </p>
         </div>
-        <CreateTaskModal employees={employees} />
+        <div className="flex items-center gap-2">
+          <RefreshButton />
+          <CreateTaskModal employees={employees} />
+        </div>
       </div>
 
       {/* Kanban board */}

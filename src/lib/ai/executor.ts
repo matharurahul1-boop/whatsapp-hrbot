@@ -677,7 +677,8 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       const parts = value.split(' ');
       const date  = parts[0];
       const time  = parts[1] ?? '09:00';
-      patch.deadline = `${date}T${time}:00+05:30`;
+      // Store as UTC (no-tz), same convention as create_task
+      patch.deadline = new Date(`${date}T${time}:00+05:30`).toISOString().slice(0, 19);
     } else if (field === 'priority') {
       const PRIORITY_MAP: Record<string, string> = {
         urgent: 'urgent', critical: 'urgent', asap: 'urgent', top: 'urgent', highest: 'urgent',
@@ -757,8 +758,10 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     } else if (field === 'priority') {
       const pVal = String(patch.priority ?? value);
       displayValue = `${priorityEmoji(pVal)} ${pVal}`;
+    } else if (field === 'deadline') {
+      displayValue = formatDateTime(patch.deadline as string) + ' IST';
     } else {
-      displayValue = String(patch.title ?? patch.priority ?? patch.status ?? patch.deadline ?? value);
+      displayValue = String(patch.title ?? patch.status ?? value);
     }
     const displayField = field ?? 'field';
     const displayTitle = field === 'title' ? value : task.title;

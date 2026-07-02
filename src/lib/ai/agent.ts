@@ -927,14 +927,27 @@ export async function runMasterAgent(
     // - ctxRef.handled = true   → runGroqLoop already saved a special state (e.g. EDITING)
     // - anything else           → reset to IDLE (clear stale flow state)
     const isConfirmPrompt = /go ahead\?/i.test(finalReply) || /\(yes \/ no\)/i.test(finalReply);
+    // For update_task deadline confirmations, rewrite the raw "YYYY-MM-DD HH:MM" in the
+    // text to a human-readable "D Mon YYYY, H:MM AM/PM IST" before showing/saving.
+    let displayReply = finalReply;
     if (isConfirmPrompt) {
       const parsed = parseConfirmationMessage(finalReply);
       if (parsed) {
+        if (parsed.tool === 'update_task' && parsed.args.update_field === 'deadline') {
+          const raw = parsed.args.update_value ?? '';
+          const [datePart = '', timePart = '17:00'] = raw.split(' ');
+          const parts = datePart.split('-').map(Number);
+          const [y, mo, d] = parts;
+          const [h = 17, mn = 0] = timePart.split(':').map(Number);
+          const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+          const fmt = `${d} ${MON[(mo ?? 1) - 1]} ${y}, ${h > 12 ? h - 12 : h || 12}:${String(mn).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'} IST`;
+          displayReply = finalReply.replace(raw, fmt);
+        }
         saveContext(conversation_id, {
           ...EMPTY_CONTEXT,
           language:        context.language,
           flow_state:      'CONFIRMING',
-          confirm_message: finalReply,
+          confirm_message: displayReply,
           confirm_payload: { tool: parsed.tool, args: parsed.args },
         }).catch(() => {});
       }
@@ -942,12 +955,12 @@ export async function runMasterAgent(
       saveContext(conversation_id, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
     }
 
-    await saveMessage(conversation_id, orgId, 'assistant', 'outbound', finalReply, {
+    await saveMessage(conversation_id, orgId, 'assistant', 'outbound', displayReply, {
       latency_ms: Date.now() - start,
     }).catch(() => {});
 
     return {
-      reply: finalReply,
+      reply: displayReply,
       new_context: EMPTY_CONTEXT,
       debug: { latency_ms: Date.now() - start },
     };

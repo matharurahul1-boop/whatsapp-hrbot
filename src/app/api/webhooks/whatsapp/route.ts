@@ -443,8 +443,8 @@ async function handleAudioFlow(
   // ── AUDIO_CONFIRM: user tapped Yes or No on the transcript preview ────────
   if (flow_state === 'AUDIO_CONFIRM') {
     const transcript = pending_transcript ?? '';
-    const YES_RE = /^(yes|yeah|yep|sure|ok|okay|go\s*ahead|proceed|confirm|haan|haa|theek\s*hai|bilkul|kar\s*(do|dein?)|let'?s\s*do\s*it|sounds?\s*good)\s*[!.]*$/i;
-    const NO_RE  = /^(no|nahi|nope|cancel|stop|mat\s*karo|band\s*karo|back)\s*[!.]*$/i;
+    const YES_RE = /^(yes|yeah|yep|sure|ok|okay|go\s*ahead|proceed|confirm|haan|haa|theek\s*hai|bilkul|kar\s*(do|dein?)|let'?s\s*do\s*it|sounds?\s*good|audio_yes)\s*[!.]*$/i;
+    const NO_RE  = /^(no|nahi|nope|cancel|stop|mat\s*karo|band\s*karo|back|audio_no)\s*[!.]*$/i;
 
     if (YES_RE.test(text.trim())) {
       console.log(`[AudioFlow] AUDIO_CONFIRM YES → dispatching transcript`);

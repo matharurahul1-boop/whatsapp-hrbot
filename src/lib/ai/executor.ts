@@ -1288,8 +1288,8 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     // Calculate hours worked
     const hoursWorked = record.check_in_time
-      ? ((new Date(now).getTime() - new Date(record.check_in_time).getTime()) / 3600000).toFixed(1)
-      : (updated as any)?.total_hours?.toFixed(1) ?? '?';
+      ? ((new Date(now).getTime() - new Date(record.check_in_time).getTime()) / 3600000).toFixed(2)
+      : (updated as any)?.total_hours?.toFixed(2) ?? '?';
 
     return { success: true, reply: REPLIES.checkOutSuccess(firstName, timeStr, hoursWorked, lang) };
   },

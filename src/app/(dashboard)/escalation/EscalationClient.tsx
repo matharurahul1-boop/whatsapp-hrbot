@@ -113,10 +113,10 @@ export default function EscalationClient({ initialLeaves }: { initialLeaves: Lea
           <button
             onClick={refresh}
             disabled={refreshing}
-            className="btn btn-secondary btn-md"
+            title="Refresh"
+            className="p-1.5 rounded-lg text-surface-500 hover:text-surface-950 hover:bg-surface-200 transition-colors disabled:opacity-40"
           >
             <RefreshCw className={cn('h-4 w-4', refreshing && 'animate-spin')} />
-            Refresh
           </button>
           <button
             onClick={runEscalation}

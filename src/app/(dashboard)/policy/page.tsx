@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import {
   FileText, Upload, Trash2, Plus, X, Search,
   Send, Bot, User, Loader2, BookOpen, Tag,
-  ChevronDown, CheckCircle2, AlertCircle,
+  ChevronDown, CheckCircle2, AlertCircle, RefreshCw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import { ExpandText } from '@/components/ui/ExpandText';
@@ -168,6 +168,15 @@ export default function PolicyBotPage() {
             Upload policy documents — employees can ask questions on WhatsApp and the AI auto-answers.
           </p>
         </div>
+        <div className="flex items-center gap-2">
+        <button
+          onClick={() => fetchDocs()}
+          disabled={loadingDocs}
+          title="Refresh"
+          className="p-1.5 rounded-lg text-surface-500 hover:text-surface-950 hover:bg-surface-200 transition-colors disabled:opacity-40"
+        >
+          <RefreshCw className={`h-4 w-4 ${loadingDocs ? 'animate-spin' : ''}`} />
+        </button>
         <button
           onClick={() => setShowUpload(v => !v)}
           className="btn btn-primary btn-md"
@@ -175,6 +184,7 @@ export default function PolicyBotPage() {
           <Plus className="h-4 w-4" />
           Add Document
         </button>
+        </div>
       </div>
 
       {/* ── Upload form ─────────────────────────────────────────────────── */}

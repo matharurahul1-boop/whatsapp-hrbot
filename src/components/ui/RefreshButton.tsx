@@ -3,21 +3,19 @@
 import { useRouter } from 'next/navigation';
 import { useTransition } from 'react';
 import { RefreshCw } from 'lucide-react';
-import { Button } from '@/components/ui/Button';
 
 export default function RefreshButton() {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 
   return (
-    <Button
-      variant="secondary"
-      size="icon-sm"
-      title="Refresh"
+    <button
       onClick={() => startTransition(() => router.refresh())}
       disabled={pending}
+      title="Refresh"
+      className="p-1.5 rounded-lg text-surface-500 hover:text-surface-950 hover:bg-surface-200 transition-colors disabled:opacity-40"
     >
-      <RefreshCw className={`h-3.5 w-3.5 transition-transform ${pending ? 'animate-spin' : ''}`} />
-    </Button>
+      <RefreshCw className={`h-4 w-4 ${pending ? 'animate-spin' : ''}`} />
+    </button>
   );
 }

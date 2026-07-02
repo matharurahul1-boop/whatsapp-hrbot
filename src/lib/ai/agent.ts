@@ -935,27 +935,31 @@ async function runGroqLoop(
   // A transcribed voice message is held in context.pending_transcript.
   // Yes → process the transcript as a normal message (clean context, no recursion issue).
   // No  → ask what they'd like to change instead.
-  if (context.flow_state === 'AUDIO_CONFIRM' && context.pending_transcript) {
+  if (context.flow_state === 'AUDIO_CONFIRM') {
     const transcript = context.pending_transcript;
-
-    if (isYes(message)) {
-      console.log(`[Agent] Audio confirm YES → processing transcript: "${transcript.slice(0, 80)}"`);
-      return runGroqLoop(
-        transcript,
-        history,
-        user,
-        orgId,
-        { ...EMPTY_CONTEXT, language: context.language },
-        conversationId,
-      );
-    }
 
     if (isNo(message)) {
       console.log('[Agent] Audio confirm NO → requesting correction');
       return '📝 No problem! Please type what you meant and I\'ll take care of it. ✍️';
     }
 
-    // User typed something other than yes/no — fall through and process it normally
+    if (isYes(message)) {
+      if (transcript) {
+        console.log(`[Agent] Audio confirm YES → processing transcript: "${transcript.slice(0, 80)}"`);
+        return runGroqLoop(
+          transcript,
+          history,
+          user,
+          orgId,
+          { ...EMPTY_CONTEXT, language: context.language },
+          conversationId,
+        );
+      }
+      // Transcript missing — ask to resend
+      return '🎙️ Sorry, I lost track of your voice message. Please send it again.';
+    }
+
+    // User typed something other than yes/no — fall through and process normally
   }
 
   // ── 0. Context-state shortcircuit — fastest path, zero Groq calls ─────────

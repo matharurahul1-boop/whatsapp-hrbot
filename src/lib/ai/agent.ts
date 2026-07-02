@@ -12,8 +12,8 @@ import type { AgentTurn, AgentUser, ConversationContext } from './types';
 // USE_CLAUDE  = false → Claude Haiku 4.5 (requires paid credits)
 // USE_GEMINI  = false → Gemini 2.0 Flash (enable once Google billing is set up)
 // fallback           → OpenRouter free tier
-const USE_GROQ   = true;
-const USE_CLAUDE = false;
+const USE_GROQ   = false;
+const USE_CLAUDE = true;
 const USE_GEMINI = false;
 
 // Rotate across every configured free-tier key. GROQ_API_KEY may also contain

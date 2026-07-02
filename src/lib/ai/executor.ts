@@ -1267,13 +1267,18 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     const { data: record } = await db
       .from('attendance_records')
-      .select('id, check_in_time')
+      .select('id, check_in_time, check_out_time')
       .eq('employee_id', user_id).eq('date', today)
       .not('check_in_time', 'is', null)
-      .is('check_out_time', null)
       .maybeSingle();
 
     if (!record) return { success: false, reply: REPLIES.notCheckedIn(lang) };
+    if (record.check_out_time) {
+      const cout = new Date(record.check_out_time).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
+      return { success: false, reply: lang === 'hi'
+        ? `आप पहले से *${cout}* बजे चेक-आउट कर चुके हैं। कल मिलते हैं! 👋`
+        : `You already checked out at *${cout}* today. See you tomorrow! 👋` };
+    }
 
     const { data: updated } = await db
       .from('attendance_records')

@@ -908,29 +908,50 @@ export async function runMasterAgent(
       return { reply: timeReply, new_context: context };
     }
 
-    // ── Early check-in guard: skip confirmation if already checked in today ──
+    // ── Early attendance state guard ──────────────────────────────────────────
+    // Single DB query covers both check-in and check-out intents so we never
+    // send a stale/wrong state to Groq or prompt a confirmation unnecessarily.
     const CHECK_IN_INTENT_RE  = /\b(?:check\s*[-\s]?in|(?:mark|log|please\s+mark)\s+(?:my\s+)?at+end|at+endan)/i;
     const CHECK_OUT_INTENT_RE = /\b(check\s*[-\s]?out|checkout|leaving|sign\s*out|nikal|ja\s+raha)\b/i;
-    if (
-      context.flow_state === 'IDLE' &&
-      CHECK_IN_INTENT_RE.test(message) &&
-      !CHECK_OUT_INTENT_RE.test(message)
-    ) {
+    const isCheckInIntent  = CHECK_IN_INTENT_RE.test(message) && !CHECK_OUT_INTENT_RE.test(message);
+    const isCheckOutIntent = CHECK_OUT_INTENT_RE.test(message) && !CHECK_IN_INTENT_RE.test(message);
+    if (context.flow_state === 'IDLE' && (isCheckInIntent || isCheckOutIntent)) {
       const { createAdminClient: makeDb } = await import('@/lib/supabase/admin');
       const todayIST = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
       const { data: att } = await makeDb()
         .from('attendance_records')
-        .select('check_in_time')
+        .select('check_in_time, check_out_time')
         .eq('employee_id', user.id)
         .eq('date', todayIST)
-        .not('check_in_time', 'is', null)
         .maybeSingle();
-      if (att?.check_in_time) {
-        const t = new Date(att.check_in_time).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
-        const lang = context.language ?? 'en';
+      const lang = context.language ?? 'en';
+
+      if (isCheckInIntent && att?.check_in_time) {
+        let earlyReply: string;
+        if (att.check_out_time) {
+          // Fully done for today — show both times
+          const cin  = new Date(att.check_in_time).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
+          const cout = new Date(att.check_out_time).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
+          earlyReply = lang === 'hi'
+            ? `आज की हाजिरी पूरी हो चुकी है। चेक-इन: *${cin}*, चेक-आउट: *${cout}*।`
+            : `Your attendance for today is complete. Checked in at *${cin}*, checked out at *${cout}*.`;
+        } else {
+          // Still active — prompt checkout
+          const cin = new Date(att.check_in_time).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
+          earlyReply = lang === 'hi'
+            ? `आप पहले से *${cin}* बजे चेक-इन हैं। चेक-आउट के लिए "checkout" लिखें।`
+            : `You already checked in at *${cin}*. Send "checkout" when you're leaving.`;
+        }
+        await saveMessage(conversation_id, orgId, 'assistant', 'outbound', earlyReply).catch(() => {});
+        return { reply: earlyReply, new_context: context };
+      }
+
+      if (isCheckOutIntent && att?.check_out_time) {
+        // Already checked out — skip confirmation entirely
+        const cout = new Date(att.check_out_time).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
         const earlyReply = lang === 'hi'
-          ? `आप पहले से *${t}* बजे चेक-इन हैं। चेक-आउट के लिए "checkout" लिखें।`
-          : `You already checked in at *${t}*. Send "checkout" when you're leaving.`;
+          ? `आप पहले से *${cout}* बजे चेक-आउट कर चुके हैं। कल मिलते हैं! 👋`
+          : `You already checked out at *${cout}* today. See you tomorrow! 👋`;
         await saveMessage(conversation_id, orgId, 'assistant', 'outbound', earlyReply).catch(() => {});
         return { reply: earlyReply, new_context: context };
       }

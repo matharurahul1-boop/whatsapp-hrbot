@@ -680,10 +680,19 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       patch.title = value;
     } else if (field === 'deadline') {
       const parts = value.split(' ');
-      const date  = parts[0];
-      const time  = parts[1] ?? '09:00';
+      let date    = parts[0] ?? '';
+      const time  = parts[1] ?? '17:00';
+      // Normalize dd-mm-yyyy → yyyy-mm-dd (users often type in Indian format)
+      const ddmmyyyy = date.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+      if (ddmmyyyy) date = `${ddmmyyyy[3]}-${ddmmyyyy[2].padStart(2,'0')}-${ddmmyyyy[1].padStart(2,'0')}`;
+      const d = new Date(`${date}T${time}:00+05:30`);
+      if (isNaN(d.getTime())) {
+        return { success: false, reply: lang === 'hi'
+          ? `❌ तारीख का format सही नहीं है। Example: "6 Jul 2026 5pm"`
+          : `❌ Invalid date format. Please say something like "6 Jul 2026 5pm".` };
+      }
       // Store as UTC (no-tz), same convention as create_task
-      patch.deadline = new Date(`${date}T${time}:00+05:30`).toISOString().slice(0, 19);
+      patch.deadline = d.toISOString().slice(0, 19);
     } else if (field === 'priority') {
       const PRIORITY_MAP: Record<string, string> = {
         urgent: 'urgent', critical: 'urgent', asap: 'urgent', top: 'urgent', highest: 'urgent',

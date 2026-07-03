@@ -4,6 +4,7 @@ import OpenAI                  from 'openai';
 import Groq                    from 'groq-sdk';
 import { loadSession, saveMessage, saveContext } from './memory';
 import { sendText }            from '@/lib/whatsapp/client';
+import { parseDeadlineString, formatDateTime } from '@/lib/utils/date';
 import { EMPTY_CONTEXT }       from './types';
 import type { AgentTurn, AgentUser, ConversationContext } from './types';
 
@@ -980,13 +981,11 @@ export async function runMasterAgent(
       if (parsed) {
         if (parsed.tool === 'update_task' && parsed.args.update_field === 'deadline') {
           const raw = parsed.args.update_value ?? '';
-          const [datePart = '', timePart = '17:00'] = raw.split(' ');
-          const parts = datePart.split('-').map(Number);
-          const [y, mo, d] = parts;
-          const [h = 17, mn = 0] = timePart.split(':').map(Number);
-          const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-          const fmt = `${d} ${MON[(mo ?? 1) - 1]} ${y}, ${h > 12 ? h - 12 : h || 12}:${String(mn).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'} IST`;
-          displayReply = finalReply.replace(raw, fmt);
+          const utcStr = parseDeadlineString(raw);
+          if (utcStr) {
+            const fmt = formatDateTime(utcStr) + ' IST';
+            displayReply = finalReply.replace(raw, fmt);
+          }
         }
         saveContext(conversation_id, {
           ...EMPTY_CONTEXT,

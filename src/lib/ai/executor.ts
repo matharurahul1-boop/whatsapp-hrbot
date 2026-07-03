@@ -1,6 +1,6 @@
 import { createAdminClient }   from '@/lib/supabase/admin';
 import { writeAuditLog }       from '@/lib/utils/audit';
-import { formatDate, formatDateTime, calcBusinessDays, todayISO, parseDeadlineToUTC } from '@/lib/utils/date';
+import { formatDate, formatDateTime, calcBusinessDays, todayISO, parseDeadlineToUTC, parseDeadlineString } from '@/lib/utils/date';
 import { generateEmployeeId }  from '@/lib/utils/employee-id';
 import { n8n }                 from '@/lib/n8n/trigger';
 import { REPLIES, NOTIFICATIONS } from './prompts/responses';
@@ -676,8 +676,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       }
       patch.title = value;
     } else if (field === 'deadline') {
-      const parts = value.split(' ');
-      const utc = parseDeadlineToUTC(parts[0] ?? '', parts[1] ?? '17:00');
+      const utc = parseDeadlineString(value);
       if (!utc) {
         return { success: false, reply: lang === 'hi'
           ? `❌ तारीख का format सही नहीं है। Example: "6 Jul 2026 5pm" या "12-07-2026 4pm"`

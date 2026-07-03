@@ -167,6 +167,39 @@ export function parseDeadlineToUTC(datePart: string, timePart: string): string |
   return isNaN(dt.getTime()) ? null : dt.toISOString().slice(0, 19);
 }
 
+/**
+ * Parse a raw deadline string combining date + time in any format.
+ * Unlike parseDeadlineToUTC (which needs date and time as separate args), this
+ * handles mixed strings like:
+ *   "12-07-2026 at 4pm"       → "12-07-2026" + "4pm"
+ *   "12 Jul 2026, 04:00 PM"   → "12 Jul 2026" + "04:00 PM"
+ *   "2026-07-12 16:00"        → "2026-07-12" + "16:00"
+ *   "12-07-2026"              → date only, defaults time to 17:00
+ */
+export function parseDeadlineString(raw: string): string | null {
+  // Strip "at" connector: "12-07-2026 at 4pm" → "12-07-2026 4pm"
+  const s = raw.trim().replace(/\s+at\s+/gi, ' ');
+
+  // Extract a time component from the END of the string.
+  // Matches: "4pm", "4:30 pm", "04:00 PM", "16:00", "noon", "midnight"
+  const timeRe = /(?:^|\s)(\d{1,2}(?::\d{2})?\s*(?:am|pm)|noon|midnight|\d{1,2}:\d{2})$/i;
+  const timeMatch = s.match(timeRe);
+
+  let datePart: string;
+  let timePart: string;
+
+  if (timeMatch) {
+    timePart = timeMatch[1].trim();
+    // Everything before the matched time is the date; strip trailing comma/semicolon
+    datePart = s.slice(0, s.length - timeMatch[0].length).replace(/[,;]+$/, '').trim();
+  } else {
+    datePart = s.replace(/[,;]+$/, '').trim();
+    timePart = '17:00';
+  }
+
+  return parseDeadlineToUTC(datePart || s, timePart);
+}
+
 /** Convert a deadline string (UTC from DB) to YYYY-MM-DDTHH:MM in IST for datetime-local inputs */
 export function toISTInputValue(isoStr: string): string {
   const d = deadlineToUTCDate(isoStr);

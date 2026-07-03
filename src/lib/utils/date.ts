@@ -177,8 +177,10 @@ export function parseDeadlineToUTC(datePart: string, timePart: string): string |
  *   "12-07-2026"              → date only, defaults time to 17:00
  */
 export function parseDeadlineString(raw: string): string | null {
-  // Strip "at" connector: "12-07-2026 at 4pm" → "12-07-2026 4pm"
-  const s = raw.trim().replace(/\s+at\s+/gi, ' ');
+  // Strip "at" connector and trailing timezone labels (IST, UTC, GMT…)
+  const s = raw.trim()
+    .replace(/\s+at\s+/gi, ' ')
+    .replace(/\s+(?:IST|UTC|GMT|PKT|BST|EST|PST|CST|MST)\b/gi, '');
 
   // Extract a time component from the END of the string.
   // Matches: "4pm", "4:30 pm", "04:00 PM", "16:00", "noon", "midnight"

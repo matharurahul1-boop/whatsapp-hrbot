@@ -863,6 +863,13 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     if (error) throw error;
 
+    // Determine which scheduled run will actually deliver this reminder.
+    // Reminders are checked at 9 AM and 6 PM IST daily.
+    const fireHourIST = fireAt.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour: 'numeric', hour12: false });
+    const deliverySlot = Number(fireHourIST) < 9  ? '9:00 AM'
+                       : Number(fireHourIST) < 18 ? '6:00 PM'
+                       : '9:00 AM (next day)';
+
     const displayTime = fireAt.toLocaleString('en-IN', {
       timeZone: 'Asia/Kolkata',
       weekday: 'short', day: 'numeric', month: 'short',
@@ -872,8 +879,8 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     return {
       success: true,
       reply: lang === 'hi'
-        ? `⏰ *रिमाइंडर सेट!*\n\n📋 ${message}\n🗓 ${displayTime} IST`
-        : `⏰ *Reminder set!*\n\n📋 ${message}\n🗓 ${displayTime} IST`,
+        ? `⏰ *रिमाइंडर सेट!*\n\n📋 ${message}\n🗓 ${displayTime} IST\n\n_यह reminder ${deliverySlot} IST पर deliver होगा।_`
+        : `⏰ *Reminder set!*\n\n📋 ${message}\n🗓 ${displayTime} IST\n\n_This will be delivered at ${deliverySlot} IST._`,
     };
   },
 
@@ -1542,8 +1549,9 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       .eq('id', user_id);
 
     const OFFSET_LABEL: Record<string, string> = {
-      '1_day':   lang === 'hi' ? 'deadline से 1 दिन पहले (सुबह)' : '1 day before deadline (morning)',
-      'same_day': lang === 'hi' ? 'deadline वाले दिन सुबह'        : 'morning of the deadline day',
+      'same_day': lang === 'hi' ? 'deadline वाले दिन सुबह 9 बजे'         : 'morning of the deadline day (9 AM)',
+      '1_day':    lang === 'hi' ? 'deadline से 1 दिन पहले सुबह 9 बजे'    : '1 day before deadline (9 AM)',
+      '2_days':   lang === 'hi' ? 'deadline से 2 दिन पहले सुबह 9 बजे'    : '2 days before deadline (9 AM)',
     };
 
     const statusStr = updates.enabled === false

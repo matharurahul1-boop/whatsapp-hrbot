@@ -529,7 +529,7 @@ const HRBOT_TOOLS: any[] = [
       type: 'OBJECT',
       properties: {
         enabled: { type: 'STRING', description: 'true | false — enable or disable task deadline reminders on WhatsApp' },
-        offset:  { type: 'STRING', description: 'When to send reminder before deadline: 1_day (day before, morning) | same_day (morning of deadline day)' },
+        offset:  { type: 'STRING', description: 'When to send reminder: same_day (9 AM on deadline day) | 1_day (9 AM day before) | 2_days (9 AM two days before)' },
         channel: { type: 'STRING', description: 'whatsapp | in_app | both' },
       },
     },
@@ -718,11 +718,13 @@ Action — approve/reject leave (privileged, confirm first):
 
 ## Reminders
 - "remind me about X at Y" / "set a reminder for X at Y" → confirm → set_reminder(message="X", remind_at="YYYY-MM-DDTHH:MM:SS+05:30")
+  Note: custom reminders are delivered at the next scheduled check (9 AM or 6 PM IST), not at the exact time.
 - "remind me the day before tasks" → confirm → configure_reminders(offset="1_day")
+- "remind me 2 days before" → confirm → configure_reminders(offset="2_days")
 - "remind me on the day of the task" → confirm → configure_reminders(offset="same_day")
 - "turn off task reminders" / "disable reminders" → confirm → configure_reminders(enabled="false")
 - "enable task reminders" → confirm → configure_reminders(enabled="true")
-Reminder cron fires at 9 AM IST.
+Valid offsets: same_day | 1_day | 2_days. Reminders fire at 9 AM IST (morning cron) or 6 PM IST (evening cron).
 
 ## Handling vague or incomplete messages
 - "mark done" / "complete the task" (no name given) → ask "Which task?"

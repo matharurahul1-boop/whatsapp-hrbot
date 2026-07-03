@@ -3,14 +3,16 @@
  *
  *   morning  30 3 * * *  (9:00 AM IST)
  *     ├─ check-in reminders  (employees not yet checked in)
- *     ├─ deadline reminders  (1_day → due tomorrow, 2_days → due day after tomorrow)
- *     ├─ offset reminders    (1h/2h/4h tasks whose window falls around 9 AM)
+ *     ├─ deadline reminders  (same_day → due today, 1_day → due tomorrow, 2_days → due day after)
  *     └─ bot_reminders       (fire_at <= now)
  *
  *   evening  30 12 * * * (6:00 PM IST)
  *     ├─ check-out reminders (employees not yet checked out)
- *     ├─ offset reminders    (1h/2h/4h tasks whose window falls around 6 PM)
  *     └─ bot_reminders       (fire_at <= now)
+ *
+ * Supported reminder offsets: same_day | 1_day | 2_days
+ * Sub-day offsets (1_hour, 2_hours, 4_hours) removed — not reliably coverable
+ * with only 2 cron slots.
  *
  * Individual ?type= values are still supported for manual testing.
  *
@@ -76,12 +78,10 @@ async function dispatch(type: string): Promise<NextResponse> {
 
   if (type === 'morning') {
     results.checkin  = await runCheckinReminders();
-    results.deadline = await runDeadlineReminders();   // date-based: 1_day, 2_days
-    results.offsets  = await runTaskOffsetReminders(); // time-based: 1h/2h/4h near 9 AM
+    results.deadline = await runDeadlineReminders();   // same_day, 1_day, 2_days
     results.bot      = await fireBotReminders();
   } else if (type === 'evening') {
     results.checkout = await runCheckoutReminders();
-    results.offsets  = await runTaskOffsetReminders(); // time-based: 1h/2h/4h near 6 PM
     results.bot      = await fireBotReminders();
   } else if (type === 'checkin')  {
     results.checkin  = await runCheckinReminders();
@@ -89,13 +89,10 @@ async function dispatch(type: string): Promise<NextResponse> {
     results.checkout = await runCheckoutReminders();
   } else if (type === 'deadline') {
     results.deadline = await runDeadlineReminders();
-  } else if (type === 'offsets') {
-    results.offsets  = await runTaskOffsetReminders();
   } else if (type === 'bot') {
     results.bot      = await fireBotReminders();
   } else {
     results.deadline = await runDeadlineReminders();
-    results.offsets  = await runTaskOffsetReminders();
   }
 
   console.log(`[Reminders:${type || 'all'}]`, results);
@@ -198,6 +195,7 @@ async function runCheckoutReminders(): Promise<number> {
 
 async function runDeadlineReminders(): Promise<number> {
   const db       = createAdminClient();
+  const today    = todayIST();
   const tomorrow = tomorrowIST();
   const dayAfter = dayAfterTomorrowIST();
   let   sent     = 0;
@@ -208,10 +206,10 @@ async function runDeadlineReminders(): Promise<number> {
     .not('wa_phone_number_id', 'is', null);
 
   for (const org of orgs ?? []) {
-    // Run for 1_day (tasks due tomorrow) and 2_days (tasks due day after tomorrow)
     for (const [targetDate, reminderKey, label] of [
-      [tomorrow, '1_day',  'due tomorrow'],
-      [dayAfter, '2_days', 'due in 2 days'],
+      [today,    'same_day', 'due today'],
+      [tomorrow, '1_day',    'due tomorrow'],
+      [dayAfter, '2_days',   'due in 2 days'],
     ] as const) {
       const dayStart = `${targetDate}T00:00:00+05:30`;
       const dayEnd   = `${targetDate}T23:59:59+05:30`;
@@ -232,25 +230,26 @@ async function runDeadlineReminders(): Promise<number> {
       for (const task of tasks ?? []) {
         const assignee = (Array.isArray(task.assignee) ? task.assignee[0] : task.assignee) as {
           id: string; full_name: string; wa_number: string | null;
-          metadata?: { task_reminders?: { enabled?: boolean } };
+          metadata?: { task_reminders?: { enabled?: boolean; channels?: string[] } };
         } | null;
         if (!assignee) continue;
 
-        // Respect master on/off toggle
-        if ((assignee.metadata?.task_reminders as { enabled?: boolean } | undefined)?.enabled === false) continue;
+        const prefs    = assignee.metadata?.task_reminders;
+        if (prefs?.enabled === false) continue;
+        const channels = prefs?.channels?.length ? prefs.channels : ['whatsapp', 'in_app'];
 
-        // In-app bell
-        await db.from('notifications').insert({
-          user_id:         assignee.id,
-          organization_id: org.id,
-          title:           '⏰ Task deadline reminder',
-          body:            `"${task.title}" is ${label}.`,
-          action_url:      '/tasks',
-          is_read:         false,
-        }).then(({ error }) => { if (error) console.error('[reminder in_app]', error.message); });
+        if (channels.includes('in_app')) {
+          await db.from('notifications').insert({
+            user_id:         assignee.id,
+            organization_id: org.id,
+            title:           '⏰ Task deadline reminder',
+            body:            `"${task.title}" is ${label}.`,
+            action_url:      '/tasks',
+            is_read:         false,
+          }).then(({ error }) => { if (error) console.error('[reminder in_app]', error.message); });
+        }
 
-        // WhatsApp
-        if (assignee.wa_number) {
+        if (channels.includes('whatsapp') && assignee.wa_number) {
           await notifyTaskDeadlineReminder({
             orgId:        org.id,
             waNumber:     assignee.wa_number,
@@ -315,97 +314,6 @@ async function fireBotReminders(): Promise<number> {
 
   console.log(`[Reminders:bot] sent=${sent} deleted=${firedIds.length}`);
   return sent;
-}
-
-// ── 5. Time-based offset reminders (sub-day) ─────────────────────────────────
-//
-// For 1_hour / 2_hours / 4_hours offsets stored in tasks.reminders[].
-// Checks tasks whose deadline falls within a ±30 min window of (now + offset).
-// Called from both morning (9 AM) and evening (6 PM) crons — catches tasks
-// due around 10 AM, 11 AM, 1 PM (morning) and 7 PM, 8 PM, 10 PM (evening).
-// Always sends to BOTH WhatsApp AND in-app bell.
-
-const REMINDER_OFFSETS: Record<string, number> = {
-  '1_hour':  1  * 60 * 60 * 1000,
-  '2_hours': 2  * 60 * 60 * 1000,
-  '4_hours': 4  * 60 * 60 * 1000,
-};
-
-const REMINDER_LABEL: Record<string, string> = {
-  '1_hour':  'due in 1 hour',
-  '2_hours': 'due in 2 hours',
-  '4_hours': 'due in 4 hours',
-};
-
-async function runTaskOffsetReminders(): Promise<number> {
-  const db       = createAdminClient();
-  const now      = new Date();
-  const WINDOW   = 30 * 60 * 1000; // ±30 min
-  let   processed = 0;
-
-  const { data: orgs } = await db
-    .from('organizations')
-    .select('id')
-    .not('wa_phone_number_id', 'is', null);
-
-  for (const [offsetKey, offsetMs] of Object.entries(REMINDER_OFFSETS)) {
-    const targetMs   = now.getTime() + offsetMs;
-    const targetLow  = new Date(targetMs - WINDOW).toISOString();
-    const targetHigh = new Date(targetMs + WINDOW).toISOString();
-
-    const { data: tasks } = await db
-      .from('tasks')
-      .select(`
-        id, title, deadline, organization_id,
-        assignee:users!tasks_assignee_id_fkey(id, full_name, wa_number, metadata)
-      `)
-      .gte('deadline', targetLow)
-      .lte('deadline', targetHigh)
-      .contains('reminders', [offsetKey])
-      .not('status', 'in', '("done","cancelled")')
-      .is('deleted_at', null);
-
-    for (const task of tasks ?? []) {
-      const deadlineMs = new Date(task.deadline as string).getTime();
-      if (Math.abs(now.getTime() - (deadlineMs - offsetMs)) > WINDOW) continue;
-
-      const assignee = (Array.isArray(task.assignee) ? task.assignee[0] : task.assignee) as {
-        id: string; full_name: string; wa_number: string | null;
-        metadata?: { task_reminders?: { enabled?: boolean } };
-      } | null;
-      if (!assignee) continue;
-
-      // Respect master on/off toggle
-      if ((assignee.metadata?.task_reminders as { enabled?: boolean } | undefined)?.enabled === false) continue;
-
-      // In-app bell — always
-      await db.from('notifications').insert({
-        user_id:         assignee.id,
-        organization_id: task.organization_id,
-        title:           '⏰ Task reminder',
-        body:            `"${task.title}" is ${REMINDER_LABEL[offsetKey]}.`,
-        action_url:      '/tasks',
-        is_read:         false,
-      });
-
-      // WhatsApp — always
-      if (assignee.wa_number) {
-        await notifyTaskDeadlineReminder({
-          orgId:        task.organization_id,
-          waNumber:     assignee.wa_number,
-          assigneeName: assignee.full_name,
-          taskTitle:    task.title,
-          deadline:     task.deadline as string,
-          reminderType: offsetKey,
-        });
-      }
-
-      processed++;
-      await delay(100);
-    }
-  }
-
-  return processed;
 }
 
 // ── Utility ───────────────────────────────────────────────────────────────────

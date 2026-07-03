@@ -5,7 +5,7 @@
  * and never throws, so WA delivery failures never break API responses.
  *
  * Covers:
- *  - Tasks    : assigned, reassigned, completed, deadline reminder
+ *  - Tasks    : assigned, reassigned, completed, updated, deleted, deadline reminder
  *  - Leave    : submitted (→ manager), decision (→ employee), cancelled (→ manager)
  *  - Attendance: check-in reminder, checkout reminder
  *  - Onboarding: welcome message for new employee
@@ -97,6 +97,56 @@ export async function notifyTaskCompleted(opts: {
 
     await sendText(waNum, msg, opts.orgId);
     console.log(`[Notify:TaskCompleted] ✅ ${waNum}`);
+  });
+}
+
+export async function notifyTaskUpdated(opts: {
+  orgId:       string;
+  taskTitle:   string;
+  field:       string;
+  value:       string;
+  assigneeId:  string;
+  updaterName: string;
+}): Promise<void> {
+  return fire('TaskUpdated', async () => {
+    const db = createAdminClient();
+    const { data: assignee } = await db
+      .from('users').select('full_name, wa_number')
+      .eq('id', opts.assigneeId).single();
+    if (!assignee?.wa_number) return;
+
+    const msg =
+      `📝 *Task updated, ${firstName(assignee.full_name)}!*\n\n` +
+      `*${opts.taskTitle}*\n\n` +
+      `${opts.field} changed to: *${opts.value}*\n` +
+      `Updated by: *${opts.updaterName}*\n\n` +
+      `Reply *my tasks* to view your tasks.`;
+
+    await sendText(assignee.wa_number, msg, opts.orgId);
+    console.log(`[Notify:TaskUpdated] ✅ ${assignee.wa_number}`);
+  });
+}
+
+export async function notifyTaskDeleted(opts: {
+  orgId:       string;
+  taskTitle:   string;
+  assigneeId:  string;
+  deleterName: string;
+}): Promise<void> {
+  return fire('TaskDeleted', async () => {
+    const db = createAdminClient();
+    const { data: assignee } = await db
+      .from('users').select('full_name, wa_number')
+      .eq('id', opts.assigneeId).single();
+    if (!assignee?.wa_number) return;
+
+    const msg =
+      `🗑️ *Task removed, ${firstName(assignee.full_name)}!*\n\n` +
+      `*${opts.taskTitle}* has been deleted by *${opts.deleterName}*.\n\n` +
+      `Reply *my tasks* to view your remaining tasks.`;
+
+    await sendText(assignee.wa_number, msg, opts.orgId);
+    console.log(`[Notify:TaskDeleted] ✅ ${assignee.wa_number}`);
   });
 }
 

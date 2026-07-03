@@ -7,6 +7,8 @@ import { REPLIES, NOTIFICATIONS } from './prompts/responses';
 import {
   notifyTaskAssigned,
   notifyTaskCompleted,
+  notifyTaskUpdated,
+  notifyTaskDeleted,
   notifyLeaveDecision,
   notifyWelcome,
 } from '@/lib/whatsapp/notify';
@@ -348,7 +350,9 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       message: NOTIFICATIONS.taskAssigned('your colleague', slots.title!, deadlineISO),
     }] : [];
 
-    n8n.notifyTaskAssigned(org_id, task.id, assignedTo).catch(() => {});
+    if (assignedTo !== user_id) {
+      n8n.notifyTaskAssigned(org_id, task.id, assignedTo).catch(() => {});
+    }
 
     return {
       success: true,
@@ -612,7 +616,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     let query = db
       .from('tasks')
-      .select('id, title')
+      .select('id, title, assignee_id')
       .eq('organization_id', org_id)
       .ilike('title', `%${slots.title}%`)
       .limit(1);
@@ -632,6 +636,16 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       record_id: task.id, new_data: { deleted_at: new Date().toISOString() }, source: 'whatsapp',
     });
 
+    if (task.assignee_id && task.assignee_id !== user_id) {
+      const { data: deleter } = await db.from('users').select('full_name').eq('id', user_id).single();
+      notifyTaskDeleted({
+        orgId:       org_id,
+        taskTitle:   task.title,
+        assigneeId:  task.assignee_id,
+        deleterName: deleter?.full_name ?? 'your manager',
+      }).catch(() => {});
+    }
+
     return {
       success: true,
       reply: lang === 'hi'
@@ -646,7 +660,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     let query = db
       .from('tasks')
-      .select('id, title')
+      .select('id, title, assignee_id')
       .eq('organization_id', org_id)
       .ilike('title', `%${slots.title}%`)
       .is('deleted_at', null)
@@ -769,6 +783,19 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     }
     const displayField = field ?? 'field';
     const displayTitle = field === 'title' ? value : task.title;
+
+    if (task.assignee_id && task.assignee_id !== user_id) {
+      const { data: updater } = await db.from('users').select('full_name').eq('id', user_id).single();
+      notifyTaskUpdated({
+        orgId:       org_id,
+        taskTitle:   displayTitle,
+        field:       displayField,
+        value:       displayValue,
+        assigneeId:  task.assignee_id,
+        updaterName: updater?.full_name ?? 'your manager',
+      }).catch(() => {});
+    }
+
     return {
       success: true,
       reply: lang === 'hi'

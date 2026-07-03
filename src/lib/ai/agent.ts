@@ -85,6 +85,9 @@ function quickRoute(message: string): string | null {
 const YES_RE = /^(yes|yeah|yep|sure|ok|okay|go\s*ahead|proceed|confirm|create\s*(the\s*)?task|create\s*it|do\s*it|haan|haa|theek\s*hai|bilkul|kar\s*(do|dein?)|let['']?s\s*do\s*it|sounds?\s*good)\s*[!.]*$/i;
 const NO_RE  = /^(no|nahi|nope|cancel|stop|don['']?t|mat\s*karo|band\s*karo|ruk\s*jao|ruko|back)\s*[!.]*$/i;
 
+// Tools that must NEVER execute directly — always require a user confirmation first.
+const CONFIRM_BEFORE_EXEC = new Set(['update_task', 'complete_task', 'delete_task', 'apply_leave']);
+
 function isYes(msg: string): boolean { return YES_RE.test(msg.trim()); }
 function isNo (msg: string): boolean { return NO_RE.test(msg.trim()); }
 
@@ -822,6 +825,29 @@ function stripGroqFiller(text: string): string {
 // Groq may return plain text instead of making a tool call. Used to trigger a
 // single retry with an explicit enforcement instruction injected into the thread.
 
+function buildToolConfirmation(tool: string, args: Record<string, string>): string {
+  if (tool === 'update_task') {
+    const field = args.update_field ?? '';
+    let value = args.update_value ?? '';
+    if (field === 'deadline') {
+      const utc = parseDeadlineString(value);
+      if (utc) value = formatDateTime(utc) + ' IST';
+    }
+    return `I'll update *${args.task_title ?? '?'}* — set *${field}* to *${value}*. Go ahead? (Yes / No)`;
+  }
+  if (tool === 'complete_task') {
+    return `I'll mark *${args.task_title ?? '?'}* as complete. Go ahead? (Yes / No)`;
+  }
+  if (tool === 'delete_task') {
+    return `I'll delete task *${args.task_title ?? '?'}*. Go ahead? (Yes / No)`;
+  }
+  if (tool === 'apply_leave') {
+    const ltype = args.leave_type ?? 'leave';
+    return `I'll apply for *${ltype}* from *${args.start_date ?? ''}* to *${args.end_date ?? ''}*. Go ahead? (Yes / No)`;
+  }
+  return `Confirm this action? (Yes / No)`;
+}
+
 function shouldHaveCalledTool(msg: string): boolean {
   const m = msg.toLowerCase().trim();
   return (
@@ -1504,6 +1530,22 @@ async function runGroqLoop(
             console.log(`[Agent] Groq[${clientIdx}] tool call: ${tc.function.name}`, tc.function.arguments);
             let args: Record<string, string> = {};
             try { const p = JSON.parse(tc.function.arguments); if (p && typeof p === 'object') args = p; } catch { /* empty args */ }
+
+            // Mutating tools must never execute without user confirmation, even when
+            // Groq skips the text-confirmation step (e.g. after seeing prior "yes" in history).
+            if (CONFIRM_BEFORE_EXEC.has(tc.function.name)) {
+              console.log(`[Agent] Groq tried to execute ${tc.function.name} directly — intercepting for confirmation`);
+              const confirmText = buildToolConfirmation(tc.function.name, args);
+              saveContext(conversationId, {
+                ...EMPTY_CONTEXT,
+                language:        context.language,
+                flow_state:      'CONFIRMING',
+                confirm_message: confirmText,
+                confirm_payload: { tool: tc.function.name, args },
+              }).catch(() => {});
+              return confirmText;
+            }
+
             const output = await dispatchTool(tc.function.name, args, user, orgId);
             groqMessages.push({ role: 'tool', tool_call_id: tc.id, content: output });
           }
@@ -1694,6 +1736,20 @@ async function runGroqLoop(
           console.log(`[Agent] OR tool call: ${tc.function.name}`, tc.function.arguments);
           let args: Record<string, string> = {};
           try { args = JSON.parse(tc.function.arguments); } catch { /* empty args */ }
+
+          if (CONFIRM_BEFORE_EXEC.has(tc.function.name)) {
+            console.log(`[Agent] OR tried to execute ${tc.function.name} directly — intercepting for confirmation`);
+            const confirmText = buildToolConfirmation(tc.function.name, args);
+            saveContext(conversationId, {
+              ...EMPTY_CONTEXT,
+              language:        context.language,
+              flow_state:      'CONFIRMING',
+              confirm_message: confirmText,
+              confirm_payload: { tool: tc.function.name, args },
+            }).catch(() => {});
+            return confirmText;
+          }
+
           const output = await dispatchTool(tc.function.name, args, user, orgId);
           orMessages.push({ role: 'tool', tool_call_id: tc.id, content: output });
         }

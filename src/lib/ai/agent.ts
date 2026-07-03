@@ -675,7 +675,7 @@ If task name is missing ("mark done", "delete task"), ask "Which task?"
 
 ## Attendance
 Read-only (call IMMEDIATELY, no confirmation):
-- "my attendance" / "show attendance" / "attendance report" / "check-in history" / "when did I check in" / "meri attendance" → my_attendance()${isPrivileged ? `
+- "my attendance" / "show attendance" / "attendance report" / "check-in history" / "when did I check in" / "meri attendance" / "worked hours" / "how many hours did I work" / "hours worked today" → my_attendance()${isPrivileged ? `
 - "team attendance" / "who's in" / "who checked in" / "who's absent today" / "office attendance" / "attendance today" → team_attendance()` : ''}
 
 ## CRITICAL: Attendance time rule
@@ -829,12 +829,15 @@ function shouldHaveCalledTool(msg: string): boolean {
     /\b(list|show|get|my|mine|what'?s?\s+my)\b.*\btasks?\b/i.test(m) ||
     /\blist\s+(mine|of\s+(mine|my))\b/i.test(m) ||
     /\b(pending|open|due|all)\s+tasks?\b/i.test(m) ||
+    /\b\w+[''s]+s?\s+tasks?\b/i.test(m) ||          // "tushar's task list", "his tasks"
+    /\btask\s+list\b/i.test(m) ||                    // "task list", "the task list"
     // Leave balance / history
     /\b(leave\s+balance|leaves?\s+(left|remaining|balance)|how\s+many\s+leaves?|kitni\s+leave)\b/i.test(m) ||
     /\b(my\s+leaves?|list\s+leaves?|leave\s+(history|requests?)|show\s+(my\s+)?leave)\b/i.test(m) ||
     // Attendance read-only
     /\b(my\s+attendance|show\s+attendance|attendance\s+(report|history)|check.in\s+history)\b/i.test(m) ||
     /\b(team\s+attendance|who'?s?\s+(absent|present|in\s+office|checked\s+in)|who\s+(is\s+)?in)\b/i.test(m) ||
+    /\bworked\s+hours?\b/i.test(m) ||               // "worked hours for today"
     // Users
     /\b(list\s+users?|team\s+members?|list\s+employees?|who'?s?\s+in\s+(the\s+)?team)\b/i.test(m) ||
     // ── Action intents — Groq should reply with confirmation, not filler ───
@@ -848,7 +851,7 @@ function shouldHaveCalledTool(msg: string): boolean {
 // Returns true when Groq's reply is a useless generic phrase that ignores the intent
 function isGroqGenericFiller(reply: string): boolean {
   const r = reply.toLowerCase().trim();
-  const head = r.slice(0, 120);
+  const head = r.slice(0, 160);
   return (
     r === '' ||
     /^what else (?:can|would) (?:i|you)/i.test(r) ||
@@ -856,7 +859,10 @@ function isGroqGenericFiller(reply: string): boolean {
     /^i('?m| am) not sure (what|how)/i.test(r) ||
     (r.length < 80 && /^(sorry|i (didn'?t|couldn'?t|can'?t)|i don'?t (understand|recognize))/i.test(r)) ||
     // Leaked chain-of-thought: model outputs reasoning instead of a reply
-    /^(?:we need to|i need to (?:parse|analyze|check|look)|according to (?:the )?rules|the user (?:has provided|said|gave|asked for)|to handle this|let me (?:analyze|think|check|parse)|the (?:previous|last) (?:message|response|bot))/i.test(head)
+    /^(?:we need to|i need to (?:parse|analyze|check|look)|according to (?:the )?rules|the user (?:has provided|said|gave|asked for)|to handle this|let me (?:analyze|think|check|parse|fetch|get|list|look up)|the (?:previous|last) (?:message|response|bot))/i.test(head) ||
+    // Bot narrates a future action instead of calling the tool ("I'll list all tasks... Let me fetch...")
+    /^i'?ll (?:list|fetch|get|show|retrieve|look up|check|find|pull)/i.test(head) ||
+    /^let me (?:fetch|get|list|look|check|retrieve|find|pull)/i.test(head)
   );
 }
 

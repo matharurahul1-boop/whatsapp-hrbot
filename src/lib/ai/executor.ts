@@ -1,6 +1,6 @@
 import { createAdminClient }   from '@/lib/supabase/admin';
 import { writeAuditLog }       from '@/lib/utils/audit';
-import { formatDate, formatDateTime, calcBusinessDays, todayISO } from '@/lib/utils/date';
+import { formatDate, formatDateTime, calcBusinessDays, todayISO, parseDeadlineToUTC } from '@/lib/utils/date';
 import { generateEmployeeId }  from '@/lib/utils/employee-id';
 import { n8n }                 from '@/lib/n8n/trigger';
 import { REPLIES, NOTIFICATIONS } from './prompts/responses';
@@ -279,13 +279,10 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     }
 
     // Build deadline as UTC (no-tz string) so the timestamp column stores UTC.
-    // Convert from IST (user's timezone) to UTC by parsing with +05:30 offset.
     let deadlineISO: string | null = null;
     if (slots.deadline) {
       const parts = slots.deadline.split(' ');
-      const date  = parts[0];
-      const time  = parts[1] ?? '09:00';
-      deadlineISO = new Date(`${date}T${time}:00+05:30`).toISOString().slice(0, 19);
+      deadlineISO = parseDeadlineToUTC(parts[0] ?? '', parts[1] ?? '17:00');
     }
 
     // Enforce required fields — reject early with an actionable prompt
@@ -680,19 +677,13 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       patch.title = value;
     } else if (field === 'deadline') {
       const parts = value.split(' ');
-      let date    = parts[0] ?? '';
-      const time  = parts[1] ?? '17:00';
-      // Normalize dd-mm-yyyy → yyyy-mm-dd (users often type in Indian format)
-      const ddmmyyyy = date.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
-      if (ddmmyyyy) date = `${ddmmyyyy[3]}-${ddmmyyyy[2].padStart(2,'0')}-${ddmmyyyy[1].padStart(2,'0')}`;
-      const d = new Date(`${date}T${time}:00+05:30`);
-      if (isNaN(d.getTime())) {
+      const utc = parseDeadlineToUTC(parts[0] ?? '', parts[1] ?? '17:00');
+      if (!utc) {
         return { success: false, reply: lang === 'hi'
-          ? `❌ तारीख का format सही नहीं है। Example: "6 Jul 2026 5pm"`
-          : `❌ Invalid date format. Please say something like "6 Jul 2026 5pm".` };
+          ? `❌ तारीख का format सही नहीं है। Example: "6 Jul 2026 5pm" या "12-07-2026 4pm"`
+          : `❌ Invalid date format. Try: "6 Jul 2026 5pm" or "12-07-2026 4pm".` };
       }
-      // Store as UTC (no-tz), same convention as create_task
-      patch.deadline = d.toISOString().slice(0, 19);
+      patch.deadline = utc;
     } else if (field === 'priority') {
       const PRIORITY_MAP: Record<string, string> = {
         urgent: 'urgent', critical: 'urgent', asap: 'urgent', top: 'urgent', highest: 'urgent',

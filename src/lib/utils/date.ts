@@ -63,6 +63,110 @@ export function istNow(): string {
   return new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
 }
 
+const MONTH_MAP: Record<string, string> = {
+  jan:'01', feb:'02', mar:'03', apr:'04', may:'05', jun:'06',
+  jul:'07', aug:'08', sep:'09', oct:'10', nov:'11', dec:'12',
+  january:'01', february:'02', march:'03', april:'04', june:'06',
+  july:'07', august:'08', september:'09', october:'10', november:'11', december:'12',
+};
+
+/**
+ * Convert a raw date string (any common format) + optional time string → UTC ISO
+ * "2026-07-12 16:00" is already valid; this also handles:
+ *   dd-mm-yyyy, dd/mm/yyyy, dd.mm.yyyy, dd-mm-yy (Indian formats)
+ *   "12 Jul 2026", "Jul 12 2026", "12th July 2026", "July 12, 2026"
+ *   "12-Jul-2026" (dashed month name)
+ *   "tomorrow", "today", "next Monday", "in 3 days" (relative — needs todayIST)
+ *
+ * Time string accepts: "HH:MM", "4pm", "4:30pm", "4:30 PM", "16:00", "noon", "midnight"
+ * Returns null when the date cannot be resolved.
+ */
+export function parseDeadlineToUTC(datePart: string, timePart: string): string | null {
+  const d = datePart.trim();
+  const t = timePart.trim();
+
+  // ── Normalise date → yyyy-mm-dd ──────────────────────────────────────────
+  let ymd: string | null = null;
+
+  // 1. Already ISO: yyyy-mm-dd
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+    ymd = d;
+  }
+
+  // 2. dd-mm-yyyy / dd/mm/yyyy / dd.mm.yyyy  (Indian formats)
+  if (!ymd) {
+    const m = d.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})$/);
+    if (m) ymd = `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+  }
+
+  // 3. dd-mm-yy / dd/mm/yy / dd.mm.yy  (2-digit year)
+  if (!ymd) {
+    const m = d.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{2})$/);
+    if (m) ymd = `${2000 + +m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+  }
+
+  // 4. "12 Jul 2026", "12th July 2026"
+  if (!ymd) {
+    const m = d.match(/^(\d{1,2})(?:st|nd|rd|th)?\s+([a-zA-Z]+)(?:,?\s+(\d{4}))?$/i);
+    if (m) {
+      const mo = MONTH_MAP[m[2].toLowerCase()];
+      if (mo) {
+        const yr = m[3] ? m[3] : String(new Date().getFullYear());
+        ymd = `${yr}-${mo}-${m[1].padStart(2,'0')}`;
+      }
+    }
+  }
+
+  // 5. "Jul 12 2026", "July 12, 2026"
+  if (!ymd) {
+    const m = d.match(/^([a-zA-Z]+)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?$/i);
+    if (m) {
+      const mo = MONTH_MAP[m[1].toLowerCase()];
+      if (mo) {
+        const yr = m[3] ? m[3] : String(new Date().getFullYear());
+        ymd = `${yr}-${mo}-${m[2].padStart(2,'0')}`;
+      }
+    }
+  }
+
+  // 6. "12-Jul-2026" (dashed month name)
+  if (!ymd) {
+    const m = d.match(/^(\d{1,2})-([a-zA-Z]+)-(\d{4})$/i);
+    if (m) {
+      const mo = MONTH_MAP[m[2].toLowerCase()];
+      if (mo) ymd = `${m[3]}-${mo}-${m[1].padStart(2,'0')}`;
+    }
+  }
+
+  if (!ymd) return null;
+
+  // ── Normalise time → HH:MM (24h) ─────────────────────────────────────────
+  let hhmm = '17:00';
+
+  // "noon" / "midnight"
+  if (/\bnoon\b/i.test(t))     hhmm = '12:00';
+  else if (/\bmidnight\b/i.test(t)) hhmm = '00:00';
+  else {
+    // "4pm", "4:30pm", "4:30 pm", "4 PM"
+    const m12 = t.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/i);
+    if (m12) {
+      let h = +m12[1];
+      const mn = m12[2] ? +m12[2] : 0;
+      if (m12[3].toLowerCase() === 'pm' && h !== 12) h += 12;
+      if (m12[3].toLowerCase() === 'am' && h === 12) h = 0;
+      hhmm = `${String(h).padStart(2,'0')}:${String(mn).padStart(2,'0')}`;
+    } else {
+      // "HH:MM" or "H:MM"
+      const m24 = t.match(/^(\d{1,2}):(\d{2})$/);
+      if (m24) hhmm = `${m24[1].padStart(2,'0')}:${m24[2]}`;
+    }
+  }
+
+  // ── Build UTC ISO ─────────────────────────────────────────────────────────
+  const dt = new Date(`${ymd}T${hhmm}:00+05:30`);
+  return isNaN(dt.getTime()) ? null : dt.toISOString().slice(0, 19);
+}
+
 /** Convert a deadline string (UTC from DB) to YYYY-MM-DDTHH:MM in IST for datetime-local inputs */
 export function toISTInputValue(isoStr: string): string {
   const d = deadlineToUTCDate(isoStr);

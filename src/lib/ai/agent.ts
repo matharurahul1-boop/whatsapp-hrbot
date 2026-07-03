@@ -1441,14 +1441,35 @@ async function runGroqLoop(
 
           if (toolCalls.length === 0) {
             const textReply = stripGroqFiller(choice.message.content?.trim() || '');
-            // Round 0 only: retry if Groq (a) skipped a required tool call, or
-            // (b) gave a generic filler response to a message with clear intent.
-            const needsRetry = round === 0 && (
-              shouldHaveCalledTool(message) ||
-              (isGroqGenericFiller(textReply) && message.trim().length > 5)
-            );
-            if (needsRetry) {
-              console.warn(`[Agent] Groq gave inadequate response to "${message}" ("${textReply.slice(0,60)}") — enforcing retry`);
+            const isFiller  = isGroqGenericFiller(textReply);
+
+            // Hard block: chain-of-thought or filler must NEVER reach the user.
+            // Retry up to round 1; on round 2+ fall back to OpenRouter rather
+            // than sending leaked reasoning as a WhatsApp message.
+            if (isFiller) {
+              if (round < 2) {
+                console.warn(`[Agent] Groq leaked reasoning/filler on round ${round} ("${textReply.slice(0,80)}") — enforcing retry`);
+                groqMessages.push({ role: 'assistant', content: textReply });
+                groqMessages.push({
+                  role: 'user',
+                  content: '[SYSTEM ENFORCEMENT] Do NOT output your reasoning. Respond directly:\n' +
+                    '• READ-ONLY (list tasks, leave balance, attendance, users): call the tool NOW.\n' +
+                    '• ACTION (create/update/complete/delete task, check-in/out, leave): one confirmation sentence ending "Go ahead? (Yes / No)".\n' +
+                    'No analysis. No "We need to". No "Let me". Just the tool call or the confirmation.',
+                });
+                resp = await client.chat.completions.create({
+                  model: AI_MODEL_GROQ, messages: groqMessages, tools: groqTools, max_tokens: 512,
+                });
+                continue;
+              }
+              // Still filler after 2 retries — OpenRouter is more reliable here
+              console.error(`[Agent] Groq filler persisted after 2 retries — falling back to OpenRouter`);
+              return runOpenRouterFallback();
+            }
+
+            // Round 0 only: retry if Groq skipped a required tool call
+            if (round === 0 && shouldHaveCalledTool(message)) {
+              console.warn(`[Agent] Groq skipped tool call for "${message}" ("${textReply.slice(0,60)}") — enforcing retry`);
               groqMessages.push({ role: 'assistant', content: textReply });
               groqMessages.push({
                 role: 'user',
@@ -1462,6 +1483,7 @@ async function runGroqLoop(
               });
               continue;
             }
+
             return textReply;
           }
 

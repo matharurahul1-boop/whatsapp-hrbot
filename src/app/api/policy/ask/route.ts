@@ -121,6 +121,13 @@ ${context}`;
     const groqJson = await groqRes.json();
     const answer   = groqJson.choices?.[0]?.message?.content?.trim() ?? 'Sorry, I could not generate an answer. Please contact HR.';
 
+    // Block leaked chain-of-thought from reaching the user
+    const isLeakedReasoning = /^(?:we need to|i need to (?:parse|analyze|check|look)|let me (?:analyze|think|check|parse|fetch|get)|the user (?:has provided|said|asked for)|to handle this|i'?ll (?:list|fetch|get|show|retrieve)|according to)/i.test(answer.slice(0, 160));
+    if (isLeakedReasoning) {
+      console.warn('[policy/ask] Groq leaked chain-of-thought, suppressing');
+      return NextResponse.json({ answer: 'I was unable to generate a clear answer. Please contact HR directly or refer to the policy document.' });
+    }
+
     return NextResponse.json({ answer });
   } catch (err) {
     console.error('[policy/ask] Unexpected error:', err);

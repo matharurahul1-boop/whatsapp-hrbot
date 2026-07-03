@@ -1382,7 +1382,19 @@ async function runGroqLoop(
       for (let round = 0; round < 4; round++) {
         const choice = response.choices[0];
         const toolCalls = choice.message.tool_calls ?? [];
-        if (toolCalls.length === 0) return choice.message.content?.trim() || '';
+        if (toolCalls.length === 0) {
+          const text = choice.message.content?.trim() || '';
+          if (isGroqGenericFiller(text)) {
+            if (round < 2) {
+              messages.push(choice.message as OpenAI.Chat.ChatCompletionMessageParam);
+              messages.push({ role: 'user', content: '[SYSTEM ENFORCEMENT] Do NOT output your reasoning. Call the correct tool immediately, or give a direct one-sentence answer.' });
+              response = await openai.chat.completions.create({ model: AI_MODEL_OR, messages, tools, max_tokens: 512 });
+              continue;
+            }
+            return 'I had trouble processing that — please try again.';
+          }
+          return text;
+        }
         messages.push(choice.message);
         for (const call of toolCalls) {
           if (call.type !== 'function') continue;
@@ -1550,7 +1562,16 @@ async function runGroqLoop(
         const toolBlocks   = response.content.filter((b): b is Anthropic.Messages.ToolUseBlock => b.type === 'tool_use');
 
         if (toolBlocks.length === 0) {
-          return textBlocks.map(b => b.text).join('').trim();
+          const text = textBlocks.map(b => b.text).join('').trim();
+          if (isGroqGenericFiller(text)) {
+            if (round < 2) {
+              claudeMessages.push({ role: 'assistant', content: response.content });
+              claudeMessages.push({ role: 'user', content: '[SYSTEM ENFORCEMENT] Do NOT output your reasoning. Call the correct tool immediately, or give a direct one-sentence answer.' });
+              continue;
+            }
+            return 'I had trouble processing that — please try again.';
+          }
+          return text;
         }
 
         // Push assistant turn with tool_use blocks
@@ -1607,7 +1628,17 @@ async function runGroqLoop(
 
       for (let round = 0; round < 6; round++) {
         const calls = result.response.functionCalls() ?? [];
-        if (calls.length === 0) return result.response.text().trim() || '';
+        if (calls.length === 0) {
+          const text = result.response.text().trim() || '';
+          if (isGroqGenericFiller(text)) {
+            if (round < 2) {
+              result = await chat.sendMessage('[SYSTEM ENFORCEMENT] Do NOT output your reasoning. Call the correct tool immediately, or give a direct one-sentence answer.');
+              continue;
+            }
+            return 'I had trouble processing that — please try again.';
+          }
+          return text;
+        }
 
         const functionResponses = [];
         for (const call of calls) {

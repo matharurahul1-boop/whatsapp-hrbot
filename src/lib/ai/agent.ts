@@ -1472,18 +1472,20 @@ async function runGroqLoop(
   }
 
   // ── 0c. Field-value interactive options shortcut ──────────────────────────────
-  // When user sends just a constrained field name (priority/status/assignee) in the
-  // context of an update-task conversation, return a sentinel instead of hitting Groq.
-  // The webhook route converts the sentinel to a WhatsApp list/button interactive message.
+  // When user sends just a field name in an update context, bypass Groq entirely.
+  // • priority / status / assignee → return sentinel (webhook sends interactive list/buttons)
+  // • deadline / title             → return direct text prompt (free-form input)
   {
     const normMsg = message.trim().toLowerCase().replace(/[?.!,;]+$/, '');
-    const OPTION_FIELDS: Record<string, string> = {
+    const INTERACTIVE_FIELDS: Record<string, string> = {
       priority: 'priority',
       status:   'status',
       assignee: 'assignee',
     };
-    const optField = OPTION_FIELDS[normMsg];
-    if (optField) {
+    const interactiveField = INTERACTIVE_FIELDS[normMsg];
+    const isFreeTextField  = normMsg === 'deadline' || normMsg === 'title';
+
+    if (interactiveField || isFreeTextField) {
       const recentBot = [...history].reverse().find(m => m.role === 'assistant');
       if (recentBot) {
         const taskMatch =
@@ -1491,8 +1493,16 @@ async function runGroqLoop(
           recentBot.content.match(/update\s+\*([^*]+)\*/i);
         if (taskMatch) {
           const taskTitle = taskMatch[1].trim();
-          console.log(`[Agent] Field-options shortcut: field="${optField}" task="${taskTitle}"`);
-          return `[[SHOW_OPTIONS:${optField}:${taskTitle}]]`;
+          if (interactiveField) {
+            console.log(`[Agent] Field-options shortcut: field="${interactiveField}" task="${taskTitle}"`);
+            return `[[SHOW_OPTIONS:${interactiveField}:${taskTitle}]]`;
+          }
+          if (normMsg === 'deadline') {
+            console.log(`[Agent] Deadline prompt shortcut: task="${taskTitle}"`);
+            return `What's the new deadline for *${taskTitle}*?\n\nExamples: "tomorrow 5pm", "10 Jul 2026 3pm", "next Friday"`;
+          }
+          console.log(`[Agent] Title prompt shortcut: task="${taskTitle}"`);
+          return `What should the new title be for *${taskTitle}*?`;
         }
       }
     }

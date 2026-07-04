@@ -301,8 +301,9 @@ async function updateDeliveryStatus(
 // Also handles [[SHOW_OPTIONS:field:taskTitle]] sentinels from agent.ts:
 // these are converted to WhatsApp list/button interactive messages so the
 // user can pick a value (priority / status / assignee) without typing.
-const CONFIRM_SUFFIX_RE = /\s*\(Yes\s*\/\s*No\)\s*$/i;
-const SENTINEL_OPTS_RE  = /^\[\[SHOW_OPTIONS:(\w+):(.+)\]\]$/;
+const CONFIRM_SUFFIX_RE  = /\s*\(Yes\s*\/\s*No\)\s*$/i;
+const SENTINEL_OPTS_RE   = /^\[\[SHOW_OPTIONS:(\w+):(.+)\]\]$/;
+const FIELD_PICKER_RE    = /What would you like to update on \*([^*]+)\*/i;
 
 async function sendAgentReply(to: string, text: string, orgId: string): Promise<void> {
   // ── Field-options interactive message ─────────────────────────────────
@@ -376,6 +377,28 @@ async function sendAgentReply(to: string, text: string, orgId: string): Promise<
         });
       }
     }
+    return;
+  }
+
+  // ── "What would you like to update on *X*?" → interactive field list ──
+  const fieldPickerMatch = FIELD_PICKER_RE.exec(text);
+  if (fieldPickerMatch) {
+    const taskTitle = fieldPickerMatch[1];
+    await sendList(
+      to,
+      `What would you like to update on *${taskTitle}*?`,
+      'Select field',
+      [{ title: 'Fields', rows: [
+        { id: 'deadline', title: '📅 Deadline', description: 'Change due date & time'       },
+        { id: 'priority', title: '🎯 Priority',  description: 'Low / Medium / High / Urgent' },
+        { id: 'assignee', title: '👤 Assignee',  description: 'Reassign to a team member'   },
+        { id: 'status',   title: '✅ Status',    description: 'Todo / In Progress / Done'   },
+        { id: 'title',    title: '📝 Title',     description: 'Rename the task'              },
+      ]}],
+      orgId,
+    ).catch(async () => {
+      await sendText(to, text, orgId);
+    });
     return;
   }
 

@@ -18,6 +18,8 @@ const Schema = z.object({
   wa_message_template:  z.string().max(100).nullable().optional(),
   wa_template_lang:     z.string().max(10).optional(),
   wa_template_variables: z.number().int().min(1).max(5).optional(),
+  // AI backend toggle — stored inside organizations.settings JSONB, not a direct column
+  ai_backend:           z.enum(['groq', 'claude']).optional(),
 });
 
 export async function PATCH(req: NextRequest) {
@@ -41,17 +43,42 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: msg }, { status: 422 });
   }
 
-  const { data, error } = await db
-    .from('organizations')
-    .update({ ...parsed.data, updated_at: new Date().toISOString() })
-    .eq('id', profile.organization_id)
-    .select('id, name, wa_phone_number_id, wa_message_template, wa_template_lang, wa_template_variables')
-    .single();
+  const { ai_backend, ...directFields } = parsed.data;
+  const orgId = profile.organization_id;
 
-  if (error) {
-    console.error('[org/settings PATCH]', error.message);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  // Update direct columns (name, wa_*, etc.) if any were supplied
+  if (Object.keys(directFields).length > 0) {
+    const { error } = await db
+      .from('organizations')
+      .update({ ...directFields, updated_at: new Date().toISOString() })
+      .eq('id', orgId);
+    if (error) {
+      console.error('[org/settings PATCH] direct columns:', error.message);
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
   }
 
+  // Merge ai_backend into the settings JSONB column
+  if (ai_backend !== undefined) {
+    const { data: org } = await db
+      .from('organizations').select('settings').eq('id', orgId).single();
+    const current = (org?.settings as Record<string, unknown>) ?? {};
+    const { error } = await db
+      .from('organizations')
+      .update({ settings: { ...current, ai_backend } })
+      .eq('id', orgId);
+    if (error) {
+      console.error('[org/settings PATCH] ai_backend:', error.message);
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+  }
+
+  const { data, error: selErr } = await db
+    .from('organizations')
+    .select('id, name, wa_phone_number_id, wa_message_template, wa_template_lang, wa_template_variables, settings')
+    .eq('id', orgId)
+    .single();
+
+  if (selErr) return NextResponse.json({ error: selErr.message }, { status: 500 });
   return NextResponse.json({ data });
 }

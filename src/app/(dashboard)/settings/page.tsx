@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import {
   User, Building2, Bell, Shield, Phone,
   Save, Loader2, CheckCircle2, AlertCircle,
-  Eye, EyeOff, Copy, Check,
+  Eye, EyeOff, Copy, Check, Bot,
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 
@@ -95,6 +95,11 @@ export default function SettingsPage() {
   const [savingReminders,   setSavingReminders]   = useState(false);
   const [remindersSaved,    setRemindersSaved]    = useState(false);
 
+  // AI backend toggle (admin only)
+  const [aiBackend,   setAiBackend]   = useState<'groq' | 'claude'>('groq');
+  const [savingAi,    setSavingAi]    = useState(false);
+  const [aiSaved,     setAiSaved]     = useState(false);
+
   // Meta
   const [role,   setRole]   = useState('');
   const [orgId,  setOrgId]  = useState('');
@@ -134,7 +139,7 @@ export default function SettingsPage() {
     if (profile?.organization_id) {
       const { data: org } = await supabase
         .from('organizations')
-        .select('name, wa_phone_number_id, wa_access_token, wa_message_template, wa_template_lang, wa_template_variables')
+        .select('name, wa_phone_number_id, wa_access_token, wa_message_template, wa_template_lang, wa_template_variables, settings')
         .eq('id', profile.organization_id)
         .single();
 
@@ -145,6 +150,7 @@ export default function SettingsPage() {
         setWaMsgTemplate(org.wa_message_template ?? '');
         setWaTemplateLang(org.wa_template_lang ?? 'en');
         setWaTemplateVars(String(org.wa_template_variables ?? 2));
+        setAiBackend((org as any).settings?.ai_backend === 'claude' ? 'claude' : 'groq');
       }
     }
 
@@ -214,6 +220,23 @@ export default function SettingsPage() {
     navigator.clipboard.writeText(waToken);
     setCopiedToken(true);
     setTimeout(() => setCopiedToken(false), 2000);
+  }
+
+  async function saveAiBackend() {
+    setSavingAi(true);
+    try {
+      const res = await fetch('/api/organizations/settings', {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ ai_backend: aiBackend }),
+      });
+      if (res.ok) {
+        setAiSaved(true);
+        setTimeout(() => setAiSaved(false), 2500);
+      }
+    } finally {
+      setSavingAi(false);
+    }
   }
 
   async function saveReminders() {
@@ -405,6 +428,74 @@ export default function SettingsPage() {
               <p className="text-[11px] text-amber-600">
                 💡 When sending from WA Logs, free-form is tried first. If the 24h window expired, it auto-retries with this template — the recipient sees your exact message.
               </p>
+            </div>
+          </Section>
+        )}
+
+        {/* ── AI Backend (admin only) ── */}
+        {isAdmin && (
+          <Section
+            title="AI Assistant"
+            description="Choose which AI model powers the WhatsApp HR bot"
+            icon={<Bot className="h-4 w-4" />}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold text-surface-900">
+                  {aiBackend === 'claude' ? 'Claude Haiku 4.5' : 'Groq Llama 3.3 70B'}
+                </p>
+                <p className="text-xs text-surface-500 mt-0.5">
+                  {aiBackend === 'claude'
+                    ? 'Paid — uses Anthropic credits (~$0.01 / message)'
+                    : 'Free tier — ideal for testing (30 req/min limit)'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAiBackend(v => v === 'claude' ? 'groq' : 'claude')}
+                className={cn(
+                  'relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500/50',
+                  aiBackend === 'claude' ? 'bg-brand-500' : 'bg-surface-300'
+                )}
+                aria-label="Toggle AI backend"
+              >
+                <span className={cn(
+                  'inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform mt-0.5',
+                  aiBackend === 'claude' ? 'translate-x-5' : 'translate-x-0.5'
+                )} />
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 rounded-lg bg-surface-200/60 px-3 py-2.5 text-xs text-surface-500">
+              <span className={cn('font-medium', aiBackend === 'groq' ? 'text-surface-900' : '')}>
+                Free (Groq)
+              </span>
+              <span className="text-surface-400">←  toggle  →</span>
+              <span className={cn('font-medium', aiBackend === 'claude' ? 'text-brand-500' : '')}>
+                Paid (Claude)
+              </span>
+            </div>
+
+            {aiBackend === 'claude' && (
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                ⚡ Claude is active — Anthropic credits will be charged for every WhatsApp message the bot handles.
+              </p>
+            )}
+
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={saveAiBackend}
+                disabled={savingAi}
+                className="flex items-center gap-2 rounded-lg border border-surface-300 bg-surface-0 hover:bg-surface-200 disabled:opacity-50 text-surface-800 text-sm font-medium px-4 py-2 transition-colors"
+              >
+                {savingAi
+                  ? <Loader2     className="h-3.5 w-3.5 animate-spin" />
+                  : aiSaved
+                    ? <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+                    : <Save         className="h-3.5 w-3.5" />}
+                {savingAi ? 'Saving…' : aiSaved ? 'Saved!' : 'Save AI settings'}
+              </button>
             </div>
           </Section>
         )}

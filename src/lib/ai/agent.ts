@@ -9,13 +9,31 @@ import { EMPTY_CONTEXT }       from './types';
 import type { AgentTurn, AgentUser, ConversationContext } from './types';
 
 // ── AI backend ────────────────────────────────────────────────────────────────
-// USE_GROQ    = false → Groq Llama 3.3 70B (free tier — disabled, use Claude instead)
-// USE_CLAUDE  = true  → Claude Haiku 4.5 (primary — paid credits on platform.claude.com)
-// USE_GEMINI  = false → Gemini 2.0 Flash (enable once Google billing is set up)
-// fallback           → OpenRouter free tier
-const USE_GROQ   = false;
-const USE_CLAUDE = true;
-const USE_GEMINI = false;
+// Controlled at runtime via organizations.settings.ai_backend (set from /settings page).
+// 'groq'   → Groq Llama 3.3 70B (free tier)
+// 'claude' → Claude Haiku 4.5   (paid — platform.claude.com credits)
+// Default  → 'groq' (safe/free until explicitly switched to 'claude')
+// Fallback → OpenRouter free tier (if the chosen primary fails)
+
+// Per-org in-memory cache (60 s TTL). Serverless-safe: stale entries are simply
+// re-fetched on the next request after expiry.
+const _backendCache = new Map<string, { v: 'groq' | 'claude'; t: number }>();
+
+async function resolveBackend(orgId: string): Promise<'groq' | 'claude'> {
+  const hit = _backendCache.get(orgId);
+  if (hit && Date.now() < hit.t) return hit.v;
+  try {
+    const { createAdminClient } = await import('@/lib/supabase/admin');
+    const { data } = await createAdminClient()
+      .from('organizations').select('settings').eq('id', orgId).single();
+    const v: 'groq' | 'claude' =
+      (data?.settings as Record<string, string> | null)?.ai_backend === 'claude' ? 'claude' : 'groq';
+    _backendCache.set(orgId, { v, t: Date.now() + 60_000 });
+    return v;
+  } catch {
+    return 'groq';
+  }
+}
 
 // Rotate across every configured free-tier key. GROQ_API_KEY may also contain
 // a comma-separated list for backwards compatibility.
@@ -1470,7 +1488,10 @@ async function runGroqLoop(
     }
   }
 
-  if (USE_GROQ) {
+  const backend = await resolveBackend(orgId);
+  console.log(`[Agent] AI backend for org ${orgId}: ${backend}`);
+
+  if (backend === 'groq') {
     // ── Groq Llama 3.3 70B — primary backend (free tier) ──────────────────
     const groqTools: Groq.Chat.ChatCompletionTool[] = HRBOT_TOOLS.map(t => ({
       type: 'function' as const,
@@ -1607,7 +1628,7 @@ async function runGroqLoop(
 
     return runOpenRouterFallback();
 
-  } else if (USE_CLAUDE) {
+  } else if (backend === 'claude') {
     // ── Claude Haiku 4.5 — primary backend ────────────────────────────────
     const claudeTools: Anthropic.Messages.Tool[] = HRBOT_TOOLS.map(t => ({
       name:         t.name,
@@ -1694,8 +1715,8 @@ async function runGroqLoop(
       return isDev ? `⚠️ *[DEV] Claude ${status}:* ${errMsg}` : '⚠️ Something went wrong. Please try again.';
     }
 
-  } else if (USE_GEMINI) {
-    // ── Gemini native SDK path ─────────────────────────────────────────────
+  } else if (false as boolean) {
+    // ── Gemini native SDK path (disabled — enable once Google billing is set up) ─
     const model = genAI.getGenerativeModel({
       model:             AI_MODEL_GEMINI,
       systemInstruction: buildSystemPrompt(user),

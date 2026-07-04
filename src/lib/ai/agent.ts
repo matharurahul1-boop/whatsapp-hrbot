@@ -1460,6 +1460,45 @@ async function runGroqLoop(
     return confReply;
   }
 
+  // Helper: format deadline and build confirmation reply for PICKING_DEADLINE origin
+  function buildDeadlineConfirm(
+    dpCtx: NonNullable<ConversationContext['deadline_pick_context']>,
+    deadline: string,
+    ctx: ConversationContext,
+    convId: string,
+    ref: { handled: boolean },
+  ): string {
+    const [dp = '', tp = '17:00'] = deadline.split(' ');
+    const [y, mo, d] = dp.split('-');
+    const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const hh = parseInt(tp.split(':')[0]), mn = tp.split(':')[1] ?? '00';
+    const dlFmt = `${parseInt(d)} ${MON[parseInt(mo)-1]} ${y}, ${hh > 12 ? hh-12 : hh || 12}:${mn} ${hh >= 12 ? 'PM' : 'AM'} IST`;
+
+    if (dpCtx.origin === 'EDITING' && dpCtx.edit_base) {
+      const merged = { ...dpCtx.edit_base, deadline };
+      const displayAssignee = merged.assignee ?? '';
+      const who    = displayAssignee ? `*${displayAssignee}*` : '*you*';
+      const priLow = (merged.priority ?? '').toLowerCase();
+      const confReply = `I'll create task *${merged.title ?? '(no title)'}* for ${who} due *${dlFmt}* with *${priLow}* priority${merged.description ? `. Description: "${merged.description.slice(0, 80)}"` : ''}. Go ahead? (Yes / No)`;
+      saveContext(convId, {
+        ...EMPTY_CONTEXT, language: ctx.language,
+        flow_state: 'CONFIRMING',
+        confirm_payload: { tool: 'create_task', args: { ...merged } },
+      }).catch(() => {});
+      ref.handled = true;
+      return confReply;
+    }
+
+    const confReply = `Update *${dpCtx.task_title}* — set *deadline* to *${dlFmt}*. Go ahead? (Yes / No)`;
+    saveContext(convId, {
+      ...EMPTY_CONTEXT, language: ctx.language,
+      flow_state: 'CONFIRMING',
+      confirm_payload: { tool: 'update_task', args: { task_title: dpCtx.task_title, update_field: 'deadline', update_value: deadline } },
+    }).catch(() => {});
+    ref.handled = true;
+    return confReply;
+  }
+
   // ── 0a. PICKING_DEADLINE — two-step date+time calendar picker ───────────────
   if (context.flow_state === 'PICKING_DEADLINE' && context.deadline_pick_context) {
     const dpCtx = context.deadline_pick_context;
@@ -1467,9 +1506,25 @@ async function runGroqLoop(
     ctxRef.handled = true;
 
     if (dpCtx.step === 'date') {
-      // Expecting ISO date row-ID "YYYY-MM-DD" from the date list
-      const isoDate = /^\d{4}-\d{2}-\d{2}$/.test(msg) ? msg : naturalDateToISO(msg);
+      // User tapped the "Custom date & time" row → prompt for free text
+      if (msg === 'custom_deadline') {
+        saveContext(conversationId, {
+          ...EMPTY_CONTEXT, language: context.language,
+          flow_state: 'PICKING_DEADLINE',
+          deadline_pick_context: dpCtx,
+        }).catch(() => {});
+        return `📅 Type the date & time for *${dpCtx.task_title}*:\n\nExamples:\n• _"15 Jul 2026 3pm"_\n• _"next Monday 9am"_\n• _"tomorrow 2:30pm"_`;
+      }
+
+      const isoDate  = /^\d{4}-\d{2}-\d{2}$/.test(msg) ? msg : naturalDateToISO(msg);
+      const timeInMsg = extractTimeFromText(msg);
+
+      if (isoDate && timeInMsg) {
+        // Full date+time typed at once — skip time picker, go straight to confirm
+        return buildDeadlineConfirm(dpCtx, `${isoDate} ${timeInMsg}`, context, conversationId, ctxRef);
+      }
       if (isoDate) {
+        // Date only — advance to time picker
         saveContext(conversationId, {
           ...EMPTY_CONTEXT, language: context.language,
           flow_state: 'PICKING_DEADLINE',
@@ -1487,42 +1542,24 @@ async function runGroqLoop(
     }
 
     if (dpCtx.step === 'time' && dpCtx.selected_date) {
-      // Expecting HH:MM row-ID from the time list (or typed "3pm" etc.)
-      const timeStr = /^\d{2}:\d{2}$/.test(msg) ? msg : extractTimeFromText(msg);
-      if (timeStr) {
-        const deadline = `${dpCtx.selected_date} ${timeStr}`;
-        // Format for human display
-        const [dp = '', tp = '17:00'] = deadline.split(' ');
-        const [y, mo, d] = dp.split('-');
-        const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-        const hh = parseInt(tp.split(':')[0]), mn = tp.split(':')[1] ?? '00';
-        const dlFmt = `${parseInt(d)} ${MON[parseInt(mo)-1]} ${y}, ${hh > 12 ? hh-12 : hh || 12}:${mn} ${hh >= 12 ? 'PM' : 'AM'} IST`;
-
-        if (dpCtx.origin === 'EDITING' && dpCtx.edit_base) {
-          const merged = { ...dpCtx.edit_base, deadline };
-          const displayAssignee = merged.assignee ?? '';
-          const who    = displayAssignee ? `*${displayAssignee}*` : '*you*';
-          const priLow = (merged.priority ?? '').toLowerCase();
-          const confReply = `I'll create task *${merged.title ?? '(no title)'}* for ${who} due *${dlFmt}* with *${priLow}* priority${merged.description ? `. Description: "${merged.description.slice(0, 80)}"` : ''}. Go ahead? (Yes / No)`;
-          saveContext(conversationId, {
-            ...EMPTY_CONTEXT, language: context.language,
-            flow_state: 'CONFIRMING',
-            confirm_payload: { tool: 'create_task', args: { ...merged } },
-          }).catch(() => {});
-          return confReply;
-        }
-
-        if (dpCtx.origin === 'UPDATE') {
-          const confReply = `Update *${dpCtx.task_title}* — set *deadline* to *${dlFmt}*. Go ahead? (Yes / No)`;
-          saveContext(conversationId, {
-            ...EMPTY_CONTEXT, language: context.language,
-            flow_state: 'CONFIRMING',
-            confirm_payload: { tool: 'update_task', args: { task_title: dpCtx.task_title, update_field: 'deadline', update_value: deadline } },
-          }).catch(() => {});
-          return confReply;
-        }
+      // Accept HH:MM row-ID, typed time ("3pm"), or typed full datetime override ("15 Jul 3pm")
+      const overrideIso  = naturalDateToISO(msg);
+      const overrideTime = extractTimeFromText(msg);
+      let timeStr: string | null = null;
+      let dateStr = dpCtx.selected_date;
+      if (/^\d{2}:\d{2}$/.test(msg)) {
+        timeStr = msg;
+      } else if (overrideIso && overrideTime) {
+        // User typed a full new datetime — override both date and time
+        dateStr = overrideIso;
+        timeStr = overrideTime;
+      } else {
+        timeStr = overrideTime;
       }
-      // Bad time input — re-show time picker
+      if (timeStr) {
+        return buildDeadlineConfirm(dpCtx, `${dateStr} ${timeStr}`, context, conversationId, ctxRef);
+      }
+      // Unrecognised — re-show time picker
       saveContext(conversationId, {
         ...EMPTY_CONTEXT, language: context.language,
         flow_state: 'PICKING_DEADLINE',

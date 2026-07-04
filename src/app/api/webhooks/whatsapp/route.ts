@@ -380,11 +380,11 @@ async function sendAgentReply(to: string, text: string, orgId: string): Promise<
       }
 
     } else if (fieldType === 'deadline_date') {
-      // Compute next 10 days in IST (UTC+5:30) dynamically
+      // Compute next 9 days in IST (UTC+5:30) dynamically; row 10 = custom text entry
       const istOffMs = (5 * 60 + 30) * 60000;
       const WDAYS  = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
       const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-      const dateRows = Array.from({ length: 10 }, (_, i) => {
+      const dateRows = Array.from({ length: 9 }, (_, i) => {
         const t   = new Date(Date.now() + istOffMs + i * 86400000);
         const y   = t.getUTCFullYear();
         const mo  = String(t.getUTCMonth() + 1).padStart(2, '0');
@@ -393,11 +393,15 @@ async function sendAgentReply(to: string, text: string, orgId: string): Promise<
         const lbl = `${WDAYS[t.getUTCDay()]}, ${t.getUTCDate()} ${MONTHS[t.getUTCMonth()]}`;
         return { id: iso, title: lbl, description: i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : '' };
       });
+      const allDateRows = [
+        ...dateRows,
+        { id: 'custom_deadline', title: '✏️ Custom date & time', description: 'Type any date & time' },
+      ];
       await sendList(
         to,
-        `📅 Select deadline date for *${taskTitle}*:`,
+        `📅 Select deadline date for *${taskTitle}*\n\nOr just type a date: _"15 Jul 3pm"_`,
         'Pick date',
-        [{ title: 'Upcoming', rows: dateRows }],
+        [{ title: 'Upcoming', rows: allDateRows }],
         orgId,
         'Deadline date',
       ).catch(async () => {
@@ -408,14 +412,14 @@ async function sendAgentReply(to: string, text: string, orgId: string): Promise<
           { id: d1.id, title: d1.title },
           { id: d2.id, title: d2.title },
         ], orgId).catch(async () => {
-          await sendText(to, `📅 What date for *${taskTitle}*?\n\nReply with a date, e.g. _"10 Jul 2026"_`, orgId);
+          await sendText(to, `📅 What date for *${taskTitle}*?\n\nReply with a date, e.g. _"10 Jul 2026 3pm"_`, orgId);
         });
       });
 
     } else if (fieldType === 'deadline_time') {
       await sendList(
         to,
-        `⏰ What time on that day?`,
+        `⏰ What time on that day?\n\nOr type any time: _"2:30pm"_, _"14:30"_`,
         'Pick time',
         [{ title: 'Time', rows: [
           { id: '09:00', title: '9:00 AM',  description: 'Morning'      },
@@ -432,7 +436,7 @@ async function sendAgentReply(to: string, text: string, orgId: string): Promise<
         orgId,
         'Deadline time',
       ).catch(async () => {
-        await sendButtons(to, `⏰ What time?`, [
+        await sendButtons(to, `⏰ What time? Or type any time below`, [
           { id: '09:00', title: '9:00 AM'  },
           { id: '13:00', title: '1:00 PM'  },
           { id: '17:00', title: '5:00 PM'  },

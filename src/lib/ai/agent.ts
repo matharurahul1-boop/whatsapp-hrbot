@@ -9,12 +9,12 @@ import { EMPTY_CONTEXT }       from './types';
 import type { AgentTurn, AgentUser, ConversationContext } from './types';
 
 // ── AI backend ────────────────────────────────────────────────────────────────
-// USE_GROQ    = true  → Groq Llama 3.3 70B (primary — free tier, fast tool use)
-// USE_CLAUDE  = false → Claude Haiku 4.5 (requires paid credits)
+// USE_GROQ    = false → Groq Llama 3.3 70B (free tier — disabled, use Claude instead)
+// USE_CLAUDE  = true  → Claude Haiku 4.5 (primary — paid credits on platform.claude.com)
 // USE_GEMINI  = false → Gemini 2.0 Flash (enable once Google billing is set up)
 // fallback           → OpenRouter free tier
-const USE_GROQ   = true;
-const USE_CLAUDE = false;
+const USE_GROQ   = false;
+const USE_CLAUDE = true;
 const USE_GEMINI = false;
 
 // Rotate across every configured free-tier key. GROQ_API_KEY may also contain

@@ -1668,9 +1668,13 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
   // ── ONBOARDING TOOLS ────────────────────────────────────────────────────────
 
-  async START_ONBOARDING({ slots, org_id, user_id }): Promise<ToolResult> {
+  async START_ONBOARDING({ slots, org_id, user_id, user_role }): Promise<ToolResult> {
     const db   = createAdminClient();
     const lang = (slots._lang as 'en' | 'hi') ?? 'en';
+
+    if (!['hr', 'admin', 'super_admin'].includes(user_role)) {
+      return { success: false, reply: REPLIES.permissionDenied('start onboarding', lang) };
+    }
 
     const empName  = slots.employee_name!;
     if (!slots.wa_number) {
@@ -1781,14 +1785,29 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       return { success: false, reply: REPLIES.permissionDenied('view pending leaves', lang) };
     }
 
-    const { data: requests } = await db
+    let baseQuery = db
       .from('leave_requests')
       .select(`id, start_date, end_date, duration_days, reason, created_at,
         leave_types(name), users!leave_requests_employee_id_fkey(id, full_name)`)
       .eq('organization_id', org_id)
       .eq('status', 'pending')
       .order('created_at', { ascending: true })
-      .limit(10);
+      .limit(20);
+
+    // Managers only see pending leaves from their direct reports
+    if (user_role === 'manager') {
+      const { data: reports } = await db
+        .from('users').select('id').eq('manager_id', user_id).eq('organization_id', org_id);
+      const reportIds = (reports ?? []).map((r: any) => r.id as string);
+      if (reportIds.length === 0) {
+        return { success: true, reply: lang === 'hi'
+          ? '✅ आपके किसी direct report की कोई pending leave नहीं।'
+          : '✅ No pending leave requests from your direct reports.' };
+      }
+      baseQuery = baseQuery.in('employee_id', reportIds);
+    }
+
+    const { data: requests } = await baseQuery;
 
     if (!requests?.length) {
       return { success: true, reply: lang === 'hi'
@@ -1941,6 +1960,12 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
   async ADD_TASK_NOTE({ slots, org_id, user_id, user_role }): Promise<ToolResult> {
     const db   = createAdminClient();
     const lang = (slots._lang as 'en' | 'hi') ?? 'en';
+
+    if (!slots.title) {
+      return { success: false, reply: lang === 'hi'
+        ? '❌ किस task में note जोड़ना है, वो बताएं।'
+        : '❌ Please specify which task you want to add a note to.' };
+    }
 
     const rawNote = slots.note ?? slots.description ?? '';
     if (!rawNote) {

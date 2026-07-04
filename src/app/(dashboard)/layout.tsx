@@ -6,7 +6,6 @@ import Header from '@/components/layout/Header';
 import ThemeProvider from '@/components/layout/ThemeProvider';
 import { SidebarProvider } from '@/components/layout/SidebarProvider';
 import { SidebarShell } from '@/components/layout/SidebarShell';
-import { SidebarToggle } from '@/components/layout/SidebarToggle';
 import { ContentShell } from '@/components/layout/ContentShell';
 import BottomNav from '@/components/layout/BottomNav';
 
@@ -35,9 +34,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
           {/* Mobile/tablet overlay backdrop — hidden on desktop (lg+) where sidebar is inline */}
           <div id="sidebar-overlay" className="fixed inset-0 z-30 bg-black/50 hidden lg:hidden" />
-
-          {/* Floating toggle pill — sits on sidebar right border, vertically centred */}
-          <SidebarToggle />
 
           {/* Main content — tracks sidebar width */}
           <SidebarShell>

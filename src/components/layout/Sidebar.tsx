@@ -2,15 +2,16 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import {
   LayoutDashboard, CheckSquare, Calendar, Clock,
   Users, MessageSquare, Settings, Zap,
   FileText, AlertTriangle, X, Loader2,
+  PanelLeftClose, PanelLeftOpen, ChevronLeft,
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import type { UserRole } from '@/types/database.types';
-import { useSidebar } from './SidebarProvider';
+import { useSidebar, type SidebarMode } from './SidebarProvider';
 
 interface NavItem {
   href:  string;
@@ -42,6 +43,12 @@ const ROLE_COLOR: Record<UserRole, string> = {
   employee:    'text-cyan-400   bg-cyan-500/10',
 };
 
+const MODE_OPTIONS: { key: SidebarMode; label: string }[] = [
+  { key: 'expanded',  label: 'Expanded' },
+  { key: 'collapsed', label: 'Collapsed' },
+  { key: 'hover',     label: 'Expand on hover' },
+];
+
 function Tooltip({ label }: { label: string }) {
   return (
     <div className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-3 z-[60]
@@ -60,10 +67,12 @@ function Tooltip({ label }: { label: string }) {
 
 export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: string }) {
   const pathname = usePathname();
-  const { collapsed: state, closeMobile, pendingPath, startNavigation } = useSidebar();
+  const { mode, setMode, closeMobile, pendingPath, startNavigation } = useSidebar();
+  const [hovered,     setHovered]     = useState(false);
+  const [showModeMenu, setShowModeMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
   const visible = NAV.filter(n => n.roles.includes(role));
 
-  // On overlay screens (< 1024px) always show expanded layout regardless of collapsed state
   const [isDesktop, setIsDesktop] = useState(
     typeof window !== 'undefined' ? window.innerWidth >= 1024 : true,
   );
@@ -75,24 +84,45 @@ export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: s
     return () => mq.removeEventListener('change', handler);
   }, []);
 
-  const collapsed = state && isDesktop;
+  // Close mode menu on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowModeMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
 
-  // Determine which item is visually active:
-  // pendingPath wins immediately on click; falls back to pathname once route settles.
-  function isActive(href: string, exact = false) {
+  // On desktop: visually expanded when mode=expanded, or mode=hover and currently hovered.
+  // On mobile: always show expanded layout (full-width overlay).
+  const visualExpanded = !isDesktop || mode === 'expanded' || (mode === 'hover' && hovered);
+
+  function isActive(href: string) {
     const target = pendingPath ?? pathname;
-    return exact
-      ? target === href
-      : target === href || target.startsWith(href + '/');
+    return target === href || target.startsWith(href + '/');
   }
 
   const settingsActive = isActive('/settings');
 
   return (
-    <aside className={cn('sidebar', collapsed && 'sidebar-collapsed')}>
+    <aside
+      className="sidebar"
+      style={isDesktop ? {
+        width: visualExpanded ? '256px' : '64px',
+        // Show overflow when collapsed (tooltips) or when mode menu is open (popover above sidebar).
+        overflow: (!visualExpanded || showModeMenu) ? 'visible' : 'hidden',
+      } : undefined}
+      onMouseEnter={() => { if (isDesktop) setHovered(true); }}
+      onMouseLeave={() => { if (isDesktop) { setHovered(false); setShowModeMenu(false); } }}
+    >
 
       {/* ── Brand ── */}
-      <div className="flex items-center h-14 border-b border-surface-300/30 shrink-0 px-3 gap-2">
+      <div className={cn(
+        'group flex items-center h-14 border-b border-surface-300/30 shrink-0 gap-2',
+        visualExpanded ? 'px-3' : 'justify-center',
+      )}>
         <div className="relative shrink-0">
           <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-gradient shadow-glow">
             <Zap className="h-4 w-4 text-white" />
@@ -101,14 +131,25 @@ export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: s
         </div>
 
         <div className={cn(
-          'min-w-0 flex-1 overflow-hidden transition-[opacity,width] duration-300',
-          collapsed ? 'opacity-0 w-0' : 'opacity-100',
+          'min-w-0 flex-1 overflow-hidden transition-[opacity,width] duration-200',
+          visualExpanded ? 'opacity-100' : 'opacity-0 w-0',
         )}>
           <p className="text-sm font-bold text-surface-950 leading-none whitespace-nowrap">HRBot</p>
           {orgName && <p className="text-2xs text-surface-600 truncate mt-0.5">{orgName}</p>}
         </div>
 
-        {/* Close button — overlay mode only */}
+        {/* ChevronLeft — quick collapse to collapsed mode (desktop, expanded/hover) */}
+        {isDesktop && visualExpanded && (
+          <button
+            onClick={() => { setMode('collapsed'); setShowModeMenu(false); }}
+            title="Collapse sidebar"
+            className="shrink-0 p-1.5 rounded-lg text-surface-600 hover:text-surface-950 hover:bg-surface-200 opacity-0 group-hover:opacity-100 transition-all duration-150"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+        )}
+
+        {/* Close button — mobile overlay only */}
         <button
           onClick={closeMobile}
           className="lg:hidden shrink-0 flex h-8 w-8 items-center justify-center rounded-lg
@@ -122,11 +163,11 @@ export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: s
       {/* ── Nav ── */}
       <nav className={cn(
         'flex-1 py-3 space-y-0.5 no-scrollbar',
-        collapsed ? 'overflow-visible px-1.5' : 'overflow-y-auto px-3',
+        visualExpanded ? 'overflow-y-auto px-3' : 'overflow-visible px-1.5',
       )}>
         <p className={cn(
           'px-3 mb-2 text-2xs font-bold text-surface-600 uppercase tracking-widest select-none transition-[opacity,height] duration-200',
-          collapsed ? 'opacity-0 h-0 mb-0 overflow-hidden' : 'opacity-100 h-auto',
+          visualExpanded ? 'opacity-100 h-auto' : 'opacity-0 h-0 mb-0 overflow-hidden',
         )}>
           Main Menu
         </p>
@@ -135,7 +176,7 @@ export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: s
           const active  = isActive(item.href);
           const loading = pendingPath === item.href;
 
-          if (collapsed) {
+          if (!visualExpanded) {
             return (
               <div key={item.href} className="group relative flex justify-center">
                 <Link
@@ -150,9 +191,7 @@ export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: s
                     <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-r bg-brand-500" />
                   )}
                   <span className={cn('shrink-0', active ? item.color : 'text-surface-600 group-hover:text-surface-900')}>
-                    {loading
-                      ? <Loader2 className="h-[18px] w-[18px] animate-spin" />
-                      : item.icon}
+                    {loading ? <Loader2 className="h-[18px] w-[18px] animate-spin" /> : item.icon}
                   </span>
                 </Link>
                 <Tooltip label={item.label} />
@@ -176,9 +215,7 @@ export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: s
                 <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-r bg-brand-500" />
               )}
               <span className={cn('shrink-0', active ? item.color : 'text-surface-600')}>
-                {loading
-                  ? <Loader2 className="h-[18px] w-[18px] animate-spin" />
-                  : item.icon}
+                {loading ? <Loader2 className="h-[18px] w-[18px] animate-spin" /> : item.icon}
               </span>
               <span className="flex-1 truncate">{item.label}</span>
             </Link>
@@ -186,12 +223,12 @@ export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: s
         })}
       </nav>
 
-      {/* ── Footer ── */}
+      {/* ── Footer — settings + role badge ── */}
       <div className={cn(
-        'pt-2 pb-4 border-t border-surface-300/30 shrink-0 space-y-0.5',
-        collapsed ? 'px-1.5' : 'px-3',
+        'pt-2 border-t border-surface-300/30 shrink-0 space-y-0.5',
+        visualExpanded ? 'px-3 pb-2' : 'px-1.5 pb-2',
       )}>
-        {collapsed ? (
+        {!visualExpanded ? (
           <div className="group relative flex justify-center">
             <Link
               href="/settings"
@@ -232,7 +269,7 @@ export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: s
               }
               <span className="flex-1">Settings</span>
             </Link>
-            <div className="px-3 pt-2">
+            <div className="px-3 pt-1 pb-1">
               <span className={cn(
                 'inline-flex items-center gap-1.5 text-2xs font-semibold px-2.5 py-1 rounded-lg',
                 ROLE_COLOR[role],
@@ -244,6 +281,50 @@ export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: s
           </>
         )}
       </div>
+
+      {/* ── Sidebar control (desktop only) — bottom popover ── */}
+      {isDesktop && (
+        <div className="relative border-t border-surface-300/30 px-2 py-2 shrink-0" ref={menuRef}>
+          <button
+            onClick={() => setShowModeMenu(v => !v)}
+            title="Sidebar control"
+            className={cn(
+              'flex items-center rounded-lg text-surface-600 hover:text-surface-950 hover:bg-surface-200 transition-colors w-full',
+              visualExpanded ? 'gap-2.5 px-3 py-2 text-sm' : 'justify-center p-3',
+            )}
+          >
+            {mode === 'expanded'
+              ? <PanelLeftClose className="h-4 w-4 shrink-0" />
+              : <PanelLeftOpen  className="h-4 w-4 shrink-0" />}
+            {visualExpanded && <span>Sidebar control</span>}
+          </button>
+
+          {/* Mode popover — opens upward */}
+          {showModeMenu && (
+            <div className="absolute bottom-full left-0 mb-2 w-52 bg-surface-100 border border-surface-300 rounded-xl shadow-modal overflow-hidden z-50">
+              <p className="px-4 pt-3 pb-1 text-[10px] font-semibold text-surface-600 uppercase tracking-wider">
+                Sidebar control
+              </p>
+              {MODE_OPTIONS.map(({ key, label }) => (
+                <button
+                  key={key}
+                  onClick={() => { setMode(key); setShowModeMenu(false); }}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-surface-200/60 transition-colors"
+                >
+                  <span className={cn(
+                    'w-2 h-2 rounded-full shrink-0 border-2',
+                    mode === key ? 'bg-brand-400 border-brand-400' : 'border-surface-500',
+                  )} />
+                  <span className={mode === key ? 'text-surface-950 font-medium' : 'text-surface-700'}>
+                    {label}
+                  </span>
+                </button>
+              ))}
+              <div className="h-2" />
+            </div>
+          )}
+        </div>
+      )}
     </aside>
   );
 }

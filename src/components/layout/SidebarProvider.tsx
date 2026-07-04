@@ -2,9 +2,11 @@
 
 import { createContext, useContext, useState, useEffect, useLayoutEffect, useCallback } from 'react';
 
+export type SidebarMode = 'expanded' | 'collapsed' | 'hover';
+
 interface SidebarCtx {
-  collapsed:       boolean;
-  toggle:          () => void;
+  mode:            SidebarMode;
+  setMode:         (m: SidebarMode) => void;
   mobileOpen:      boolean;
   openMobile:      () => void;
   closeMobile:     () => void;
@@ -14,7 +16,7 @@ interface SidebarCtx {
 }
 
 const Ctx = createContext<SidebarCtx>({
-  collapsed: false, toggle: () => {},
+  mode: 'expanded', setMode: () => {},
   mobileOpen: false, openMobile: () => {}, closeMobile: () => {},
   pendingPath: null, startNavigation: () => {}, clearNavigation: () => {},
 });
@@ -22,25 +24,20 @@ const Ctx = createContext<SidebarCtx>({
 const useSyncEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
 
 export function SidebarProvider({ children }: { children: React.ReactNode }) {
-  const [collapsed,   setCollapsed]   = useState(false);
-  const [mobileOpen,  setMobileOpen]  = useState(false);
+  const [mode,        setModeState]  = useState<SidebarMode>('expanded');
+  const [mobileOpen,  setMobileOpen] = useState(false);
   const [pendingPath, setPendingPath] = useState<string | null>(null);
 
   useSyncEffect(() => {
-    const saved = localStorage.getItem('hrbot-sidebar-collapsed');
-    if (saved !== null) {
-      setCollapsed(saved === 'true');
-    } else {
-      setCollapsed(window.innerWidth < 1280);
+    const saved = localStorage.getItem('hrbot-sidebar-mode') as SidebarMode | null;
+    if (saved === 'expanded' || saved === 'collapsed' || saved === 'hover') {
+      setModeState(saved);
     }
   }, []);
 
-  function toggle() {
-    setCollapsed(prev => {
-      const next = !prev;
-      localStorage.setItem('hrbot-sidebar-collapsed', String(next));
-      return next;
-    });
+  function setMode(m: SidebarMode) {
+    setModeState(m);
+    localStorage.setItem('hrbot-sidebar-mode', m);
   }
 
   function openMobile() {
@@ -55,13 +52,12 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
     document.getElementById('sidebar-overlay')?.classList.add('hidden');
   }
 
-  // useCallback keeps identity stable so SidebarShell's effect dep array is safe
   const startNavigation = useCallback((href: string) => setPendingPath(href), []);
   const clearNavigation = useCallback(() => setPendingPath(null), []);
 
   return (
     <Ctx.Provider value={{
-      collapsed, toggle,
+      mode, setMode,
       mobileOpen, openMobile, closeMobile,
       pendingPath, startNavigation, clearNavigation,
     }}>

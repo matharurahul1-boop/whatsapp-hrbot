@@ -7,27 +7,24 @@ import { useSidebar } from './SidebarProvider';
 const useSyncEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
 
 export function SidebarShell({ children }: { children: React.ReactNode }) {
-  const { collapsed, pendingPath, clearNavigation } = useSidebar();
+  const { mode, pendingPath, clearNavigation } = useSidebar();
   const pathname = usePathname();
 
-  // Drive padding via data attribute on <html> so CSS is static (never purged by Tailwind JIT)
+  // In hover mode the sidebar overlays content (fixed, no push), so content padding
+  // only shifts when mode is 'expanded'.
   useSyncEffect(() => {
     document.documentElement.setAttribute(
       'data-sidebar',
-      collapsed ? 'collapsed' : 'expanded',
+      mode === 'expanded' ? 'expanded' : 'collapsed',
     );
-  }, [collapsed]);
+  }, [mode]);
 
-  // Clear pending navigation state when the route change actually completes.
-  // useLayoutEffect fires before browser paint so the skeleton is swapped for
-  // the new page in the same frame — no visible flash between states.
   useSyncEffect(() => {
     clearNavigation();
   }, [pathname, clearNavigation]);
 
   return (
     <div className="sidebar-shell flex flex-col flex-1 min-w-0 overflow-hidden">
-      {/* Top progress bar — visible while a nav click is in-flight */}
       {pendingPath && (
         <div className="fixed top-0 inset-x-0 z-[200] h-[2px] overflow-hidden">
           <div className="nav-progress-bar" />

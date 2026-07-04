@@ -673,84 +673,80 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     if (!task) return { success: false, reply: REPLIES.taskNotFound(slots.title!, lang) };
 
     const patch: Record<string, unknown> = {};
-    const field = slots.update_field?.toLowerCase().trim();
-    const value = slots.update_value?.trim() ?? '';
 
-    // RBAC: employees can only change status, not structural fields
+    // Helper: apply one field/value pair to the patch. Returns an error reply or null on success.
+    const applyField = async (field: string | undefined, value: string): Promise<string | null> => {
+      const f = field?.toLowerCase().trim();
+      if (!f) return null;
+      if (f === 'title') {
+        if (!value) return lang === 'hi' ? `❌ नया title बताएं।` : `❌ Please provide the new title.`;
+        patch.title = value;
+      } else if (f === 'deadline') {
+        const utc = parseDeadlineString(value);
+        if (!utc) return lang === 'hi'
+          ? `❌ तारीख का format सही नहीं है। Example: "6 Jul 2026 5pm"`
+          : `❌ Invalid date format. Try: "6 Jul 2026 5pm" or "12-07-2026 4pm".`;
+        patch.deadline = utc;
+      } else if (f === 'priority') {
+        const PRIORITY_MAP: Record<string, string> = {
+          urgent: 'urgent', critical: 'urgent', asap: 'urgent', top: 'urgent', highest: 'urgent',
+          high: 'high', hi: 'high',
+          medium: 'medium', med: 'medium', normal: 'medium', moderate: 'medium',
+          low: 'low', lo: 'low', minor: 'low',
+        };
+        const normalized = PRIORITY_MAP[value.toLowerCase()];
+        if (!normalized) return lang === 'hi'
+          ? `❌ Priority: low / medium / high / urgent में से एक चुनें।`
+          : `❌ Invalid priority. Use: low / medium / high / urgent`;
+        patch.priority = normalized;
+      } else if (f === 'status') {
+        const statusMap: Record<string, string> = {
+          todo: 'todo', pending: 'todo', open: 'todo', new: 'todo',
+          'in_progress': 'in_progress', 'in progress': 'in_progress', wip: 'in_progress',
+          started: 'in_progress', doing: 'in_progress', ongoing: 'in_progress',
+          done: 'done', completed: 'done', complete: 'done', khatam: 'done', finished: 'done',
+          cancelled: 'cancelled', cancel: 'cancelled', dropped: 'cancelled',
+        };
+        const mapped = statusMap[value.toLowerCase()];
+        if (!mapped) return lang === 'hi'
+          ? `❌ Status: todo / in_progress / done / cancelled`
+          : `❌ Invalid status. Use: todo / in_progress / done / cancelled`;
+        patch.status = mapped;
+        if (mapped === 'done') patch.completed_at = new Date().toISOString();
+      } else if (f === 'assignee') {
+        const { data: foundRows } = await db
+          .from('users').select('id, full_name')
+          .eq('organization_id', org_id).ilike('full_name', `%${value}%`).limit(5);
+        const found = foundRows?.[0] ?? null;
+        if (!found) {
+          const { data: avail } = await db.from('users').select('full_name')
+            .eq('organization_id', org_id).eq('is_active', true).is('deleted_at', null)
+            .neq('id', user_id).limit(10);
+          const names = (avail ?? []).map((u: {full_name: string}) => `· ${u.full_name}`).join('\n') || '(none)';
+          return lang === 'hi'
+            ? `❌ *${value}* नहीं मिला।\n\nउपलब्ध assignees:\n${names}`
+            : `❌ *${value}* not found.\n\nAvailable assignees:\n${names}`;
+        }
+        patch.assignee_id = found.id;
+      }
+      return null;
+    };
+
+    // RBAC: employees can only change status
+    const field = slots.update_field?.toLowerCase().trim();
     if (user_role === 'employee' && field && !['status', 'description'].includes(field)) {
       return { success: false, reply: lang === 'hi'
-        ? `❌ Employees केवल task का status बदल सकते हैं। Priority, deadline या assignee बदलने के लिए manager से कहें।`
+        ? `❌ Employees केवल task का status बदल सकते हैं।`
         : `❌ Employees can only update a task's status. Ask your manager to change priority, deadline, or assignee.`
       };
     }
 
-    if (field === 'title') {
-      if (!value) {
-        return { success: false, reply: lang === 'hi' ? `❌ नया title बताएं।` : `❌ Please provide the new title.` };
-      }
-      patch.title = value;
-    } else if (field === 'deadline') {
-      const utc = parseDeadlineString(value);
-      if (!utc) {
-        return { success: false, reply: lang === 'hi'
-          ? `❌ तारीख का format सही नहीं है। Example: "6 Jul 2026 5pm" या "12-07-2026 4pm"`
-          : `❌ Invalid date format. Try: "6 Jul 2026 5pm" or "12-07-2026 4pm".` };
-      }
-      patch.deadline = utc;
-    } else if (field === 'priority') {
-      const PRIORITY_MAP: Record<string, string> = {
-        urgent: 'urgent', critical: 'urgent', asap: 'urgent', top: 'urgent', highest: 'urgent',
-        high: 'high', hi: 'high',
-        medium: 'medium', med: 'medium', normal: 'medium', moderate: 'medium',
-        low: 'low', lo: 'low', minor: 'low',
-      };
-      const normalized = PRIORITY_MAP[value.toLowerCase()];
-      if (!normalized) {
-        return { success: false, recoverable: true, retry_slot: 'update_value', reply: lang === 'hi'
-          ? `❌ Priority: low / medium / high / urgent में से एक चुनें।`
-          : `❌ Invalid priority. Use: low / medium / high / urgent`
-        };
-      }
-      patch.priority = normalized;
-    } else if (field === 'status') {
-      const statusMap: Record<string, string> = {
-        todo: 'todo', pending: 'todo', open: 'todo', new: 'todo',
-        'in_progress': 'in_progress', 'in progress': 'in_progress', wip: 'in_progress',
-        started: 'in_progress', doing: 'in_progress', ongoing: 'in_progress',
-        done: 'done', completed: 'done', complete: 'done', khatam: 'done', finished: 'done',
-        cancelled: 'cancelled', cancel: 'cancelled', dropped: 'cancelled',
-      };
-      const mapped = statusMap[value.toLowerCase()];
-      if (!mapped) {
-        return { success: false, recoverable: true, retry_slot: 'update_value', reply: lang === 'hi'
-          ? `❌ Status: todo / in_progress / done / cancelled`
-          : `❌ Invalid status. Use: todo / in_progress / done / cancelled`
-        };
-      }
-      patch.status = mapped;
-      if (mapped === 'done') patch.completed_at = new Date().toISOString();
-    } else if (field === 'assignee') {
-      const { data: foundRows } = await db
-        .from('users')
-        .select('id, full_name')
-        .eq('organization_id', org_id)
-        .ilike('full_name', `%${value}%`)
-        .limit(5);
-      const found = foundRows?.[0] ?? null;
-      if (!found) {
-        const { data: avail } = await db
-          .from('users').select('full_name')
-          .eq('organization_id', org_id).eq('is_active', true).is('deleted_at', null)
-          .neq('id', user_id).limit(10);
-        const names = (avail ?? []).map(u => `· ${u.full_name}`).join('\n') || '(none)';
-        return {
-          success: false,
-          reply: lang === 'hi'
-            ? `❌ *${value}* नहीं मिला।\n\nउपलब्ध assignees:\n${names}`
-            : `❌ *${value}* not found.\n\nAvailable assignees:\n${names}`,
-        };
-      }
-      patch.assignee_id = found.id;
+    const errMsg1 = await applyField(slots.update_field ?? undefined, slots.update_value?.trim() ?? '');
+    if (errMsg1) return { success: false, reply: errMsg1 };
+
+    if (slots.update_field_2 && slots.update_value_2) {
+      const errMsg2 = await applyField(slots.update_field_2, slots.update_value_2.trim());
+      if (errMsg2) return { success: false, reply: errMsg2 };
     }
 
     if (!Object.keys(patch).length) {
@@ -770,6 +766,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     });
 
     // Use human-readable values in the reply (avoid showing UUIDs for assignee).
+    const value = slots.update_value?.trim() ?? '';
     let displayValue: string;
     if (field === 'assignee') {
       displayValue = value;
@@ -783,6 +780,10 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     }
     const displayField = field ?? 'field';
     const displayTitle = field === 'title' ? value : task.title;
+
+    // Build combined update label when two fields were updated
+    const hasField2 = !!(slots.update_field_2 && slots.update_value_2);
+    const field2Label = hasField2 ? ` and *${slots.update_field_2}* to *${slots.update_value_2}*` : '';
 
     if (task.assignee_id && task.assignee_id !== user_id) {
       const { data: updater } = await db.from('users').select('full_name').eq('id', user_id).single();
@@ -799,8 +800,8 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     return {
       success: true,
       reply: lang === 'hi'
-        ? `✅ *"${displayTitle}"* — ${displayField} *${displayValue}* कर दिया!`
-        : `✅ *"${displayTitle}"* — *${displayField}* updated to *${displayValue}*!`,
+        ? `✅ *"${displayTitle}"* — ${displayField} *${displayValue}*${hasField2 ? ` और ${slots.update_field_2} *${slots.update_value_2}*` : ''} कर दिया!`
+        : `✅ *"${displayTitle}"* — *${displayField}* updated to *${displayValue}*${field2Label}!`,
     };
   },
 

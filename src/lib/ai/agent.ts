@@ -393,9 +393,11 @@ const HRBOT_TOOLS: any[] = [
     parameters: {
       type: 'OBJECT',
       properties: {
-        task_title:   { type: 'STRING', description: 'Current title (or part) of the task to update' },
-        update_field: { type: 'STRING', description: 'title | deadline | priority | assignee | status' },
-        update_value: { type: 'STRING', description: 'New value for the field' },
+        task_title:    { type: 'STRING', description: 'Current title (or part) of the task to update' },
+        update_field:  { type: 'STRING', description: 'title | deadline | priority | assignee | status' },
+        update_value:  { type: 'STRING', description: 'New value for the field' },
+        update_field_2: { type: 'STRING', description: 'Optional second field to update simultaneously (title | deadline | priority | assignee | status)' },
+        update_value_2: { type: 'STRING', description: 'New value for the second field' },
       },
       required: ['task_title', 'update_field', 'update_value'],
     },
@@ -835,7 +837,17 @@ function buildToolConfirmation(tool: string, args: Record<string, string>): stri
       const utc = parseDeadlineString(value);
       if (utc) value = formatDateTime(utc) + ' IST';
     }
-    return `I'll update *${args.task_title ?? '?'}* — set *${field}* to *${value}*. Go ahead? (Yes / No)`;
+    let msg = `I'll update *${args.task_title ?? '?'}* — set *${field}* to *${value}*`;
+    if (args.update_field_2 && args.update_value_2) {
+      const field2 = args.update_field_2;
+      let value2 = args.update_value_2;
+      if (field2 === 'deadline') {
+        const utc2 = parseDeadlineString(value2);
+        if (utc2) value2 = formatDateTime(utc2) + ' IST';
+      }
+      msg += ` and *${field2}* to *${value2}*`;
+    }
+    return msg + `. Go ahead? (Yes / No)`;
   }
   if (tool === 'complete_task') {
     return `I'll mark *${args.task_title ?? '?'}* as complete. Go ahead? (Yes / No)`;
@@ -1620,6 +1632,22 @@ async function runGroqLoop(
         // Push assistant turn with tool_use blocks
         claudeMessages.push({ role: 'assistant', content: response.content });
 
+        // CONFIRM_BEFORE_EXEC gate — intercept mutating tools before execution
+        for (const block of toolBlocks) {
+          if (CONFIRM_BEFORE_EXEC.has(block.name)) {
+            const args = (block.input ?? {}) as Record<string, string>;
+            const confirmText = buildToolConfirmation(block.name, args);
+            saveContext(conversationId, {
+              ...EMPTY_CONTEXT,
+              language:        context.language,
+              flow_state:      'CONFIRMING',
+              confirm_message: confirmText,
+              confirm_payload: { tool: block.name, args },
+            }).catch(() => {});
+            return confirmText;
+          }
+        }
+
         // Execute each tool and collect results
         const toolResults: Anthropic.Messages.ToolResultBlockParam[] = [];
         for (const block of toolBlocks) {
@@ -1822,8 +1850,10 @@ async function dispatchTool(
       assignee_name: input.assignee_name                       ?? null,
       deadline:      input.deadline                            ?? null,
       priority:      input.priority                            ?? null,
-      update_field:  input.update_field                        ?? null,
-      update_value:  input.update_value                        ?? null,
+      update_field:   input.update_field                        ?? null,
+      update_value:   input.update_value                        ?? null,
+      update_field_2: input.update_field_2                      ?? null,
+      update_value_2: input.update_value_2                      ?? null,
       leave_type:    input.leave_type                          ?? null,
       start_date:    input.start_date                          ?? null,
       end_date:      input.end_date                            ?? null,

@@ -1275,12 +1275,18 @@ async function runGroqLoop(
     {
       const normMsg = message.trim().toLowerCase().replace(/[?.!,;]+$/, '');
       const taskTitle = (base.title ?? 'the task') as string;
-      if (normMsg === 'priority') {
+      // Match field names with common variations (e.g. "assign to", "change priority")
+      const isPriority = /^(?:(?:set|change|update)\s+)?priority[\s:]*$/i.test(message.trim());
+      const isAssignee = /^(?:assign(?:ee)?(?:\s+to)?|(?:set|change|update)\s+assign(?:ee)?)[\s:]*$/i.test(message.trim());
+      const isDeadline = /^(?:(?:set|change|update)\s+)?deadline[\s:]*$/i.test(message.trim());
+      const isTitle    = /^(?:(?:set|change|update|rename)\s+)?title[\s:]*$/i.test(message.trim());
+
+      if (isPriority) {
         ctxRef.handled = true; // keep EDITING context; "high"/"low"/etc handled by Case B next turn
         console.log(`[Agent] EDITING priority shortcut: task="${taskTitle}"`);
         return `[[SHOW_OPTIONS:priority:${taskTitle}]]`;
       }
-      if (normMsg === 'assignee') {
+      if (isAssignee) {
         ctxRef.handled = true;
         console.log(`[Agent] EDITING assignee shortcut: task="${taskTitle}"`);
         saveContext(conversationId, {
@@ -1289,12 +1295,12 @@ async function runGroqLoop(
         }).catch(() => {});
         return `[[SHOW_OPTIONS:assignee:${taskTitle}]]`;
       }
-      if (normMsg === 'deadline') {
+      if (isDeadline) {
         ctxRef.handled = true;
         console.log(`[Agent] EDITING deadline shortcut: task="${taskTitle}"`);
         return `What's the new deadline for *${taskTitle}*?\n\nExamples: "tomorrow 5pm", "10 Jul 2026 3pm", "next Friday"`;
       }
-      if (normMsg === 'title') {
+      if (isTitle) {
         ctxRef.handled = true;
         console.log(`[Agent] EDITING title shortcut: task="${taskTitle}"`);
         saveContext(conversationId, {
@@ -1523,14 +1529,18 @@ async function runGroqLoop(
   // • priority / status / assignee → return sentinel (webhook sends interactive list/buttons)
   // • deadline / title             → return direct text prompt (free-form input)
   {
-    const normMsg = message.trim().toLowerCase().replace(/[?.!,;]+$/, '');
-    const INTERACTIVE_FIELDS: Record<string, string> = {
-      priority: 'priority',
-      status:   'status',
-      assignee: 'assignee',
-    };
-    const interactiveField = INTERACTIVE_FIELDS[normMsg];
-    const isFreeTextField  = normMsg === 'deadline' || normMsg === 'title';
+    const msg0c = message.trim();
+    // Match field with common variations ("assign to", "change priority", etc.)
+    const interactiveField =
+      /^(?:(?:set|change|update)\s+)?priority[\s:]*$/i.test(msg0c) ? 'priority' :
+      /^(?:assign(?:ee)?(?:\s+to)?|(?:set|change|update)\s+assign(?:ee)?)[\s:]*$/i.test(msg0c) ? 'assignee' :
+      /^(?:(?:set|change|update)\s+)?status[\s:]*$/i.test(msg0c)   ? 'status' : '';
+    const isFreeTextField =
+      /^(?:(?:set|change|update)\s+)?deadline[\s:]*$/i.test(msg0c) ||
+      /^(?:(?:set|change|update|rename)\s+)?title[\s:]*$/i.test(msg0c);
+    const normMsg = isFreeTextField
+      ? (/deadline/i.test(msg0c) ? 'deadline' : 'title')
+      : interactiveField;
 
     if (interactiveField || isFreeTextField) {
       const recentBot = [...history].reverse().find(m => m.role === 'assistant');

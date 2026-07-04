@@ -304,6 +304,8 @@ async function updateDeliveryStatus(
 const CONFIRM_SUFFIX_RE  = /\s*\(Yes\s*\/\s*No\)\s*$/i;
 const SENTINEL_OPTS_RE   = /^\[\[SHOW_OPTIONS:(\w+):(.+)\]\]$/;
 const FIELD_PICKER_RE    = /What would you like to update on \*([^*]+)\*/i;
+// CREATE task "Edit details" → "Current details: ... What would you like to change?"
+const EDIT_PICKER_RE     = /^Current details:\n([\s\S]+?)\n\nWhat would you like to change\?/;
 
 async function sendAgentReply(to: string, text: string, orgId: string): Promise<void> {
   // ── Field-options interactive message ─────────────────────────────────
@@ -412,6 +414,42 @@ async function sendAgentReply(to: string, text: string, orgId: string): Promise<
         orgId,
       ).catch(async () => {
         await sendText(to, `What would you like to update on *${taskTitle}*?\n\nReply with: *priority* / *status* / *assignee* / *deadline* / *title*`, orgId);
+      });
+    });
+    return;
+  }
+
+  // ── CREATE task "Edit details" → "Current details: …\n\nWhat would you like to change?" ──
+  const editPickerMatch = EDIT_PICKER_RE.exec(text);
+  if (editPickerMatch) {
+    const detailsText = editPickerMatch[1].trim();
+    const bodyText = `${detailsText}\n\nWhat would you like to change?`.slice(0, 900);
+    console.log('[sendAgentReply] Edit picker triggered');
+    await sendList(
+      to,
+      bodyText,
+      'Select field',
+      [{ title: 'Fields', rows: [
+        { id: 'priority', title: '🎯 Priority',  description: 'Low / Medium / High / Urgent' },
+        { id: 'assignee', title: '👤 Assignee',  description: 'Reassign to a team member'   },
+        { id: 'deadline', title: '📅 Deadline',  description: 'Change due date & time'       },
+        { id: 'title',    title: '📝 Title',     description: 'Rename the task'              },
+      ]}],
+      orgId,
+      'Current details',
+    ).catch(async (listErr) => {
+      console.error('[sendAgentReply] Edit picker sendList failed, trying sendButtons:', listErr instanceof Error ? listErr.message : listErr);
+      await sendButtons(
+        to,
+        bodyText.length > 1024 ? bodyText.slice(0, 1021) + '…' : bodyText,
+        [
+          { id: 'priority', title: '🎯 Priority' },
+          { id: 'assignee', title: '👤 Assignee' },
+          { id: 'deadline', title: '📅 Deadline' },
+        ],
+        orgId,
+      ).catch(async () => {
+        await sendText(to, text, orgId);
       });
     });
     return;

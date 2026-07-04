@@ -394,11 +394,12 @@ const HRBOT_TOOLS: any[] = [
   },
   {
     name: 'list_tasks',
-    description: "List pending/active tasks. Pass assignee_name='mine' when the user asks for their OWN tasks ('my tasks', 'list mine', 'list of mine', 'show my tasks'). Pass assignee_name='[Name]' for a specific person (managers/admins only). Omit assignee_name only for 'list all tasks' (privileged sees all org tasks).",
+    description: "List tasks. Pass assignee_name='mine' for own tasks, a name for a specific person (privileged only), or omit for all org tasks. Pass status_filter='done' to show completed tasks instead of active ones.",
     parameters: {
       type: 'OBJECT',
       properties: {
         assignee_name: { type: 'STRING', description: "'mine' = caller's own tasks. First/full name = that person's tasks (privileged only). Omit = all org tasks (privileged) or own tasks (employees)." },
+        status_filter: { type: 'STRING', description: "done | completed — show completed tasks. Omit for active/pending tasks." },
       },
     },
   },
@@ -624,17 +625,6 @@ const HRBOT_TOOLS: any[] = [
     name: 'onboarding_status',
     description: 'Check the onboarding progress of new employees. HR / admin can see all; employees see their own. Call immediately — no confirmation needed.',
     parameters: { type: 'OBJECT', properties: {} },
-  },
-  {
-    name: 'list_tasks',
-    description: "List tasks. Pass assignee_name='mine' for own tasks. Pass status_filter='done' to show completed tasks. Omit for all active tasks (privileged: org-wide; employee: own).",
-    parameters: {
-      type: 'OBJECT',
-      properties: {
-        assignee_name: { type: 'STRING', description: "'mine' = caller's own tasks. First/full name = that person's tasks (privileged only). Omit = all org tasks (privileged) or own tasks (employees)." },
-        status_filter: { type: 'STRING', description: "done | completed — show completed tasks. Omit for active/pending tasks." },
-      },
-    },
   },
 ];
 

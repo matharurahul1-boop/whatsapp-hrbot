@@ -971,13 +971,19 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const db   = createAdminClient();
     const lang = (slots._lang as 'en' | 'hi') ?? 'en';
 
+    if (!slots.title) {
+      return { success: false, reply: lang === 'hi'
+        ? '❌ कौन सा task देखना है? उसका नाम बताएं।'
+        : '❌ Which task would you like details for? Please provide the task name.' };
+    }
+
     let query = db
       .from('tasks')
       .select(`id, title, status, deadline, priority, description,
         assignee:users!tasks_assignee_id_fkey(full_name),
         created_by:users!tasks_created_by_fkey(full_name)`)
       .eq('organization_id', org_id)
-      .ilike('title', `%${slots.title ?? ''}%`)
+      .ilike('title', `%${slots.title}%`)
       .is('deleted_at', null)
       .limit(1);
 
@@ -1226,6 +1232,12 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       return { success: false, reply: REPLIES.permissionDenied('approve leave', lang) };
     }
 
+    if (!slots.employee_name) {
+      return { success: false, reply: lang === 'hi'
+        ? '❌ किस कर्मचारी की leave approve करनी है? उनका नाम बताएं।'
+        : '❌ Which employee\'s leave would you like to approve? Please provide their name.' };
+    }
+
     const { data: empRows } = await db.from('users').select('id, full_name, manager_id')
       .eq('organization_id', org_id)
       .ilike('full_name', `%${slots.employee_name}%`)
@@ -1319,6 +1331,12 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     if (!['manager', 'hr', 'admin', 'super_admin'].includes(user_role)) {
       return { success: false, reply: REPLIES.permissionDenied('reject leave', lang) };
+    }
+
+    if (!slots.employee_name) {
+      return { success: false, reply: lang === 'hi'
+        ? '❌ किस कर्मचारी की leave reject करनी है? उनका नाम बताएं।'
+        : '❌ Which employee\'s leave would you like to reject? Please provide their name.' };
     }
 
     const { data: empRowsR } = await db.from('users').select('id, full_name, manager_id')
@@ -1651,6 +1669,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       .from('users')
       .select('full_name, role, department, designation, wa_number')
       .eq('organization_id', org_id)
+      .eq('is_active', true)
       .is('deleted_at', null)
       .order('full_name', { ascending: true })
       .limit(20);
@@ -1692,7 +1711,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const waNumber = slots.wa_number.replace(/\s/g, '');
 
     const { data: newAuthUser, error: authError } = await db.auth.admin.createUser({
-      email:         `${waNumber.replace('+', '')}@wa.placeholder`,
+      email:         `${waNumber.replace(/\+/g, '')}@wa.placeholder`,
       password:      Math.random().toString(36).slice(2) + 'A1!',
       user_metadata: { full_name: empName },
     });
@@ -1706,8 +1725,8 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       id:               userId,
       organization_id:  org_id,
       full_name:        empName,
-      email:            `${waNumber.replace('+', '')}@wa.placeholder`,
-      wa_number:        waNumber.replace('+', ''),
+      email:            `${waNumber.replace(/\+/g, '')}@wa.placeholder`,
+      wa_number:        waNumber.replace(/\+/g, ''),
       role:             'employee',
       department:       slots.department !== 'SKIP' ? slots.department ?? null : null,
       designation:      slots.designation !== 'SKIP' ? slots.designation ?? null : null,
@@ -1881,7 +1900,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     const { data: u } = await db
       .from('users')
-      .select('full_name, employee_id, department, designation, wa_number, role, manager_id, created_at, email')
+      .select('full_name, employee_id, department, designation, wa_number, role, manager_id, created_at')
       .eq('id', user_id)
       .single();
 
@@ -2029,7 +2048,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     let query = db
       .from('onboarding_sessions')
-      .select(`id, current_step, total_steps, status, created_at, users(full_name, department)`)
+      .select(`id, current_step, total_steps, status, created_at, users!employee_id(full_name, department)`)
       .eq('organization_id', org_id)
       .order('created_at', { ascending: false })
       .limit(5);

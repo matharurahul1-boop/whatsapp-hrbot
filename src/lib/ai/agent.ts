@@ -365,6 +365,12 @@ function parseConfirmationMessage(lastMsg: string): ConfirmationParsed | null {
     return { tool: 'add_task_note', args: { task_title: noteM[1].trim(), note: noteM[2].replace(/…$/, '').trim() } };
   }
 
+  // START_ONBOARDING — "I'll start onboarding for *Name* — +91..., Dept (Designation). Go ahead?"
+  const onboardM = lastMsg.match(/start\s+onboarding\s+for\s+\*([^*]+)\*\s*[—\-]+\s*([+\d]+)/i);
+  if (onboardM) {
+    return { tool: 'start_onboarding', args: { employee_name: onboardM[1].trim(), wa_number: onboardM[2].trim() } };
+  }
+
   return null;
 }
 

@@ -1498,6 +1498,26 @@ async function runGroqLoop(
     }
   }
 
+  // ── 0d. "Update same task" bypass ────────────────────────────────────────────
+  // Detect "please update the same task" / "update same task" and resolve the task
+  // name from recent history — bypasses Groq to avoid context-pollution loops where
+  // Groq calls list_users repeatedly because of earlier assignee/user-list history.
+  {
+    const UPDATE_SAME_RE = /^(?:please\s+)?update\s+(?:the\s+)?same\s+task\s*[!.?]*$/i;
+    if (UPDATE_SAME_RE.test(message.trim())) {
+      for (let i = history.length - 1; i >= 0; i--) {
+        if (history[i].role !== 'assistant') continue;
+        const m = history[i].content.match(/update on \*([^*]+)\*/i) ||
+                  history[i].content.match(/update\s+\*([^*]+)\*/i);
+        if (m) {
+          const taskName = m[1].trim();
+          console.log(`[Agent] Update-same-task bypass: task="${taskName}" from history`);
+          return `What would you like to update on *${taskName}*?\n\nYou can change: deadline / priority / assignee / status / title`;
+        }
+      }
+    }
+  }
+
   // ── 1. Quick-route deterministic patterns — bypass AI for unambiguous commands ─
   const directTool = quickRoute(message);
   if (directTool) {
@@ -1709,7 +1729,8 @@ async function runGroqLoop(
 
         // Index was already advanced before the loop
 
-        for (let round = 0; round < 6; round++) {
+        let prevGroqToolKey = '';
+        for (let round = 0; round < 4; round++) {
           const choice    = resp.choices[0];
           const toolCalls = (choice.message.tool_calls ?? []) as Groq.Chat.ChatCompletionMessageToolCall[];
 
@@ -1760,6 +1781,15 @@ async function runGroqLoop(
 
             return textReply;
           }
+
+          // Detect tool-call loop: same tool(s) called twice in a row means Groq is stuck.
+          // Fall back to OpenRouter rather than timing out the whole function.
+          const groqToolKey = toolCalls.map(tc => `${tc.function.name}:${tc.function.arguments}`).join('|');
+          if (groqToolKey === prevGroqToolKey) {
+            console.warn(`[Agent] Groq tool loop detected ("${toolCalls[0]?.function.name}" called twice) — OpenRouter fallback`);
+            return runOpenRouterFallback();
+          }
+          prevGroqToolKey = groqToolKey;
 
           groqMessages.push({ role: 'assistant', content: choice.message.content ?? null, tool_calls: toolCalls });
 

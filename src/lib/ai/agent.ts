@@ -1300,9 +1300,10 @@ async function runGroqLoop(
         console.log(`[Agent] EDITING deadline shortcut: task="${taskTitle}"`);
         saveContext(conversationId, {
           ...EMPTY_CONTEXT, language: context.language,
-          flow_state: 'EDITING', edit_base_payload: { ...base, __pending_field: 'deadline' },
+          flow_state: 'PICKING_DEADLINE',
+          deadline_pick_context: { step: 'date', task_title: taskTitle, origin: 'EDITING', edit_base: { ...base } },
         }).catch(() => {});
-        return `What's the new deadline for *${taskTitle}*?`;
+        return `[[SHOW_OPTIONS:deadline_date:${taskTitle}]]`;
       }
       if (isTitle) {
         ctxRef.handled = true;
@@ -1325,27 +1326,6 @@ async function runGroqLoop(
     if (pendingField) {
       if (pendingField === 'assignee') { merged.assignee = message.trim(); usedFullForm = true; }
       if (pendingField === 'title')    { merged.title = message.trim(); usedFullForm = true; }
-      if (pendingField === 'deadline') {
-        const rawDl = message.trim();
-        const time2 = extractTimeFromText(rawDl);
-        const hasDateWords = /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|mon|tue|wed|thu|fri|sat|sun|tomorrow|today|next\s|\d+\s*(?:st|nd|rd|th))/i.test(rawDl);
-        if (hasDateWords) {
-          const iso2 = naturalDateToISO(rawDl);
-          if (iso2) { merged.deadline = `${iso2} ${time2 ?? '17:00'}`; usedFullForm = true; }
-        } else if (time2) {
-          const baseDate = (cleanBase.deadline ?? '').split(' ')[0];
-          merged.deadline = `${baseDate || naturalDateToISO('today') || ''} ${time2}`;
-          usedFullForm = true;
-        }
-        if (!usedFullForm) {
-          ctxRef.handled = true;
-          saveContext(conversationId, {
-            ...EMPTY_CONTEXT, language: context.language,
-            flow_state: 'EDITING', edit_base_payload: { ...base, __pending_field: 'deadline' },
-          }).catch(() => {});
-          return `❌ Couldn't understand that date. Try: "tomorrow 5pm", "10 Jul 2026 3pm", "next Friday"`;
-        }
-      }
     }
 
     // Case A: Full 5-field form (title + deadline + priority minimum)
@@ -1480,6 +1460,82 @@ async function runGroqLoop(
     return confReply;
   }
 
+  // ── 0a. PICKING_DEADLINE — two-step date+time calendar picker ───────────────
+  if (context.flow_state === 'PICKING_DEADLINE' && context.deadline_pick_context) {
+    const dpCtx = context.deadline_pick_context;
+    const msg   = message.trim();
+    ctxRef.handled = true;
+
+    if (dpCtx.step === 'date') {
+      // Expecting ISO date row-ID "YYYY-MM-DD" from the date list
+      const isoDate = /^\d{4}-\d{2}-\d{2}$/.test(msg) ? msg : naturalDateToISO(msg);
+      if (isoDate) {
+        saveContext(conversationId, {
+          ...EMPTY_CONTEXT, language: context.language,
+          flow_state: 'PICKING_DEADLINE',
+          deadline_pick_context: { ...dpCtx, step: 'time', selected_date: isoDate },
+        }).catch(() => {});
+        return `[[SHOW_OPTIONS:deadline_time:${dpCtx.task_title}]]`;
+      }
+      // Bad input — re-show date picker
+      saveContext(conversationId, {
+        ...EMPTY_CONTEXT, language: context.language,
+        flow_state: 'PICKING_DEADLINE',
+        deadline_pick_context: dpCtx,
+      }).catch(() => {});
+      return `[[SHOW_OPTIONS:deadline_date:${dpCtx.task_title}]]`;
+    }
+
+    if (dpCtx.step === 'time' && dpCtx.selected_date) {
+      // Expecting HH:MM row-ID from the time list (or typed "3pm" etc.)
+      const timeStr = /^\d{2}:\d{2}$/.test(msg) ? msg : extractTimeFromText(msg);
+      if (timeStr) {
+        const deadline = `${dpCtx.selected_date} ${timeStr}`;
+        // Format for human display
+        const [dp = '', tp = '17:00'] = deadline.split(' ');
+        const [y, mo, d] = dp.split('-');
+        const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        const hh = parseInt(tp.split(':')[0]), mn = tp.split(':')[1] ?? '00';
+        const dlFmt = `${parseInt(d)} ${MON[parseInt(mo)-1]} ${y}, ${hh > 12 ? hh-12 : hh || 12}:${mn} ${hh >= 12 ? 'PM' : 'AM'} IST`;
+
+        if (dpCtx.origin === 'EDITING' && dpCtx.edit_base) {
+          const merged = { ...dpCtx.edit_base, deadline };
+          const displayAssignee = merged.assignee ?? '';
+          const who    = displayAssignee ? `*${displayAssignee}*` : '*you*';
+          const priLow = (merged.priority ?? '').toLowerCase();
+          const confReply = `I'll create task *${merged.title ?? '(no title)'}* for ${who} due *${dlFmt}* with *${priLow}* priority${merged.description ? `. Description: "${merged.description.slice(0, 80)}"` : ''}. Go ahead? (Yes / No)`;
+          saveContext(conversationId, {
+            ...EMPTY_CONTEXT, language: context.language,
+            flow_state: 'CONFIRMING',
+            confirm_payload: { tool: 'create_task', args: { ...merged } },
+          }).catch(() => {});
+          return confReply;
+        }
+
+        if (dpCtx.origin === 'UPDATE') {
+          const confReply = `Update *${dpCtx.task_title}* — set *deadline* to *${dlFmt}*. Go ahead? (Yes / No)`;
+          saveContext(conversationId, {
+            ...EMPTY_CONTEXT, language: context.language,
+            flow_state: 'CONFIRMING',
+            confirm_payload: { tool: 'update_task', args: { task_title: dpCtx.task_title, update_field: 'deadline', update_value: deadline } },
+          }).catch(() => {});
+          return confReply;
+        }
+      }
+      // Bad time input — re-show time picker
+      saveContext(conversationId, {
+        ...EMPTY_CONTEXT, language: context.language,
+        flow_state: 'PICKING_DEADLINE',
+        deadline_pick_context: dpCtx,
+      }).catch(() => {});
+      return `[[SHOW_OPTIONS:deadline_time:${dpCtx.task_title}]]`;
+    }
+
+    // Unexpected state — reset
+    saveContext(conversationId, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
+    return 'Something went wrong with the deadline picker. What else can I help with?';
+  }
+
   // ── 0b. Context-state shortcircuit — fastest path, zero Groq calls ─────────
   //
   // When context_state holds a stored confirmation payload (set after Groq
@@ -1583,8 +1639,13 @@ async function runGroqLoop(
             return `[[SHOW_OPTIONS:${interactiveField}:${taskTitle}]]`;
           }
           if (normMsg === 'deadline') {
-            console.log(`[Agent] Deadline prompt shortcut: task="${taskTitle}"`);
-            return `What's the new deadline for *${taskTitle}*?\n\nExamples: "tomorrow 5pm", "10 Jul 2026 3pm", "next Friday"`;
+            console.log(`[Agent] Deadline calendar picker: task="${taskTitle}"`);
+            saveContext(conversationId, {
+              ...EMPTY_CONTEXT, language: context.language,
+              flow_state: 'PICKING_DEADLINE',
+              deadline_pick_context: { step: 'date', task_title: taskTitle, origin: 'UPDATE' },
+            }).catch(() => {});
+            return `[[SHOW_OPTIONS:deadline_date:${taskTitle}]]`;
           }
           console.log(`[Agent] Title prompt shortcut: task="${taskTitle}"`);
           return `What should the new title be for *${taskTitle}*?`;

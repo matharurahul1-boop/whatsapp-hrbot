@@ -7,6 +7,7 @@ export type FlowState =
   | 'EDITING'         // User tapped "Edit details" — waiting for corrected fields
   | 'AUDIO_CONFIRM'      // Voice message transcribed, waiting for yes/no before dispatch
   | 'AUDIO_FIELD_SELECT' // User said No; waiting for them to pick which field to correct
+  | 'PICKING_DEADLINE'   // Two-step date+time calendar picker
   | 'AUDIO_FIELD_VALUE'  // Field selected; waiting for the new value to apply
   | 'EXECUTING'          // Running tool (internal, not persisted long)
   | 'COMPLETE';       // Flow done, about to reset
@@ -112,6 +113,14 @@ export interface ConversationContext {
   pending_transcript?: string | null;
   // Stored during EDITING state: the original create_task args to merge corrections into.
   edit_base_payload?: Record<string, string> | null;
+  // Stored during PICKING_DEADLINE state: tracks which step and what was selected.
+  deadline_pick_context?: {
+    step: 'date' | 'time';
+    task_title: string;
+    selected_date?: string;                // ISO date picked in step 1 e.g. "2026-07-06"
+    origin: 'EDITING' | 'UPDATE';
+    edit_base?: Record<string, string>;    // Full base payload for EDITING origin
+  } | null;
 }
 
 export const EMPTY_CONTEXT: ConversationContext = {
@@ -127,6 +136,7 @@ export const EMPTY_CONTEXT: ConversationContext = {
   language: 'en',
   turn_count: 0,
   pending_transcript: null,
+  deadline_pick_context: null,
 };
 
 // ─── Classified Intent ─────────────────────────────────────────────────────────

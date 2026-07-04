@@ -306,8 +306,6 @@ const SENTINEL_OPTS_RE   = /^\[\[SHOW_OPTIONS:(\w+):(.+)\]\]$/;
 const FIELD_PICKER_RE    = /What would you like to update on \*([^*]+)\*/i;
 // CREATE task "Edit details" → "Current details: ... What would you like to change?"
 const EDIT_PICKER_RE     = /^Current details:\n([\s\S]+?)\n\nWhat would you like to change\?/;
-// Deadline text prompt → interactive quick-pick date/time options
-const DEADLINE_PICKER_RE = /What's the new deadline for \*([^*]+)\*\?/i;
 
 async function sendAgentReply(to: string, text: string, orgId: string): Promise<void> {
   // ── Field-options interactive message ─────────────────────────────────
@@ -380,6 +378,68 @@ async function sendAgentReply(to: string, text: string, orgId: string): Promise<
           await sendText(to, `Who should *${taskTitle}* be assigned to?\n\n${names}\n\nReply with their name.`, orgId);
         });
       }
+
+    } else if (fieldType === 'deadline_date') {
+      // Compute next 10 days in IST (UTC+5:30) dynamically
+      const istOffMs = (5 * 60 + 30) * 60000;
+      const WDAYS  = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+      const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      const dateRows = Array.from({ length: 10 }, (_, i) => {
+        const t   = new Date(Date.now() + istOffMs + i * 86400000);
+        const y   = t.getUTCFullYear();
+        const mo  = String(t.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(t.getUTCDate()).padStart(2, '0');
+        const iso = `${y}-${mo}-${day}`;
+        const lbl = `${WDAYS[t.getUTCDay()]}, ${t.getUTCDate()} ${MONTHS[t.getUTCMonth()]}`;
+        return { id: iso, title: lbl, description: i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : '' };
+      });
+      await sendList(
+        to,
+        `📅 Select deadline date for *${taskTitle}*:`,
+        'Pick date',
+        [{ title: 'Upcoming', rows: dateRows }],
+        orgId,
+        'Deadline date',
+      ).catch(async () => {
+        // Fallback: 3 buttons for today/tomorrow/day-after
+        const [d0, d1, d2] = dateRows;
+        await sendButtons(to, `📅 Select deadline date for *${taskTitle}*:`, [
+          { id: d0.id, title: d0.title },
+          { id: d1.id, title: d1.title },
+          { id: d2.id, title: d2.title },
+        ], orgId).catch(async () => {
+          await sendText(to, `📅 What date for *${taskTitle}*?\n\nReply with a date, e.g. _"10 Jul 2026"_`, orgId);
+        });
+      });
+
+    } else if (fieldType === 'deadline_time') {
+      await sendList(
+        to,
+        `⏰ What time on that day?`,
+        'Pick time',
+        [{ title: 'Time', rows: [
+          { id: '09:00', title: '9:00 AM',  description: 'Morning'      },
+          { id: '10:00', title: '10:00 AM', description: ''             },
+          { id: '11:00', title: '11:00 AM', description: ''             },
+          { id: '12:00', title: '12:00 PM', description: 'Noon'         },
+          { id: '13:00', title: '1:00 PM',  description: ''             },
+          { id: '14:00', title: '2:00 PM',  description: ''             },
+          { id: '15:00', title: '3:00 PM',  description: ''             },
+          { id: '16:00', title: '4:00 PM',  description: ''             },
+          { id: '17:00', title: '5:00 PM',  description: 'End of day'   },
+          { id: '18:00', title: '6:00 PM',  description: 'Evening'      },
+        ]}],
+        orgId,
+        'Deadline time',
+      ).catch(async () => {
+        await sendButtons(to, `⏰ What time?`, [
+          { id: '09:00', title: '9:00 AM'  },
+          { id: '13:00', title: '1:00 PM'  },
+          { id: '17:00', title: '5:00 PM'  },
+        ], orgId).catch(async () => {
+          await sendText(to, `⏰ What time? Reply with e.g. _"9am"_, _"2pm"_, _"17:00"_`, orgId);
+        });
+      });
     }
     return;
   }
@@ -416,42 +476,6 @@ async function sendAgentReply(to: string, text: string, orgId: string): Promise<
         orgId,
       ).catch(async () => {
         await sendText(to, `What would you like to update on *${taskTitle}*?\n\nReply with: *priority* / *status* / *assignee* / *deadline* / *title*`, orgId);
-      });
-    });
-    return;
-  }
-
-  // ── Deadline prompt → interactive quick-pick date/time options ────────
-  const deadlinePickerMatch = DEADLINE_PICKER_RE.exec(text);
-  if (deadlinePickerMatch) {
-    const taskTitle = deadlinePickerMatch[1];
-    console.log(`[sendAgentReply] Deadline picker: task="${taskTitle}"`);
-    await sendList(
-      to,
-      `When is the deadline for *${taskTitle}*?\n\nOr type any date: "10 Jul 2026 3pm"`,
-      'Pick a time',
-      [{ title: 'Quick options', rows: [
-        { id: 'today 9am',       title: '☀️ Today 9:00 AM',      description: 'Morning today'        },
-        { id: 'today 5pm',       title: '🌆 Today 5:00 PM',      description: 'Late afternoon today' },
-        { id: 'tomorrow 9am',    title: '📅 Tomorrow 9:00 AM',   description: 'Morning tomorrow'     },
-        { id: 'tomorrow 5pm',    title: '📅 Tomorrow 5:00 PM',   description: 'Afternoon tomorrow'   },
-        { id: 'next monday 9am', title: '📅 Next Monday 9:00 AM', description: 'Start of next week'  },
-      ]}],
-      orgId,
-      'Set deadline',
-    ).catch(async (listErr) => {
-      console.error('[sendAgentReply] Deadline sendList failed:', listErr instanceof Error ? listErr.message : listErr);
-      await sendButtons(
-        to,
-        `When is the deadline for *${taskTitle}*?\n\nOr type any date: "10 Jul 2026 3pm"`,
-        [
-          { id: 'today 5pm',    title: '🌆 Today 5pm'    },
-          { id: 'tomorrow 9am', title: '📅 Tomorrow 9am' },
-          { id: 'tomorrow 5pm', title: '📅 Tomorrow 5pm' },
-        ],
-        orgId,
-      ).catch(async () => {
-        await sendText(to, text, orgId);
       });
     });
     return;

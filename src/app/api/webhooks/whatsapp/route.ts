@@ -380,24 +380,39 @@ async function sendAgentReply(to: string, text: string, orgId: string): Promise<
     return;
   }
 
-  // ── "What would you like to update on *X*?" → interactive field list ──
+  // ── "What would you like to update on *X*?" → interactive field buttons ──
   const fieldPickerMatch = FIELD_PICKER_RE.exec(text);
   if (fieldPickerMatch) {
     const taskTitle = fieldPickerMatch[1];
+    console.log(`[sendAgentReply] Field picker: task="${taskTitle}"`);
+    // Try sendList first; fall back to 3-button pick (priority/status/assignee are
+    // the constrained fields — deadline + title are free-text so type-them hints suffice)
     await sendList(
       to,
-      `What would you like to update on *${taskTitle}*?`,
+      `What would you like to update on *${taskTitle}*?\n\n📅 Deadline or 📝 Title — just type the field name`,
       'Select field',
       [{ title: 'Fields', rows: [
-        { id: 'deadline', title: '📅 Deadline', description: 'Change due date & time'       },
         { id: 'priority', title: '🎯 Priority',  description: 'Low / Medium / High / Urgent' },
-        { id: 'assignee', title: '👤 Assignee',  description: 'Reassign to a team member'   },
         { id: 'status',   title: '✅ Status',    description: 'Todo / In Progress / Done'   },
+        { id: 'assignee', title: '👤 Assignee',  description: 'Reassign to a team member'   },
+        { id: 'deadline', title: '📅 Deadline',  description: 'Change due date & time'       },
         { id: 'title',    title: '📝 Title',     description: 'Rename the task'              },
       ]}],
       orgId,
-    ).catch(async () => {
-      await sendText(to, text, orgId);
+    ).catch(async (listErr) => {
+      console.error('[sendAgentReply] sendList failed, trying sendButtons:', listErr instanceof Error ? listErr.message : listErr);
+      await sendButtons(
+        to,
+        `What would you like to update on *${taskTitle}*?\n\n📅 Deadline or 📝 Title — just type the field name`,
+        [
+          { id: 'priority', title: '🎯 Priority' },
+          { id: 'status',   title: '✅ Status'   },
+          { id: 'assignee', title: '👤 Assignee' },
+        ],
+        orgId,
+      ).catch(async () => {
+        await sendText(to, `What would you like to update on *${taskTitle}*?\n\nReply with: *priority* / *status* / *assignee* / *deadline* / *title*`, orgId);
+      });
     });
     return;
   }

@@ -1268,9 +1268,56 @@ async function runGroqLoop(
   // (e.g. "Assign to Tushar Bali", "Deadline 10 Jul 3pm", "High priority").
   if (context.flow_state === 'EDITING' && context.edit_base_payload) {
     const base = context.edit_base_payload as Record<string, string>;
+
+    // ── Field-name interceptor ──────────────────────────────────────────────
+    // When user types just a field name (priority/assignee/deadline/title),
+    // show the interactive picker instead of treating it as a natural-language correction.
+    {
+      const normMsg = message.trim().toLowerCase().replace(/[?.!,;]+$/, '');
+      const taskTitle = (base.title ?? 'the task') as string;
+      if (normMsg === 'priority') {
+        ctxRef.handled = true; // keep EDITING context; "high"/"low"/etc handled by Case B next turn
+        console.log(`[Agent] EDITING priority shortcut: task="${taskTitle}"`);
+        return `[[SHOW_OPTIONS:priority:${taskTitle}]]`;
+      }
+      if (normMsg === 'assignee') {
+        ctxRef.handled = true;
+        console.log(`[Agent] EDITING assignee shortcut: task="${taskTitle}"`);
+        saveContext(conversationId, {
+          ...EMPTY_CONTEXT, language: context.language,
+          flow_state: 'EDITING', edit_base_payload: { ...base, __pending_field: 'assignee' },
+        }).catch(() => {});
+        return `[[SHOW_OPTIONS:assignee:${taskTitle}]]`;
+      }
+      if (normMsg === 'deadline') {
+        ctxRef.handled = true;
+        console.log(`[Agent] EDITING deadline shortcut: task="${taskTitle}"`);
+        return `What's the new deadline for *${taskTitle}*?\n\nExamples: "tomorrow 5pm", "10 Jul 2026 3pm", "next Friday"`;
+      }
+      if (normMsg === 'title') {
+        ctxRef.handled = true;
+        console.log(`[Agent] EDITING title shortcut: task="${taskTitle}"`);
+        saveContext(conversationId, {
+          ...EMPTY_CONTEXT, language: context.language,
+          flow_state: 'EDITING', edit_base_payload: { ...base, __pending_field: 'title' },
+        }).catch(() => {});
+        return `What should the new title be for *${taskTitle}*?`;
+      }
+    }
+
+    // ── Pending-field handler ──────────────────────────────────────────────
+    // Previous turn stored __pending_field; treat this whole message as its value.
+    const pendingField = base.__pending_field ?? '';
+    const { __pending_field: _pf, ...cleanBase } = base;   // strip marker from merged
     const lines = message.split('\n').map(l => l.trim()).filter(Boolean);
-    let merged: Record<string, string> = { ...base };
+    let merged: Record<string, string> = { ...cleanBase };
     let usedFullForm = false;
+    if (pendingField) {
+      if (pendingField === 'assignee') merged.assignee = message.trim();
+      if (pendingField === 'title')    { merged.title = message.trim(); usedFullForm = true; }
+      // fall through to assignee-resolution + re-confirm; skip Case A/B for assignee too
+      if (pendingField === 'assignee') usedFullForm = true;
+    }
 
     // Case A: Full 5-field form (title + deadline + priority minimum)
     if (lines.length >= 3) {

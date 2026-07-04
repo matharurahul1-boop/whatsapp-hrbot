@@ -297,9 +297,89 @@ async function updateDeliveryStatus(
 // and deliver the message as WhatsApp interactive buttons instead of text.
 // Button IDs "yes" / "no" already match isYes / isNo regex in agent.ts, so
 // the context-state shortcircuit handles button taps with zero extra code.
+//
+// Also handles [[SHOW_OPTIONS:field:taskTitle]] sentinels from agent.ts:
+// these are converted to WhatsApp list/button interactive messages so the
+// user can pick a value (priority / status / assignee) without typing.
 const CONFIRM_SUFFIX_RE = /\s*\(Yes\s*\/\s*No\)\s*$/i;
+const SENTINEL_OPTS_RE  = /^\[\[SHOW_OPTIONS:(\w+):(.+)\]\]$/;
 
 async function sendAgentReply(to: string, text: string, orgId: string): Promise<void> {
+  // ── Field-options interactive message ─────────────────────────────────
+  const sentinelMatch = SENTINEL_OPTS_RE.exec(text);
+  if (sentinelMatch) {
+    const fieldType = sentinelMatch[1];
+    const taskTitle = sentinelMatch[2];
+
+    if (fieldType === 'priority') {
+      await sendList(
+        to,
+        `What priority for *${taskTitle}*?`,
+        'Select priority',
+        [{ title: 'Priority', rows: [
+          { id: 'low',    title: '🟢 Low',    description: 'Flexible timeline'   },
+          { id: 'medium', title: '🟡 Medium',  description: 'Standard priority'  },
+          { id: 'high',   title: '🔴 High',    description: 'Needs prompt action' },
+          { id: 'urgent', title: '🚨 Urgent',  description: 'Critical — do now'  },
+        ]}],
+        orgId,
+      ).catch(async () => {
+        // Fallback: 3-button (drop urgent — WhatsApp max 3)
+        await sendButtons(to, `What priority for *${taskTitle}*?`, [
+          { id: 'low',    title: '🟢 Low'   },
+          { id: 'medium', title: '🟡 Medium' },
+          { id: 'high',   title: '🔴 High'  },
+        ], orgId).catch(async () => {
+          await sendText(to, `What priority for *${taskTitle}*?\n\nReply: *low* / *medium* / *high* / *urgent*`, orgId);
+        });
+      });
+
+    } else if (fieldType === 'status') {
+      await sendButtons(
+        to,
+        `What status for *${taskTitle}*?`,
+        [
+          { id: 'todo',        title: '📋 Todo'        },
+          { id: 'in_progress', title: '⏳ In Progress'  },
+          { id: 'done',        title: '✅ Done'         },
+        ],
+        orgId,
+      ).catch(async () => {
+        await sendText(to, `What status for *${taskTitle}*?\n\nReply: *todo* / *in_progress* / *done*`, orgId);
+      });
+
+    } else if (fieldType === 'assignee') {
+      const db = createAdminClient();
+      const { data: users } = await db
+        .from('users')
+        .select('full_name')
+        .eq('organization_id', orgId)
+        .eq('is_active', true)
+        .order('full_name')
+        .limit(10);
+      const rows = ((users ?? []) as { full_name: string }[]).map(u => ({
+        id:    u.full_name,
+        title: u.full_name,
+      }));
+      if (rows.length === 0) {
+        await sendText(to, `Who should *${taskTitle}* be assigned to?`, orgId);
+      } else {
+        await sendList(
+          to,
+          `Who should *${taskTitle}* be assigned to?`,
+          'Select teammate',
+          [{ title: 'Team Members', rows }],
+          orgId,
+        ).catch(async () => {
+          const names = rows.map(r => `• ${r.title}`).join('\n');
+          await sendText(to, `Who should *${taskTitle}* be assigned to?\n\n${names}\n\nReply with their name.`, orgId);
+        });
+      }
+    }
+    return;
+  }
+
+  // ── Confirmation prompt → interactive Yes/No buttons ──────────────────
   if (CONFIRM_SUFFIX_RE.test(text)) {
     const body = text.replace(CONFIRM_SUFFIX_RE, '').trimEnd();
     const isTaskAction = /I'll (?:create task|update\b)/i.test(body);

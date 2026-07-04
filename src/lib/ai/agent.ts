@@ -1179,6 +1179,24 @@ export async function runMasterAgent(
     const reply = await runGroqLoop(message, history, user, orgId, context, conversation_id, ctxRef);
     const finalReply = reply || 'What else can I help you with?';
 
+    // ── Sentinel: field-options interactive message ───────────────────────────
+    // runGroqLoop returns [[SHOW_OPTIONS:field:taskTitle]] when the user typed just a
+    // field keyword in an update context. Save a human-readable version to history
+    // (so Groq sees clean context on the next turn), but return the sentinel so the
+    // webhook route can render the appropriate WhatsApp interactive list/buttons.
+    const SENT_RE = /^\[\[SHOW_OPTIONS:(\w+):(.+)\]\]$/;
+    const sentM = SENT_RE.exec(finalReply);
+    if (sentM) {
+      const [, fieldType, taskTitle] = sentM;
+      const humanMsg =
+        fieldType === 'priority' ? `What priority for *${taskTitle}*?`
+      : fieldType === 'status'   ? `What status should *${taskTitle}* be set to?`
+      : fieldType === 'assignee' ? `Who should *${taskTitle}* be assigned to?`
+      : finalReply;
+      await saveMessage(conversation_id, orgId, 'assistant', 'outbound', humanMsg, { latency_ms: Date.now() - start }).catch(() => {});
+      return { reply: finalReply, new_context: EMPTY_CONTEXT, debug: { latency_ms: Date.now() - start } };
+    }
+
     // Persist context_state based on what the reply contains:
     // - "Go ahead? (Yes / No)"  → CONFIRMING with stored payload (fast next-turn)
     // - ctxRef.handled = true   → runGroqLoop already saved a special state (e.g. EDITING)
@@ -1451,6 +1469,33 @@ async function runGroqLoop(
     // User sent something else (correction/clarification) — clear stored confirmation
     // so Groq can re-evaluate and generate a new one if needed.
     saveContext(conversationId, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
+  }
+
+  // ── 0c. Field-value interactive options shortcut ──────────────────────────────
+  // When user sends just a constrained field name (priority/status/assignee) in the
+  // context of an update-task conversation, return a sentinel instead of hitting Groq.
+  // The webhook route converts the sentinel to a WhatsApp list/button interactive message.
+  {
+    const normMsg = message.trim().toLowerCase().replace(/[?.!,;]+$/, '');
+    const OPTION_FIELDS: Record<string, string> = {
+      priority: 'priority',
+      status:   'status',
+      assignee: 'assignee',
+    };
+    const optField = OPTION_FIELDS[normMsg];
+    if (optField) {
+      const recentBot = [...history].reverse().find(m => m.role === 'assistant');
+      if (recentBot) {
+        const taskMatch =
+          recentBot.content.match(/update on \*([^*]+)\*/i) ||
+          recentBot.content.match(/update\s+\*([^*]+)\*/i);
+        if (taskMatch) {
+          const taskTitle = taskMatch[1].trim();
+          console.log(`[Agent] Field-options shortcut: field="${optField}" task="${taskTitle}"`);
+          return `[[SHOW_OPTIONS:${optField}:${taskTitle}]]`;
+        }
+      }
+    }
   }
 
   // ── 1. Quick-route deterministic patterns — bypass AI for unambiguous commands ─

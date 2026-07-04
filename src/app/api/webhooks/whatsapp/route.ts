@@ -306,6 +306,8 @@ const SENTINEL_OPTS_RE   = /^\[\[SHOW_OPTIONS:(\w+):(.+)\]\]$/;
 const FIELD_PICKER_RE    = /What would you like to update on \*([^*]+)\*/i;
 // CREATE task "Edit details" → "Current details: ... What would you like to change?"
 const EDIT_PICKER_RE     = /^Current details:\n([\s\S]+?)\n\nWhat would you like to change\?/;
+// Deadline text prompt → interactive quick-pick date/time options
+const DEADLINE_PICKER_RE = /What's the new deadline for \*([^*]+)\*\?/i;
 
 async function sendAgentReply(to: string, text: string, orgId: string): Promise<void> {
   // ── Field-options interactive message ─────────────────────────────────
@@ -414,6 +416,42 @@ async function sendAgentReply(to: string, text: string, orgId: string): Promise<
         orgId,
       ).catch(async () => {
         await sendText(to, `What would you like to update on *${taskTitle}*?\n\nReply with: *priority* / *status* / *assignee* / *deadline* / *title*`, orgId);
+      });
+    });
+    return;
+  }
+
+  // ── Deadline prompt → interactive quick-pick date/time options ────────
+  const deadlinePickerMatch = DEADLINE_PICKER_RE.exec(text);
+  if (deadlinePickerMatch) {
+    const taskTitle = deadlinePickerMatch[1];
+    console.log(`[sendAgentReply] Deadline picker: task="${taskTitle}"`);
+    await sendList(
+      to,
+      `When is the deadline for *${taskTitle}*?\n\nOr type any date: "10 Jul 2026 3pm"`,
+      'Pick a time',
+      [{ title: 'Quick options', rows: [
+        { id: 'today 9am',       title: '☀️ Today 9:00 AM',      description: 'Morning today'        },
+        { id: 'today 5pm',       title: '🌆 Today 5:00 PM',      description: 'Late afternoon today' },
+        { id: 'tomorrow 9am',    title: '📅 Tomorrow 9:00 AM',   description: 'Morning tomorrow'     },
+        { id: 'tomorrow 5pm',    title: '📅 Tomorrow 5:00 PM',   description: 'Afternoon tomorrow'   },
+        { id: 'next monday 9am', title: '📅 Next Monday 9:00 AM', description: 'Start of next week'  },
+      ]}],
+      orgId,
+      'Set deadline',
+    ).catch(async (listErr) => {
+      console.error('[sendAgentReply] Deadline sendList failed:', listErr instanceof Error ? listErr.message : listErr);
+      await sendButtons(
+        to,
+        `When is the deadline for *${taskTitle}*?\n\nOr type any date: "10 Jul 2026 3pm"`,
+        [
+          { id: 'today 5pm',    title: '🌆 Today 5pm'    },
+          { id: 'tomorrow 9am', title: '📅 Tomorrow 9am' },
+          { id: 'tomorrow 5pm', title: '📅 Tomorrow 5pm' },
+        ],
+        orgId,
+      ).catch(async () => {
+        await sendText(to, text, orgId);
       });
     });
     return;

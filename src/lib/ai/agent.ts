@@ -1298,7 +1298,11 @@ async function runGroqLoop(
       if (isDeadline) {
         ctxRef.handled = true;
         console.log(`[Agent] EDITING deadline shortcut: task="${taskTitle}"`);
-        return `What's the new deadline for *${taskTitle}*?\n\nExamples: "tomorrow 5pm", "10 Jul 2026 3pm", "next Friday"`;
+        saveContext(conversationId, {
+          ...EMPTY_CONTEXT, language: context.language,
+          flow_state: 'EDITING', edit_base_payload: { ...base, __pending_field: 'deadline' },
+        }).catch(() => {});
+        return `What's the new deadline for *${taskTitle}*?`;
       }
       if (isTitle) {
         ctxRef.handled = true;
@@ -1319,10 +1323,29 @@ async function runGroqLoop(
     let merged: Record<string, string> = { ...cleanBase };
     let usedFullForm = false;
     if (pendingField) {
-      if (pendingField === 'assignee') merged.assignee = message.trim();
+      if (pendingField === 'assignee') { merged.assignee = message.trim(); usedFullForm = true; }
       if (pendingField === 'title')    { merged.title = message.trim(); usedFullForm = true; }
-      // fall through to assignee-resolution + re-confirm; skip Case A/B for assignee too
-      if (pendingField === 'assignee') usedFullForm = true;
+      if (pendingField === 'deadline') {
+        const rawDl = message.trim();
+        const time2 = extractTimeFromText(rawDl);
+        const hasDateWords = /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|mon|tue|wed|thu|fri|sat|sun|tomorrow|today|next\s|\d+\s*(?:st|nd|rd|th))/i.test(rawDl);
+        if (hasDateWords) {
+          const iso2 = naturalDateToISO(rawDl);
+          if (iso2) { merged.deadline = `${iso2} ${time2 ?? '17:00'}`; usedFullForm = true; }
+        } else if (time2) {
+          const baseDate = (cleanBase.deadline ?? '').split(' ')[0];
+          merged.deadline = `${baseDate || naturalDateToISO('today') || ''} ${time2}`;
+          usedFullForm = true;
+        }
+        if (!usedFullForm) {
+          ctxRef.handled = true;
+          saveContext(conversationId, {
+            ...EMPTY_CONTEXT, language: context.language,
+            flow_state: 'EDITING', edit_base_payload: { ...base, __pending_field: 'deadline' },
+          }).catch(() => {});
+          return `❌ Couldn't understand that date. Try: "tomorrow 5pm", "10 Jul 2026 3pm", "next Friday"`;
+        }
+      }
     }
 
     // Case A: Full 5-field form (title + deadline + priority minimum)

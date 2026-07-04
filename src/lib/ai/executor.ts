@@ -296,7 +296,14 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
           : '❌ Please provide a deadline — date and time. (e.g. tomorrow 5pm, July 10 at 3pm)',
       };
     }
-    const taskPriority = (slots.priority as string | null);
+    const PRIORITY_MAP: Record<string, string> = {
+      urgent: 'urgent', critical: 'urgent', asap: 'urgent', top: 'urgent', highest: 'urgent',
+      high: 'high', hi: 'high',
+      medium: 'medium', med: 'medium', normal: 'medium', moderate: 'medium',
+      low: 'low', lo: 'low', minor: 'low',
+    };
+    const rawPriority = (slots.priority as string | null)?.toLowerCase().trim() ?? '';
+    const taskPriority = PRIORITY_MAP[rawPriority] ?? null;
     if (!taskPriority) {
       return {
         success: false,
@@ -506,19 +513,36 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     let query = db
       .from('tasks')
-      .select('id, title, created_by')
+      .select('id, title, created_by, status')
       .eq('organization_id', org_id)
       .ilike('title', `%${slots.title}%`)
+      .is('deleted_at', null)
       .neq('status', 'done')
-      .limit(1);
+      .limit(3);
 
     // Employees can only complete their own tasks; managers+ can complete any org task
     if (!isPrivileged) query = query.eq('assignee_id', user_id);
 
     const { data: tasks } = await query;
 
+    if ((tasks?.length ?? 0) > 1) {
+      const titles = tasks!.map((t: any) => `· *${t.title}*`).join('\n');
+      return { success: false, reply: lang === 'hi'
+        ? `"${slots.title}" से मेल खाते कई tasks हैं:\n${titles}\n\nकृपया पूरा task नाम बताएं।`
+        : `Multiple tasks match *"${slots.title}"*:\n${titles}\n\nPlease use the full task name.`
+      };
+    }
+
     const task = tasks?.[0] as any;
     if (!task) return { success: false, reply: REPLIES.taskNotFound(slots.title!, lang) };
+
+    // Guard: cancelled tasks should not be silently marked done
+    if (task.status === 'cancelled') {
+      return { success: false, reply: lang === 'hi'
+        ? `⚠️ *${task.title}* पहले से रद्द है। पहले इसे *in progress* करें, फिर complete करें।`
+        : `⚠️ *${task.title}* is cancelled. Set it back to *in progress* first if you'd like to complete it.`
+      };
+    }
 
     await db
       .from('tasks')
@@ -553,19 +577,29 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       return { success: false, reply: REPLIES.permissionDenied('assign tasks to others', lang) };
     }
 
-    const { data: tasks } = await db
+    const { data: taskRows } = await db
       .from('tasks')
       .select('id, title')
       .eq('organization_id', org_id)
       .ilike('title', `%${slots.title}%`)
-      .limit(1);
+      .is('deleted_at', null)
+      .limit(3);
 
-    const task = tasks?.[0];
+    if ((taskRows?.length ?? 0) > 1) {
+      const titles = taskRows!.map(t => `· *${t.title}*`).join('\n');
+      return { success: false, reply: lang === 'hi'
+        ? `"${slots.title}" से मेल खाते कई tasks हैं:\n${titles}\n\nकृपया पूरा task नाम बताएं।`
+        : `Multiple tasks match *"${slots.title}"*:\n${titles}\n\nPlease use the full task name.`
+      };
+    }
+
+    const task = taskRows?.[0];
     if (!task) return { success: false, reply: REPLIES.taskNotFound(slots.title!, lang) };
 
     const { data: foundRows } = await db
       .from('users').select('id, full_name')
       .eq('organization_id', org_id)
+      .eq('is_active', true)
       .ilike('full_name', `%${slots.assignee}%`)
       .limit(5);
     const found = foundRows?.[0] ?? null;
@@ -619,12 +653,22 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       .select('id, title, assignee_id')
       .eq('organization_id', org_id)
       .ilike('title', `%${slots.title}%`)
-      .limit(1);
+      .is('deleted_at', null)
+      .limit(3);
 
     // Employees can only delete their own tasks; managers+ can delete any org task
     if (!isPrivileged) query = query.eq('assignee_id', user_id);
 
     const { data: tasks } = await query;
+
+    if ((tasks?.length ?? 0) > 1) {
+      const titles = tasks!.map((t: any) => `· *${t.title}*`).join('\n');
+      return { success: false, reply: lang === 'hi'
+        ? `"${slots.title}" से मेल खाते कई tasks हैं:\n${titles}\n\nकृपया पूरा task नाम बताएं।`
+        : `Multiple tasks match *"${slots.title}"*:\n${titles}\n\nPlease use the full task name to avoid deleting the wrong one.`
+      };
+    }
+
     const task = tasks?.[0];
     if (!task) return { success: false, reply: REPLIES.taskNotFound(slots.title!, lang) };
 
@@ -664,11 +708,20 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       .eq('organization_id', org_id)
       .ilike('title', `%${slots.title}%`)
       .is('deleted_at', null)
-      .limit(1);
+      .limit(3);
 
     if (user_role === 'employee') query = query.eq('assignee_id', user_id);
 
     const { data: tasks } = await query;
+
+    if ((tasks?.length ?? 0) > 1) {
+      const titles = (tasks as any[]).map(t => `· *${t.title}*`).join('\n');
+      return { success: false, reply: lang === 'hi'
+        ? `"${slots.title}" से मेल खाते कई tasks हैं:\n${titles}\n\nकृपया पूरा task नाम बताएं।`
+        : `Multiple tasks match *"${slots.title}"*:\n${titles}\n\nPlease use the full task name.`
+      };
+    }
+
     const task = (tasks as any[])?.[0];
     if (!task) return { success: false, reply: REPLIES.taskNotFound(slots.title!, lang) };
 
@@ -716,7 +769,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       } else if (f === 'assignee') {
         const { data: foundRows } = await db
           .from('users').select('id, full_name')
-          .eq('organization_id', org_id).ilike('full_name', `%${value}%`).limit(5);
+          .eq('organization_id', org_id).eq('is_active', true).ilike('full_name', `%${value}%`).limit(5);
         const found = foundRows?.[0] ?? null;
         if (!found) {
           const { data: avail } = await db.from('users').select('full_name')
@@ -728,6 +781,11 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
             : `❌ *${value}* not found.\n\nAvailable assignees:\n${names}`;
         }
         patch.assignee_id = found.id;
+      } else {
+        // Unknown field — tell the user what's supported
+        return lang === 'hi'
+          ? `❌ *${f}* field को update नहीं किया जा सकता। Valid fields: title / deadline / priority / assignee / status`
+          : `❌ Cannot update *${f}*. Supported fields: title / deadline / priority / assignee / status`;
       }
       return null;
     };
@@ -953,8 +1011,51 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       endDate = start.toISOString().split('T')[0];
     }
 
+    // Validate: start date must not be in the past
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    if (startDate < todayStr) {
+      return { success: false, reply: lang === 'hi'
+        ? `⚠️ छुट्टी की शुरुआती तारीख आज या भविष्य में होनी चाहिए।`
+        : `⚠️ Leave start date must be today or in the future.`
+      };
+    }
+
+    // Validate: end date must be on or after start date
+    if (endDate < startDate) {
+      return { success: false, reply: lang === 'hi'
+        ? `⚠️ अंतिम तारीख शुरुआती तारीख से पहले नहीं हो सकती।`
+        : `⚠️ End date must be on or after the start date.`
+      };
+    }
+
     const totalDays = calcBusinessDays(startDate, endDate);
     const year = new Date(startDate).getFullYear();
+
+    // Validate: must be at least 1 business day
+    if (totalDays <= 0) {
+      return { success: false, reply: lang === 'hi'
+        ? `⚠️ छुट्टी कम से कम 1 कार्यदिवस की होनी चाहिए।`
+        : `⚠️ Leave must be at least 1 business day.`
+      };
+    }
+
+    // Check for overlapping pending or approved leaves
+    const { data: overlapping } = await db
+      .from('leave_requests')
+      .select('start_date, end_date, status')
+      .eq('employee_id', user_id)
+      .in('status', ['pending', 'approved'])
+      .lte('start_date', endDate)
+      .gte('end_date', startDate)
+      .limit(1)
+      .maybeSingle();
+
+    if (overlapping) {
+      return { success: false, reply: lang === 'hi'
+        ? `⚠️ इन तारीखों पर पहले से एक *${overlapping.status}* छुट्टी है (${formatDate(overlapping.start_date)} – ${formatDate(overlapping.end_date)})। पहले उसे रद्द करें।`
+        : `⚠️ You already have a *${overlapping.status}* leave from *${formatDate(overlapping.start_date)}* to *${formatDate(overlapping.end_date)}* overlapping these dates. Cancel it first if you'd like to change it.`
+      };
+    }
 
     const { data: balance } = await db
       .from('leave_balances')
@@ -1081,13 +1182,24 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       return { success: false, reply: REPLIES.permissionDenied('approve leave', lang) };
     }
 
-    let empQuery = db.from('users').select('id, full_name, manager_id')
+    const { data: empRows } = await db.from('users').select('id, full_name, manager_id')
       .eq('organization_id', org_id)
       .ilike('full_name', `%${slots.employee_name}%`)
       .limit(5);
 
-    const { data: empRows } = await empQuery;
-    const employee = empRows?.[0] ?? null;
+    // Fuzzy fallback when ilike finds nothing
+    type EmpRecord = { id: string; full_name: string; manager_id: string | null };
+    let employee: EmpRecord | null = (empRows?.[0] as EmpRecord) ?? null;
+    if (!employee) {
+      const { data: allUsers } = await db.from('users').select('id, full_name, manager_id')
+        .eq('organization_id', org_id).eq('is_active', true).limit(50);
+      let best: EmpRecord | null = null, bestScore = 0;
+      for (const u of (allUsers ?? []) as EmpRecord[]) {
+        const score = Math.max(...[u.full_name, ...u.full_name.split(' ')].map(n => nameSimilarity(slots.employee_name!, n)));
+        if (score > bestScore) { bestScore = score; best = u; }
+      }
+      if (bestScore >= 0.65) employee = best;
+    }
 
     if (!employee) return { success: false, reply: REPLIES.notFound(slots.employee_name!, lang) };
 
@@ -1099,22 +1211,34 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       };
     }
 
-    const { data: request } = await db
+    const { data: pendingLeaves } = await db
       .from('leave_requests')
       .select('id, leave_type_id, start_date, end_date, duration_days, leave_types(name)')
       .eq('organization_id', org_id)
       .eq('employee_id', employee.id)
       .eq('status', 'pending')
       .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .limit(3);
 
-    if (!request) {
+    if (!pendingLeaves?.length) {
       return { success: false, reply: lang === 'hi'
         ? `${employee.full_name} का कोई pending leave नहीं।`
         : `No pending leave request found for *${employee.full_name}*.`
       };
     }
+
+    // If multiple pending leaves, ask manager to clarify which one
+    if (pendingLeaves.length > 1) {
+      const list = pendingLeaves.map((r: any) =>
+        `· *${(r.leave_types as any)?.name}* — ${formatDate(r.start_date)} to ${formatDate(r.end_date)}`
+      ).join('\n');
+      return { success: false, reply: lang === 'hi'
+        ? `${employee.full_name} की ${pendingLeaves.length} pending leaves हैं:\n${list}\n\nकृपया तारीख के साथ बताएं: "Approve Rahul's leave from [date]"`
+        : `${employee.full_name} has ${pendingLeaves.length} pending leave requests:\n${list}\n\nPlease specify which one: "Approve ${employee.full_name}'s [leave type] from [date]"`
+      };
+    }
+
+    const request = pendingLeaves[0];
 
     await db.from('leave_requests').update({
       status: 'approved', reviewed_by: user_id, reviewed_at: new Date().toISOString(),
@@ -1153,11 +1277,24 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       return { success: false, reply: REPLIES.permissionDenied('reject leave', lang) };
     }
 
-    const { data: empRows } = await db.from('users').select('id, full_name, manager_id')
+    const { data: empRowsR } = await db.from('users').select('id, full_name, manager_id')
       .eq('organization_id', org_id)
       .ilike('full_name', `%${slots.employee_name}%`)
       .limit(5);
-    const employee = empRows?.[0] ?? null;
+
+    // Fuzzy fallback when ilike finds nothing
+    type EmpRec = { id: string; full_name: string; manager_id: string | null };
+    let employee: EmpRec | null = (empRowsR?.[0] as EmpRec) ?? null;
+    if (!employee) {
+      const { data: allUsers } = await db.from('users').select('id, full_name, manager_id')
+        .eq('organization_id', org_id).eq('is_active', true).limit(50);
+      let best: EmpRec | null = null, bestScore = 0;
+      for (const u of (allUsers ?? []) as EmpRec[]) {
+        const score = Math.max(...[u.full_name, ...u.full_name.split(' ')].map(n => nameSimilarity(slots.employee_name!, n)));
+        if (score > bestScore) { bestScore = score; best = u; }
+      }
+      if (bestScore >= 0.65) employee = best;
+    }
 
     if (!employee) return { success: false, reply: REPLIES.notFound(slots.employee_name!, lang) };
 
@@ -1169,24 +1306,35 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       };
     }
 
-    const { data: request } = await db
+    const { data: pendingR } = await db
       .from('leave_requests')
       .select('id, leave_types(name), start_date, end_date')
       .eq('organization_id', org_id)
       .eq('employee_id', employee.id)
       .eq('status', 'pending')
       .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .limit(3);
 
-    if (!request) {
+    if (!pendingR?.length) {
       return { success: false, reply: lang === 'hi'
         ? `${employee.full_name} का कोई pending leave नहीं।`
         : `No pending leave found for *${employee.full_name}*.`
       };
     }
 
-    const reason = (slots.reason === 'SKIP' || !slots.reason) ? null : slots.reason;
+    if (pendingR.length > 1) {
+      const list = (pendingR as any[]).map(r =>
+        `· *${(r.leave_types as any)?.name}* — ${formatDate(r.start_date)} to ${formatDate(r.end_date)}`
+      ).join('\n');
+      return { success: false, reply: lang === 'hi'
+        ? `${employee.full_name} की ${pendingR.length} pending leaves हैं:\n${list}\n\nकृपया तारीख के साथ बताएं: "Reject ${employee.full_name}'s leave from [date]"`
+        : `${employee.full_name} has ${pendingR.length} pending leave requests:\n${list}\n\nPlease specify which one: "Reject ${employee.full_name}'s [leave type] from [date]"`
+      };
+    }
+
+    const request = pendingR[0];
+    const rawReason = (slots.reason === 'SKIP' || !slots.reason) ? null : slots.reason;
+    const reason = rawReason ? rawReason.slice(0, 500) : null;
 
     await db.from('leave_requests').update({
       status: 'rejected', reviewed_by: user_id, reviewed_at: new Date().toISOString(),
@@ -1219,7 +1367,8 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const db   = createAdminClient();
     const lang = (slots._lang as 'en' | 'hi') ?? 'en';
 
-    const { data: request } = await db
+    // First try exact start_date match; if not found, check if the given date falls within a multi-day leave
+    let { data: request } = await db
       .from('leave_requests')
       .select('id, leave_types(name), start_date, end_date')
       .eq('organization_id', org_id)
@@ -1229,9 +1378,22 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       .maybeSingle();
 
     if (!request) {
+      const { data: rangeHit } = await db
+        .from('leave_requests')
+        .select('id, leave_types(name), start_date, end_date')
+        .eq('organization_id', org_id)
+        .eq('employee_id', user_id)
+        .in('status', ['pending', 'approved'])
+        .lte('start_date', slots.start_date!)
+        .gte('end_date', slots.start_date!)
+        .maybeSingle();
+      request = rangeHit ?? null;
+    }
+
+    if (!request) {
       return { success: false, reply: lang === 'hi'
-        ? `${formatDate(slots.start_date!)} की कोई active leave नहीं मिली।`
-        : `No active leave found starting *${formatDate(slots.start_date!)}*.`
+        ? `${formatDate(slots.start_date!)} पर कोई active leave नहीं मिली।`
+        : `No active leave found on or starting *${formatDate(slots.start_date!)}*.`
       };
     }
 

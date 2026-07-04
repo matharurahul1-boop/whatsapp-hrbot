@@ -1492,8 +1492,9 @@ async function runGroqLoop(
           recentBot.content.match(/update on \*([^*]+)\*/i) ||
           recentBot.content.match(/update\s+\*([^*]+)\*/i) ||
           // CREATE_TASK edit context: "Current details:" block after user tapped Edit details
+          // Format is "📝 *Title:* Prod task 3" so skip the closing bold marker (*) before the value
           (/What would you like to change/i.test(recentBot.content)
-            ? recentBot.content.match(/Title[:\s]+([^\n]+)/i)
+            ? recentBot.content.match(/\*?Title:?\*?\s*([^\n*]+)/i)
             : null);
         if (taskMatch) {
           const taskTitle = taskMatch[1].trim();

@@ -358,15 +358,11 @@ function parseConfirmationMessage(lastMsg: string): ConfirmationParsed | null {
     return { tool: 'set_reminder', args: { message: reminderMsgM[1].trim(), remind_at: reminderTimeM[1].trim() } };
   }
 
-  // ADD_TASK_NOTE — "add note *note text* to *Task Title*"
-  const noteM = lastMsg.match(/add\s+(?:a\s+)?note[^*]*\*([^*]+)\*[^*]*to\s+\*([^*]+)\*/i)
-    ?? lastMsg.match(/add\s+(?:a\s+)?(?:note|description)[^*]*to\s+\*([^*]+)\*/i);
+  // ADD_TASK_NOTE — confirmation format: "I'll add a note to *Task*: "preview…". Go ahead?"
+  // Pattern matches: add [a] note to *<title>*[: ]"<note>"
+  const noteM = lastMsg.match(/add\s+(?:a\s+)?note\s+to\s+\*([^*]+)\*[^"]*"([^"]+)"/i);
   if (noteM) {
-    if (noteM[2]) {
-      return { tool: 'add_task_note', args: { task_title: noteM[2].trim(), note: noteM[1].trim() } };
-    }
-    const noteMsgM = lastMsg.match(/note:\s+"([^"]+)"/i);
-    if (noteMsgM) return { tool: 'add_task_note', args: { task_title: noteM[1].trim(), note: noteMsgM[1].trim() } };
+    return { tool: 'add_task_note', args: { task_title: noteM[1].trim(), note: noteM[2].replace(/…$/, '').trim() } };
   }
 
   return null;

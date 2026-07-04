@@ -471,13 +471,8 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       };
     }
 
-    const nowMs   = Date.now();
     const todayStartMs = new Date(`${today}T00:00:00+05:30`).getTime();
     const todayEndMs   = new Date(`${today}T23:59:59+05:30`).getTime();
-
-    const overdue  = (tasks as any[]).filter((t) => t.deadline && new Date(t.deadline).getTime() < todayStartMs);
-    const dueToday = (tasks as any[]).filter((t) => t.deadline && new Date(t.deadline).getTime() >= todayStartMs && new Date(t.deadline).getTime() <= todayEndMs);
-    const rest     = (tasks as any[]).filter((t) => !t.deadline || new Date(t.deadline).getTime() > todayEndMs);
 
     const formatTask = (t: any, i: number) => {
       const pEmoji = priorityEmoji(t.priority);
@@ -494,34 +489,43 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const headerName = slots.assignee_name && isPrivileged && !isSelfQuery
       ? (tasks as any[])[0]?.assignee?.full_name ?? slots.assignee_name
       : null;
-    let header: string;
+
     if (showDone) {
-      header = headerName ? `✅ *${headerName}'s completed tasks:*` : (lang === 'hi' ? `✅ *Completed Tasks:*` : `✅ *Completed Tasks:*`);
+      // Completed tasks: list flat in completion order — no time bucketing
+      // (bucketing by deadline makes no sense for already-done tasks)
+      const header = headerName
+        ? `✅ *${headerName}'s completed tasks (${tasks.length}):*`
+        : (lang === 'hi' ? `✅ *Completed Tasks (${tasks.length}):*` : `✅ *Completed Tasks (${tasks.length}):*`);
+      lines.push(header, '');
+      (tasks as any[]).forEach((t, i) => lines.push(formatTask(t, i)));
     } else {
-      header = headerName ? `📋 *${headerName}'s tasks:*` : (lang === 'hi' ? `📋 *आपके टास्क:*` : `📋 *Your tasks:*`);
-    }
-    lines.push(header);
+      const header = headerName
+        ? `📋 *${headerName}'s tasks:*`
+        : (lang === 'hi' ? `📋 *आपके टास्क:*` : `📋 *Your tasks:*`);
+      lines.push(header);
 
-    if (overdue.length > 0) {
+      const overdue  = (tasks as any[]).filter((t) => t.deadline && new Date(t.deadline).getTime() < todayStartMs);
+      const dueToday = (tasks as any[]).filter((t) => t.deadline && new Date(t.deadline).getTime() >= todayStartMs && new Date(t.deadline).getTime() <= todayEndMs);
+      const rest     = (tasks as any[]).filter((t) => !t.deadline || new Date(t.deadline).getTime() > todayEndMs);
+
+      if (overdue.length > 0) {
+        lines.push('');
+        lines.push(lang === 'hi' ? `🔴 *ओवरड्यू:*` : `🔴 *Overdue:*`);
+        overdue.forEach((t, i) => lines.push(formatTask(t, i)));
+      }
+      if (dueToday.length > 0) {
+        lines.push('');
+        lines.push(lang === 'hi' ? `📅 *आज देय:*` : `📅 *Due today:*`);
+        dueToday.forEach((t, i) => lines.push(formatTask(t, i)));
+      }
+      if (rest.length > 0) {
+        lines.push('');
+        lines.push(lang === 'hi' ? `⏳ *आगामी:*` : `⏳ *Upcoming:*`);
+        rest.slice(0, 4).forEach((t, i) => lines.push(formatTask(t, i)));
+      }
       lines.push('');
-      lines.push(lang === 'hi' ? `🔴 *ओवरड्यू:*` : `🔴 *Overdue:*`);
-      overdue.forEach((t, i) => lines.push(formatTask(t, i)));
+      lines.push(lang === 'hi' ? `_टास्क पूरा करने के लिए: "टास्क का नाम complete किया"_` : `_To complete: "mark [task name] complete"_`);
     }
-
-    if (dueToday.length > 0) {
-      lines.push('');
-      lines.push(lang === 'hi' ? `📅 *आज देय:*` : `📅 *Due today:*`);
-      dueToday.forEach((t, i) => lines.push(formatTask(t, i)));
-    }
-
-    if (rest.length > 0) {
-      lines.push('');
-      lines.push(lang === 'hi' ? `⏳ *आगामी:*` : `⏳ *Upcoming:*`);
-      rest.slice(0, 4).forEach((t, i) => lines.push(formatTask(t, i)));
-    }
-
-    lines.push('');
-    lines.push(lang === 'hi' ? `_टास्क पूरा करने के लिए: "टास्क का नाम complete किया"_` : `_To complete: "mark [task name] complete"_`);
 
     return { success: true, reply: lines.join('\n') };
   },
@@ -1676,7 +1680,12 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       return { success: false, reply: REPLIES.permissionDenied('start onboarding', lang) };
     }
 
-    const empName  = slots.employee_name!;
+    if (!slots.employee_name) {
+      return { success: false, reply: lang === 'hi'
+        ? "❌ कर्मचारी का नाम बताएं।"
+        : "❌ Please provide the new employee's full name." };
+    }
+    const empName = slots.employee_name;
     if (!slots.wa_number) {
       return { success: false, reply: "Please provide the employee's WhatsApp number (with country code, e.g. +919876543210)." };
     }
@@ -1922,8 +1931,9 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     if (!isPrivileged) baseQuery = baseQuery.eq('assignee_id', user_id);
 
-    const { data: tasks } = await baseQuery.limit(500);
+    const { data: tasks } = await baseQuery.limit(1000);
     if (!tasks) return { success: false, reply: REPLIES.error(lang) };
+    const hitLimit = tasks.length === 1000;
 
     const all         = tasks as any[];
     const active      = all.filter(t => !['done', 'cancelled'].includes(t.status));
@@ -1950,6 +1960,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       ...(cancelled.length > 0 ? [`❌ Cancelled: *${cancelled.length}*`] : []),
       '',
       `📋 *Active Total: ${active.length}*`,
+      ...(hitLimit ? ['', '_⚠️ Result capped at 1000 tasks — counts may be approximate for very large teams._'] : []),
     ];
 
     return { success: true, reply: lines.join('\n') };

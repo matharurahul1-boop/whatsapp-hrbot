@@ -86,7 +86,7 @@ const YES_RE = /^(yes|yeah|yep|sure|ok|okay|go\s*ahead|proceed|confirm|create\s*
 const NO_RE  = /^(no|nahi|nope|cancel|stop|don['']?t|mat\s*karo|band\s*karo|ruk\s*jao|ruko|back)\s*[!.]*$/i;
 
 // Tools that must NEVER execute directly — always require a user confirmation first.
-const CONFIRM_BEFORE_EXEC = new Set(['update_task', 'complete_task', 'delete_task', 'apply_leave']);
+const CONFIRM_BEFORE_EXEC = new Set(['update_task', 'complete_task', 'delete_task', 'apply_leave', 'assign_task', 'approve_leave', 'reject_leave']);
 
 function isYes(msg: string): boolean { return YES_RE.test(msg.trim()); }
 function isNo (msg: string): boolean { return NO_RE.test(msg.trim()); }
@@ -280,14 +280,19 @@ function parseConfirmationMessage(lastMsg: string): ConfirmationParsed | null {
   const assignM = lastMsg.match(/assign\s+\*([^*]+)\*\s+to\s+\*([^*]+)\*/i);
   if (assignM) return { tool: 'assign_task', args: { task_title: assignM[1].trim(), assignee: assignM[2].trim() } };
 
-  // UPDATE_TASK — "update *Title* — set *field* to *value*" (em-dash, en-dash, or plain dash)
-  const updateM = lastMsg.match(/update\s+\*([^*]+)\*[\s—–\-]+set\s+(?:\*([^*]+)\*|(?:its\s+)?(\w+))\s+to\s+\*([^*]+)\*/i);
+  // UPDATE_TASK — "update *Title* — set *field* to *value*[ and *field2* to *value2*]"
+  const updateM = lastMsg.match(/update\s+\*([^*]+)\*[\s—–\-]+set\s+(?:\*([^*]+)\*|(?:its\s+)?(\w+))\s+to\s+\*([^*]+)\*(?:\s+and\s+\*([^*]+)\*\s+to\s+\*([^*]+)\*)?/i);
   if (updateM) {
-    return { tool: 'update_task', args: {
+    const args: Record<string, string> = {
       task_title:   updateM[1].trim(),
       update_field: (updateM[2] ?? updateM[3] ?? '').trim().toLowerCase(),
       update_value: updateM[4].trim(),
-    }};
+    };
+    if (updateM[5] && updateM[6]) {
+      args.update_field_2 = updateM[5].trim().toLowerCase();
+      args.update_value_2 = updateM[6].trim();
+    }
+    return { tool: 'update_task', args };
   }
 
   // APPLY_LEAVE — "apply *type* leave" OR "Apply for *type* leave" (bold or plain type)
@@ -761,6 +766,8 @@ User: "yes" → [call create_task(title="Fix login bug", deadline="${tmr.iso} 17
 Task update:
 User: "update the assigned to of Design Review to Rahul" → You: I'll update *Design Review* — set *assignee* to *Rahul*. Go ahead? (Yes / No)
 User: "change deadline of Fix Bug to tomorrow 3pm" → You: I'll update *Fix Bug* — set *deadline* to *${tmr.display}, 03:00 PM*. Go ahead? (Yes / No)
+Multi-field update: when the user wants to change 2 fields at once, use update_field_2 + update_value_2 in a SINGLE update_task call — never call update_task twice.
+User: "set priority to high and status to in progress for Testing Task" → call update_task(task_title="Testing Task", update_field="priority", update_value="high", update_field_2="status", update_value_2="in_progress")
 
 Task completion:
 User: "done with Fix login bug" → You: Mark *Fix login bug* as complete? (Yes / No)
@@ -858,6 +865,16 @@ function buildToolConfirmation(tool: string, args: Record<string, string>): stri
   if (tool === 'apply_leave') {
     const ltype = args.leave_type ?? 'leave';
     return `I'll apply for *${ltype}* from *${args.start_date ?? ''}* to *${args.end_date ?? ''}*. Go ahead? (Yes / No)`;
+  }
+  if (tool === 'assign_task') {
+    return `I'll reassign *${args.task_title ?? '?'}* to *${args.assignee ?? '?'}*. Go ahead? (Yes / No)`;
+  }
+  if (tool === 'approve_leave') {
+    return `I'll approve *${args.employee_name ?? '?'}*'s leave request. Go ahead? (Yes / No)`;
+  }
+  if (tool === 'reject_leave') {
+    const reason = args.reason ? ` (Reason: ${args.reason})` : '';
+    return `I'll reject *${args.employee_name ?? '?'}*'s leave request${reason}. Go ahead? (Yes / No)`;
   }
   return `Confirm this action? (Yes / No)`;
 }

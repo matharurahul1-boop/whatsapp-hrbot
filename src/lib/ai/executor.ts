@@ -726,11 +726,25 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const db   = createAdminClient();
     const lang = (slots._lang as 'en' | 'hi') ?? 'en';
 
+    // task_title is the correct slot name from the tool definition
+    const taskTitle = (slots.task_title ?? slots.title) as string | undefined;
+    if (!taskTitle) {
+      return { success: false, reply: lang === 'hi'
+        ? '❌ कौन सा task update करना है? उसका नाम बताएं।'
+        : '❌ Which task would you like to update? Please provide the task name.' };
+    }
+
+    if (!slots.update_field) {
+      return { success: false, reply: lang === 'hi'
+        ? `❌ *${taskTitle}* में क्या update करना है? (deadline / priority / assignee / status / title)`
+        : `❌ What would you like to update on *${taskTitle}*?\n\nYou can change: deadline / priority / assignee / status / title` };
+    }
+
     let query = db
       .from('tasks')
       .select('id, title, assignee_id')
       .eq('organization_id', org_id)
-      .ilike('title', `%${slots.title}%`)
+      .ilike('title', `%${taskTitle}%`)
       .is('deleted_at', null)
       .limit(3);
 
@@ -741,13 +755,13 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     if ((tasks?.length ?? 0) > 1) {
       const titles = (tasks as any[]).map(t => `· *${t.title}*`).join('\n');
       return { success: false, reply: lang === 'hi'
-        ? `"${slots.title}" से मेल खाते कई tasks हैं:\n${titles}\n\nकृपया पूरा task नाम बताएं।`
-        : `Multiple tasks match *"${slots.title}"*:\n${titles}\n\nPlease use the full task name.`
+        ? `"${taskTitle}" से मेल खाते कई tasks हैं:\n${titles}\n\nकृपया पूरा task नाम बताएं।`
+        : `Multiple tasks match *"${taskTitle}"*:\n${titles}\n\nPlease use the full task name.`
       };
     }
 
     const task = (tasks as any[])?.[0];
-    if (!task) return { success: false, reply: REPLIES.taskNotFound(slots.title!, lang) };
+    if (!task) return { success: false, reply: REPLIES.taskNotFound(taskTitle, lang) };
 
     const patch: Record<string, unknown> = {};
 

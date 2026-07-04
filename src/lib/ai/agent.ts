@@ -846,6 +846,7 @@ ${isPrivileged ? `
 
 ## Handling vague or incomplete messages
 - "mark done" / "complete the task" (no name given) → ask "Which task?"
+- "update the same task" / "update [task]" (task known but NO field or value specified) → ask "What would you like to update on *[task]*? (deadline / priority / assignee / status / title)" — NEVER guess or invent a field/value
 - "update deadline" (no task name or date) → ask "Which task, and what's the new deadline?"
 - "apply leave" (no type/dates) → ask "What type of leave, and from which date?"
 - "delete task" (no name) → ask "Which task would you like to delete?"
@@ -1436,9 +1437,13 @@ async function runGroqLoop(
         ].join('\n');
         return `Current details:\n${ref}\n\nWhat would you like to change? You can either:\n• Reply with a correction (e.g. _"Assign to Tushar Bali"_, _"Deadline 10 Jul 3pm"_, _"High priority"_)\n• Or re-enter all fields:\n📝 *Title* (Required)\n📅 *Deadline* (Required) — e.g. tomorrow 5pm (defaults to 5:00 PM IST if no time given)\n🔴 *Priority* (Required) — High / Medium / Low / Urgent\n👤 *Assign To* (Optional — defaults to you if not provided)\n💬 *Description* (Optional)`;
       }
-      // Non-create-task confirmation edit — just ask them to rephrase
+      // Non-create-task confirmation edit — give context-aware prompt
       console.log('[Agent] Context shortcircuit: EDIT on non-create → clear + rephrase prompt');
       saveContext(conversationId, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
+      if (payload.tool === 'update_task') {
+        const taskName = (payload.args.task_title ?? payload.args.title ?? 'the task') as string;
+        return `What would you like to update on *${taskName}*?\n\nYou can change:\n• *Deadline* — e.g. "set deadline to 10 Jul 5pm"\n• *Priority* — low / medium / high / urgent\n• *Assignee* — e.g. "assign to Tushar"\n• *Status* — todo / in_progress / done\n• *Title* — e.g. "rename to New Title"\n\nJust describe the change and I'll confirm before applying.`;
+      }
       return 'What would you like to change? Please describe your request differently.';
     }
 

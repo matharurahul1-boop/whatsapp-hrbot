@@ -82,7 +82,7 @@ const QUICK_ROUTES: Array<{ re: RegExp; tool: string }> = [
   { re: /^(my\s*attendance|attendance\s*report|show\s*attendance|attendance|my\s*check\s*in\s*history)$/i,                                     tool: 'my_attendance'       },
   { re: /^(list\s*leaves?|my\s*leaves?|leave\s*requests?|leaves?|my\s*leave\s*history)$/i,                                                    tool: 'list_leaves'         },
   { re: /^(team\s*attendance|who\s*(is\s*)?absent|absent\s*today|who\s*checked\s*in|attendance\s*today)$/i,                                    tool: 'team_attendance'     },
-  { re: /^(list\s*(all\s*)?users?|team\s*members?|employees?|all\s*employees?|who\s*is\s*in\s*(the\s*)?team)$/i,                               tool: 'list_users'          },
+  { re: /^(list\s*(all\s*)?users?|team\s*members?|employees?|all\s*employees?|who\s*is\s*in\s*(the\s*)?team|give\s*me\s*(the\s*)?list\s*of\s*users?|show\s*(me\s*)?(all\s*)?users?|get\s*(all\s*)?users?)$/i, tool: 'list_users' },
   { re: /^(my\s*profile|my\s*info|profile|show\s*my\s*profile|who\s*am\s*i|my\s*details?|meri\s*profile)$/i,                                   tool: 'my_profile'          },
   { re: /^(task\s*stats?|task\s*summary|task\s*report|pending\s*count|how\s*many\s*tasks?|task\s*overview)$/i,                                  tool: 'task_stats'          },
   { re: /^(pending\s*leaves?|leave\s*requests?\s*pending|who\s*has\s*pending\s*leave|pending\s*approvals?)$/i,                                  tool: 'pending_leaves'      },
@@ -430,14 +430,14 @@ const HRBOT_TOOLS: any[] = [
   },
   {
     name: 'update_task',
-    description: "Update a task's title, deadline, priority, assignee, or status. Only call AFTER user confirms.",
+    description: "Update a task's title, deadline, priority, assignee, or status. ONLY call AFTER user confirms AND you have BOTH the field name AND the new value. If the user provides only a field name (e.g. 'assignee', 'deadline') without a value, ask for the value first.",
     parameters: {
       type: 'OBJECT',
       properties: {
-        task_title:    { type: 'STRING', description: 'Current title (or part) of the task to update' },
-        update_field:  { type: 'STRING', description: 'title | deadline | priority | assignee | status' },
-        update_value:  { type: 'STRING', description: 'New value for the field' },
-        update_field_2: { type: 'STRING', description: 'Optional second field to update simultaneously (title | deadline | priority | assignee | status)' },
+        task_title:     { type: 'STRING', description: 'Current title (or part) of the task to update' },
+        update_field:   { type: 'STRING', enum: ['title', 'deadline', 'priority', 'assignee', 'status'], description: 'Field to update — must be exactly one of the enum values' },
+        update_value:   { type: 'STRING', description: 'New value for the field' },
+        update_field_2: { type: 'STRING', enum: ['title', 'deadline', 'priority', 'assignee', 'status'], description: 'Optional second field to update simultaneously' },
         update_value_2: { type: 'STRING', description: 'New value for the second field' },
       },
       required: ['task_title', 'update_field', 'update_value'],
@@ -847,6 +847,7 @@ ${isPrivileged ? `
 ## Handling vague or incomplete messages
 - "mark done" / "complete the task" (no name given) → ask "Which task?"
 - "update the same task" / "update [task]" (task known but NO field or value specified) → ask "What would you like to update on *[task]*? (deadline / priority / assignee / status / title)" — NEVER guess or invent a field/value
+- user provides ONLY a field name without a value (e.g. "assignee", "deadline", "priority") → ask for the value (e.g. "Who would you like to assign it to?", "What's the new deadline?", "What priority?") — NEVER call update_task without both field AND value
 - "update deadline" (no task name or date) → ask "Which task, and what's the new deadline?"
 - "apply leave" (no type/dates) → ask "What type of leave, and from which date?"
 - "delete task" (no name) → ask "Which task would you like to delete?"

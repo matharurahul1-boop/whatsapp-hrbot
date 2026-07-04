@@ -1644,9 +1644,10 @@ async function runGroqLoop(
       const errMsg = (err as { message?: string }).message ?? String(err);
       console.error('[Agent] Claude error (status', status, '):', errMsg);
       if (status === 429) {
-        return isDev ? `⏳ *[DEV] Claude 429:* ${errMsg}` : "I'm a bit busy right now. Please try again in a few seconds.";
+        return "I'm a bit busy right now. Please try again in a few seconds.";
       }
-      return isDev ? `⚠️ *[DEV] Claude ${status}:* ${errMsg}` : '⚠️ Something went wrong. Please try again.';
+      // TEMP: expose error for debugging
+      return `⚠️ Error ${status ?? '?'}: ${errMsg.slice(0, 300)}`;
     }
 
   } else if (USE_GEMINI) {

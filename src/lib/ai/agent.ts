@@ -83,6 +83,10 @@ const QUICK_ROUTES: Array<{ re: RegExp; tool: string }> = [
   { re: /^(list\s*leaves?|my\s*leaves?|leave\s*requests?|leaves?|my\s*leave\s*history)$/i,                                                    tool: 'list_leaves'         },
   { re: /^(team\s*attendance|who\s*(is\s*)?absent|absent\s*today|who\s*checked\s*in|attendance\s*today)$/i,                                    tool: 'team_attendance'     },
   { re: /^(list\s*(all\s*)?users?|team\s*members?|employees?|all\s*employees?|who\s*is\s*in\s*(the\s*)?team)$/i,                               tool: 'list_users'          },
+  { re: /^(my\s*profile|my\s*info|profile|show\s*my\s*profile|who\s*am\s*i|my\s*details?|meri\s*profile)$/i,                                   tool: 'my_profile'          },
+  { re: /^(task\s*stats?|task\s*summary|task\s*report|pending\s*count|how\s*many\s*tasks?|task\s*overview)$/i,                                  tool: 'task_stats'          },
+  { re: /^(pending\s*leaves?|leave\s*requests?\s*pending|who\s*has\s*pending\s*leave|pending\s*approvals?)$/i,                                  tool: 'pending_leaves'      },
+  { re: /^(leave\s*types?|types?\s*of\s*leave|what\s*leaves?\s*(do\s*we\s*have|are\s*available)|available\s*leaves?)$/i,                       tool: 'list_leave_types'    },
   { re: /^(help|\?|commands?|what\s*can\s*(you|u)\s*do|options?)$/i,                                                                           tool: 'help'                },
 ];
 
@@ -104,7 +108,7 @@ const YES_RE = /^(yes|yeah|yep|sure|ok|okay|go\s*ahead|proceed|confirm|create\s*
 const NO_RE  = /^(no|nahi|nope|cancel|stop|don['']?t|mat\s*karo|band\s*karo|ruk\s*jao|ruko|back)\s*[!.]*$/i;
 
 // Tools that must NEVER execute directly — always require a user confirmation first.
-const CONFIRM_BEFORE_EXEC = new Set(['update_task', 'complete_task', 'delete_task', 'apply_leave', 'assign_task', 'approve_leave', 'reject_leave']);
+const CONFIRM_BEFORE_EXEC = new Set(['update_task', 'complete_task', 'delete_task', 'apply_leave', 'assign_task', 'approve_leave', 'reject_leave', 'add_task_note', 'start_onboarding']);
 
 function isYes(msg: string): boolean { return YES_RE.test(msg.trim()); }
 function isNo (msg: string): boolean { return NO_RE.test(msg.trim()); }
@@ -354,6 +358,17 @@ function parseConfirmationMessage(lastMsg: string): ConfirmationParsed | null {
     return { tool: 'set_reminder', args: { message: reminderMsgM[1].trim(), remind_at: reminderTimeM[1].trim() } };
   }
 
+  // ADD_TASK_NOTE — "add note *note text* to *Task Title*"
+  const noteM = lastMsg.match(/add\s+(?:a\s+)?note[^*]*\*([^*]+)\*[^*]*to\s+\*([^*]+)\*/i)
+    ?? lastMsg.match(/add\s+(?:a\s+)?(?:note|description)[^*]*to\s+\*([^*]+)\*/i);
+  if (noteM) {
+    if (noteM[2]) {
+      return { tool: 'add_task_note', args: { task_title: noteM[2].trim(), note: noteM[1].trim() } };
+    }
+    const noteMsgM = lastMsg.match(/note:\s+"([^"]+)"/i);
+    if (noteMsgM) return { tool: 'add_task_note', args: { task_title: noteM[1].trim(), note: noteMsgM[1].trim() } };
+  }
+
   return null;
 }
 
@@ -559,6 +574,68 @@ const HRBOT_TOOLS: any[] = [
       },
     },
   },
+  {
+    name: 'pending_leaves',
+    description: 'List all pending leave requests awaiting approval. Managers / HR / admin only. Call immediately — no confirmation needed.',
+    parameters: { type: 'OBJECT', properties: {} },
+  },
+  {
+    name: 'list_leave_types',
+    description: 'List all leave types configured for this organisation (e.g. Sick, Casual, Annual). Call immediately — no confirmation needed.',
+    parameters: { type: 'OBJECT', properties: {} },
+  },
+  {
+    name: 'my_profile',
+    description: "Show the user's own profile: name, employee ID, role, department, designation, manager, WhatsApp number, join date. Call immediately — no confirmation needed.",
+    parameters: { type: 'OBJECT', properties: {} },
+  },
+  {
+    name: 'task_stats',
+    description: 'Show a quick task count summary: overdue, due today, to-do, in-progress, completed, cancelled. Employees see their own; managers/admins see the full team. Call immediately — no confirmation needed.',
+    parameters: { type: 'OBJECT', properties: {} },
+  },
+  {
+    name: 'add_task_note',
+    description: 'Add or update a note/description on an existing task. Only call AFTER user confirms.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        task_title: { type: 'STRING', description: 'Task title or part of it' },
+        note:       { type: 'STRING', description: 'The note or description text to add' },
+      },
+      required: ['task_title', 'note'],
+    },
+  },
+  {
+    name: 'start_onboarding',
+    description: 'Start onboarding for a new employee by name and WhatsApp number. HR / admin only. Only call AFTER user confirms.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        employee_name: { type: 'STRING', description: 'Full name of the new employee' },
+        wa_number:     { type: 'STRING', description: 'WhatsApp number with country code, e.g. +919876543210' },
+        department:    { type: 'STRING', description: "Department — pass 'SKIP' if not provided" },
+        designation:   { type: 'STRING', description: "Designation / job title — pass 'SKIP' if not provided" },
+      },
+      required: ['employee_name', 'wa_number'],
+    },
+  },
+  {
+    name: 'onboarding_status',
+    description: 'Check the onboarding progress of new employees. HR / admin can see all; employees see their own. Call immediately — no confirmation needed.',
+    parameters: { type: 'OBJECT', properties: {} },
+  },
+  {
+    name: 'list_tasks',
+    description: "List tasks. Pass assignee_name='mine' for own tasks. Pass status_filter='done' to show completed tasks. Omit for all active tasks (privileged: org-wide; employee: own).",
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        assignee_name: { type: 'STRING', description: "'mine' = caller's own tasks. First/full name = that person's tasks (privileged only). Omit = all org tasks (privileged) or own tasks (employees)." },
+        status_filter: { type: 'STRING', description: "done | completed — show completed tasks. Omit for active/pending tasks." },
+      },
+    },
+  },
 ];
 
 // ─── System prompt ────────────────────────────────────────────────────────────
@@ -665,7 +742,7 @@ NEVER send the confirmation until all three Required fields are collected.
 - If the previous assistant message ended with "Go ahead? (Yes / No)" and the user's new message is a confirmation word (yes, ok, sure, create the task, create it, go ahead, haan, do it, etc.) → call the tool NOW. Do NOT ask for confirmation again.
 
 ## Read-only tools — call immediately, NO confirmation needed:
-daily_briefing, list_tasks, get_task_details, check_leave_balance, list_leaves, my_attendance${isPrivileged ? ', team_attendance, list_users' : ''}
+daily_briefing, list_tasks, get_task_details, check_leave_balance, list_leaves, my_attendance, my_profile, task_stats, list_leave_types${isPrivileged ? ', team_attendance, list_users, pending_leaves, onboarding_status' : ''}
 
 ## CRITICAL: Task listing rules — call list_tasks IMMEDIATELY for ANY of these phrasings:
 
@@ -684,6 +761,10 @@ Specific-person listing (managers/admins/hr only) — pass assignee_name="[Name]
 - Examples: "list tushar" → list_tasks(assignee_name="Tushar")
            "list of pranay" → list_tasks(assignee_name="Pranay")
            "show rahul tasks" → list_tasks(assignee_name="Rahul")
+
+Completed-tasks listing — pass status_filter="done":
+- "completed tasks" / "done tasks" / "finished tasks" / "show completed" / "my completed tasks" → list_tasks(status_filter="done")
+  [combine with assignee_name="mine" for own completed tasks]
 
 RULE: NEVER pass assignee_name="my" or assignee_name="me". Use assignee_name="mine" for self-queries.
 RULE: NEVER return task data as text. ALWAYS call list_tasks and return the result verbatim.
@@ -750,6 +831,26 @@ Action — approve/reject leave (privileged, confirm first):
 - "turn off task reminders" / "disable reminders" → confirm → configure_reminders(enabled="false")
 - "enable task reminders" → confirm → configure_reminders(enabled="true")
 Valid offsets: same_day | 1_day | 2_days. Reminders fire at 9 AM IST (morning cron) or 6 PM IST (evening cron).
+
+## Profile & task stats (read-only, call IMMEDIATELY)
+- "my profile" / "profile" / "who am I" / "my info" / "my details" / "meri profile" → my_profile()
+- "task stats" / "task summary" / "task overview" / "how many tasks" / "pending count" → task_stats()
+
+## Leave types (read-only, call IMMEDIATELY)
+- "leave types" / "types of leave" / "what leaves do we have" / "available leaves" / "leave categories" → list_leave_types()
+${isPrivileged ? `
+## Pending leave approvals (privileged, read-only, call IMMEDIATELY)
+- "pending leaves" / "pending leave requests" / "who has pending leave" / "leave approvals" → pending_leaves()
+
+## Onboarding (HR / admin only, confirm before running)
+- "onboard [Name], +91XXXXXXXXXX" / "add new employee [Name]" / "start onboarding for [Name]"
+  → collect: employee_name (required), wa_number (required), department (optional), designation (optional)
+  → confirm: "Start onboarding for *[Name]* (+91...) as *[dept]*/*[desig]*? (Yes / No)" → start_onboarding(...)
+- "onboarding status" / "who is being onboarded" / "new employees" → onboarding_status()` : ''}
+
+## Add note to task (confirm before running)
+- "add note to [task]" / "add description to [task]" / "[task] note: [text]"
+  → confirm: "I'll add a note to *[task]*: \"[text preview]\". Go ahead? (Yes / No)" → add_task_note(task_title="...", note="...")
 
 ## Handling vague or incomplete messages
 - "mark done" / "complete the task" (no name given) → ask "Which task?"
@@ -828,6 +929,31 @@ User: "What's the due date of X?" → [get_task_details] → "No due date set. W
 User: "Yes, tomorrow" → I'll update *X* — set *deadline* to *${tmr.display}*. Go ahead? (Yes / No)
 ← ALWAYS use update_task here. NEVER create_task for an existing task.
 
+Profile (read-only):
+User: "my profile" / "who am I" / "meri profile" → [call my_profile(), return verbatim]
+
+Task stats (read-only):
+User: "task stats" / "task summary" / "how many tasks are pending" → [call task_stats(), return verbatim]
+
+Leave types (read-only):
+User: "what leave types do we have" / "leave categories" → [call list_leave_types(), return verbatim]
+
+Completed tasks:
+User: "my completed tasks" → [call list_tasks(assignee_name="mine", status_filter="done"), return verbatim]
+User: "completed tasks" → [call list_tasks(status_filter="done"), return verbatim]
+
+Add note to task:
+User: "add note to Fix login bug: needs testing on staging" → You: I'll add a note to *Fix login bug*: "needs testing on staging". Go ahead? (Yes / No)
+User: "yes" → [call add_task_note(task_title="Fix login bug", note="needs testing on staging")]
+${isPrivileged ? `
+Pending leaves (read-only):
+User: "pending leaves" / "who has pending leave" → [call pending_leaves(), return verbatim]
+
+Onboarding:
+User: "onboard Rahul Sharma, +919876543210" → You: Start onboarding for *Rahul Sharma* (+919876543210)? Go ahead? (Yes / No)
+User: "yes" → [call start_onboarding(employee_name="Rahul Sharma", wa_number="+919876543210")]
+User: "onboarding status" → [call onboarding_status(), return verbatim]` : ''}
+
 ## Rules
 - NEVER use example data as real values. "e.g. Fix bug – 20 Jun" is a format example, not a real task.
 - NEVER respond with task/leave/attendance data as plain text — always call the tool.
@@ -894,6 +1020,15 @@ function buildToolConfirmation(tool: string, args: Record<string, string>): stri
     const reason = args.reason ? ` (Reason: ${args.reason})` : '';
     return `I'll reject *${args.employee_name ?? '?'}*'s leave request${reason}. Go ahead? (Yes / No)`;
   }
+  if (tool === 'add_task_note') {
+    const preview = (args.note ?? args.description ?? '').slice(0, 80);
+    return `I'll add a note to *${args.task_title ?? '?'}*: "${preview}${preview.length === 80 ? '…' : ''}". Go ahead? (Yes / No)`;
+  }
+  if (tool === 'start_onboarding') {
+    const dept   = (args.department   && args.department   !== 'SKIP') ? `, ${args.department}`   : '';
+    const desig  = (args.designation  && args.designation  !== 'SKIP') ? ` (${args.designation})` : '';
+    return `I'll start onboarding for *${args.employee_name ?? '?'}* — ${args.wa_number ?? '?'}${dept}${desig}. Go ahead? (Yes / No)`;
+  }
   return `Confirm this action? (Yes / No)`;
 }
 
@@ -916,6 +1051,13 @@ function shouldHaveCalledTool(msg: string): boolean {
     /\bworked\s+hours?\b/i.test(m) ||               // "worked hours for today"
     // Users
     /\b(list\s+users?|team\s+members?|list\s+employees?|who'?s?\s+in\s+(the\s+)?team)\b/i.test(m) ||
+    // Profile / stats / leave-types / pending-leaves
+    /\b(my\s+profile|meri\s+profile|who\s+am\s+i|my\s+(info|details?))\b/i.test(m) ||
+    /\b(task\s+stats?|task\s+summary|task\s+(overview|report)|how\s+many\s+tasks?|pending\s+count)\b/i.test(m) ||
+    /\b(leave\s+types?|types?\s+of\s+leave|available\s+leaves?|leave\s+categories?)\b/i.test(m) ||
+    /\b(pending\s+leaves?|leave\s+(requests?\s+pending|approvals?)|who\s+has\s+pending\s+leave)\b/i.test(m) ||
+    /\b(onboarding\s+status|who\s+(is\s+)?being\s+onboarded|new\s+employees?)\b/i.test(m) ||
+    /\b(completed\s+tasks?|done\s+tasks?|finished\s+tasks?|show\s+completed)\b/i.test(m) ||
     // ── Action intents — Groq should reply with confirmation, not filler ───
     /\b(done\s+with|finished|mark\s+.{1,40}\s+(?:as\s+)?(?:done|complete)|complete\s+(?:task\s+)?the)\b/i.test(m) ||
     /\b(apply\s+(?:for\s+)?leave|take\s+(?:a\s+)?(?:day\s+off|leave)|i.?m\s+sick|sick\s+(?:leave|today|tomorrow))\b/i.test(m) ||
@@ -1868,6 +2010,14 @@ const INTENT_MAP: Record<string, string> = {
   set_reminder:        'SET_REMINDER',
   configure_reminders: 'CONFIGURE_REMINDERS',
   help:                'HELP',
+  pending_leaves:      'PENDING_LEAVES',
+  list_leave_types:    'LIST_LEAVE_TYPES',
+  my_profile:          'MY_PROFILE',
+  task_stats:          'TASK_STATS',
+  add_task_note:       'ADD_TASK_NOTE',
+  start_onboarding:    'START_ONBOARDING',
+  onboarding_status:   'ONBOARDING_STATUS',
+  who_absent:          'WHO_ABSENT',
 };
 
 async function dispatchTool(
@@ -1906,6 +2056,9 @@ async function dispatchTool(
       enabled:       input.enabled                             ?? null,
       offset:        input.offset                              ?? null,
       channel:       input.channel                             ?? null,
+      description:   input.description                         ?? null,
+      status_filter: input.status_filter                       ?? null,
+      note:          input.note                                ?? null,
     };
 
     const result = await executeTool({

@@ -51,6 +51,12 @@ export type AgentIntent =
   | 'LIST_USERS'
   // Settings
   | 'CONFIGURE_REMINDERS'
+  // New features
+  | 'PENDING_LEAVES'
+  | 'LIST_LEAVE_TYPES'
+  | 'MY_PROFILE'
+  | 'TASK_STATS'
+  | 'ADD_TASK_NOTE'
   // General
   | 'GREETING'
   | 'HELP'

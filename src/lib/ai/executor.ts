@@ -175,22 +175,24 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     if (lang === 'hi') {
       let msg = `📖 *HRBot — मैं क्या कर सकता हूं:*\n\n`;
       msg += `*⏰ हाजिरी:*\n"checkin" — उपस्थिति दर्ज करें\n"checkout" — जाने का समय दर्ज करें\n"मेरी हाजिरी दिखाओ"\n\n`;
-      msg += `*📋 टास्क:*\n"call client का टास्क बनाओ"\n"मेरे सभी टास्क दिखाओ"\n"website टास्क complete किया"\n`;
+      msg += `*📋 टास्क:*\n"call client का टास्क बनाओ"\n"मेरे सभी टास्क दिखाओ"\n"मेरे complete टास्क"\n"Task stats" — स्टेटस के अनुसार गिनती\n"website टास्क complete किया"\n"[task] में note जोड़ो: [text]"\n`;
       if (isManager) msg += `"Rahul को design टास्क दो"\n`;
-      msg += `\n*📅 छुट्टी:*\n"कल casual leave चाहिए"\n"मेरा leave balance बताओ"\n"मेरी leave requests"\n`;
-      if (isManager) msg += `"Rahul की leave approve करो"\n"Rahul की leave reject करो"\n`;
-      if (isHR)      msg += `\n*👤 ऑनबोर्डिंग:*\n"Rahul Kumar को onboard करो +91XXXXXXXXXX"\n`;
+      msg += `\n*📅 छुट्टी:*\n"कल casual leave चाहिए"\n"मेरा leave balance बताओ"\n"मेरी leave requests"\n"Leave types" — सभी उपलब्ध प्रकार\n`;
+      if (isManager) msg += `"Pending leaves" — सभी बकाया अनुरोध\n"Rahul की leave approve करो"\n"Rahul की leave reject करो"\n`;
+      msg += `\n*👤 प्रोफ़ाइल:*\n"मेरी profile" — नाम, रोल, डिपार्टमेंट\n`;
+      if (isHR)      msg += `\n*🧑‍💼 ऑनबोर्डिंग:*\n"Rahul Kumar को onboard करो +91XXXXXXXXXX"\n"Onboarding status"\n`;
       msg += `\n_कोई भी HR सवाल पूछें — मैं जवाब देने की कोशिश करूंगा!_`;
       return { success: true, reply: msg };
     }
 
     let msg = `📖 *HRBot — Here's what I can do:*\n\n`;
     msg += `*⏰ Attendance:*\n"checkin" — mark your arrival\n"checkout" — mark your departure\n"my attendance report"\n\n`;
-    msg += `*📋 Tasks:*\n"Create task call client by Friday"\n"Show my pending tasks"\n"Mark website task complete"\n`;
+    msg += `*📋 Tasks:*\n"Create task call client by Friday"\n"Show my pending tasks"\n"My completed tasks"\n"Task stats" — count by status\n"Mark website task complete"\n"Add note to [task]: [text]"\n`;
     if (isManager) msg += `"Assign design task to Rahul"\n`;
-    msg += `\n*📅 Leave:*\n"Apply for sick leave tomorrow"\n"Check my leave balance"\n"My leave requests"\n`;
-    if (isManager) msg += `"Approve leave for Rahul"\n"Reject Priya's leave"\n`;
-    if (isHR)      msg += `\n*👤 Onboarding:*\n"Onboard new employee Rahul Kumar +91XXXXXXXXXX"\n`;
+    msg += `\n*📅 Leave:*\n"Apply for sick leave tomorrow"\n"Check my leave balance"\n"My leave requests"\n"Leave types" — all available categories\n`;
+    if (isManager) msg += `"Pending leaves" — all awaiting approval\n"Approve leave for Rahul"\n"Reject Priya's leave"\n`;
+    msg += `\n*👤 Profile:*\n"My profile" — name, role, department, manager\n`;
+    if (isHR)      msg += `\n*🧑‍💼 Onboarding:*\n"Onboard new employee Rahul Kumar +91XXXXXXXXXX"\n"Onboarding status"\n`;
     msg += `\n_Ask me anything in plain English — I'll do my best to help!_ 🤖`;
     return { success: true, reply: msg };
   },
@@ -340,6 +342,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
         status:          'todo',
         source:          'whatsapp',
         reminders:       taskReminders,
+        description:     (slots.description && slots.description !== 'SKIP') ? slots.description.slice(0, 2000) : null,
       })
       .select()
       .single();
@@ -389,14 +392,23 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       };
     }
 
+    // status_filter: 'done' → show completed tasks; 'all' → show everything; default → active only
+    const statusFilter = (slots.status_filter as string | null)?.toLowerCase();
+    const showDone = statusFilter === 'done' || statusFilter === 'completed';
+
     let query = db
       .from('tasks')
       .select(`id, title, status, deadline, priority, assignee:users!tasks_assignee_id_fkey(full_name)`)
       .eq('organization_id', org_id)
-      .is('deleted_at', null)
-      .neq('status', 'done')
-      .order('deadline', { ascending: true, nullsFirst: false })
-      .limit(10);
+      .is('deleted_at', null);
+
+    if (showDone) {
+      query = (query as any).eq('status', 'done').order('completed_at', { ascending: false, nullsFirst: false });
+    } else {
+      query = (query as any).neq('status', 'done').neq('status', 'cancelled').order('deadline', { ascending: true, nullsFirst: false });
+    }
+
+    query = (query as any).limit(10);
 
     if (!isPrivileged || isSelfQuery) {
       // Employees always see only their own tasks.
@@ -446,6 +458,11 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     if (!tasks?.length) {
       const noTasksName = slots.assignee_name && isPrivileged && !isSelfQuery ? slots.assignee_name : null;
+      if (showDone) {
+        return { success: true, reply: noTasksName
+          ? `📋 No completed tasks found for *${noTasksName}*.`
+          : (lang === 'hi' ? `📋 कोई completed टास्क नहीं मिला।` : `📋 No completed tasks found.`) };
+      }
       return {
         success: true,
         reply: noTasksName
@@ -477,9 +494,12 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const headerName = slots.assignee_name && isPrivileged && !isSelfQuery
       ? (tasks as any[])[0]?.assignee?.full_name ?? slots.assignee_name
       : null;
-    const header = headerName
-      ? `📋 *${headerName}'s tasks:*`
-      : (lang === 'hi' ? `📋 *आपके टास्क:*` : `📋 *Your tasks:*`);
+    let header: string;
+    if (showDone) {
+      header = headerName ? `✅ *${headerName}'s completed tasks:*` : (lang === 'hi' ? `✅ *Completed Tasks:*` : `✅ *Completed Tasks:*`);
+    } else {
+      header = headerName ? `📋 *${headerName}'s tasks:*` : (lang === 'hi' ? `📋 *आपके टास्क:*` : `📋 *Your tasks:*`);
+    }
     lines.push(header);
 
     if (overdue.length > 0) {
@@ -1141,6 +1161,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
   async LIST_LEAVES({ org_id, user_id, user_role, slots }): Promise<ToolResult> {
     const db   = createAdminClient();
     const lang = (slots._lang as 'en' | 'hi') ?? 'en';
+    const isPrivileged = ['manager', 'hr', 'admin', 'super_admin'].includes(user_role);
 
     let query = db
       .from('leave_requests')
@@ -1150,7 +1171,26 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       .order('created_at', { ascending: false })
       .limit(6);
 
-    if (user_role === 'employee') query = query.eq('employee_id', user_id);
+    if (!isPrivileged) {
+      query = query.eq('employee_id', user_id);
+    } else if (slots.employee_name) {
+      // Manager filtering by a specific person
+      const { data: empRows } = await db.from('users').select('id, full_name')
+        .eq('organization_id', org_id).ilike('full_name', `%${slots.employee_name}%`).limit(5);
+      let empTarget: { id: string; full_name: string } | null = (empRows?.[0] as { id: string; full_name: string }) ?? null;
+      if (!empTarget) {
+        const { data: allU } = await db.from('users').select('id, full_name')
+          .eq('organization_id', org_id).eq('is_active', true).limit(50);
+        let bestScore = 0;
+        for (const u of (allU ?? []) as { id: string; full_name: string }[]) {
+          const score = Math.max(...[u.full_name, ...u.full_name.split(' ')].map(n => nameSimilarity(slots.employee_name!, n)));
+          if (score > bestScore) { bestScore = score; empTarget = u; }
+        }
+        if (bestScore < 0.65) return { success: false, reply: REPLIES.notFound(slots.employee_name!, lang) };
+      }
+      query = query.eq('employee_id', empTarget!.id);
+    }
+    // If privileged with no employee_name filter, show all org leaves
 
     const { data: requests } = await query;
 
@@ -1729,6 +1769,222 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
         ? `⏰ *Reminder preferences saved!*\n\n📋 Status: ${statusStr}\n🕐 Timing: ${offsetStr}`
         : `⏰ *Reminder preferences saved!*\n\n📋 Status: ${statusStr}\n🕐 Timing: ${offsetStr}`,
     };
+  },
+
+  // ── PENDING LEAVES — manager view of all awaiting approval ─────────────────
+
+  async PENDING_LEAVES({ org_id, user_id, user_role, slots }): Promise<ToolResult> {
+    const db   = createAdminClient();
+    const lang = (slots._lang as 'en' | 'hi') ?? 'en';
+
+    if (!['manager', 'hr', 'admin', 'super_admin'].includes(user_role)) {
+      return { success: false, reply: REPLIES.permissionDenied('view pending leaves', lang) };
+    }
+
+    const { data: requests } = await db
+      .from('leave_requests')
+      .select(`id, start_date, end_date, duration_days, reason, created_at,
+        leave_types(name), users!leave_requests_employee_id_fkey(id, full_name)`)
+      .eq('organization_id', org_id)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: true })
+      .limit(10);
+
+    if (!requests?.length) {
+      return { success: true, reply: lang === 'hi'
+        ? '✅ कोई pending leave request नहीं।'
+        : '✅ No pending leave requests at this time.' };
+    }
+
+    const lines = [lang === 'hi'
+      ? `⏳ *Pending Leave Requests (${requests.length}):*`
+      : `⏳ *Pending Leave Requests (${requests.length}):*`, ''];
+
+    (requests as any[]).forEach((r, i) => {
+      const empName = (r.users as any)?.full_name ?? 'Unknown';
+      lines.push(`${i + 1}. *${empName}* — ${(r.leave_types as any)?.name ?? 'Leave'}`);
+      lines.push(`   📆 ${formatDate(r.start_date)} → ${formatDate(r.end_date)} _(${r.duration_days}d)_`);
+      if (r.reason) lines.push(`   💬 ${r.reason}`);
+      lines.push(`   → "approve leave for ${empName}" / "reject leave for ${empName}"`);
+      lines.push('');
+    });
+
+    return { success: true, reply: lines.join('\n').trimEnd() };
+  },
+
+  // ── LIST LEAVE TYPES — show configured leave categories ─────────────────────
+
+  async LIST_LEAVE_TYPES({ org_id, slots }): Promise<ToolResult> {
+    const db   = createAdminClient();
+    const lang = (slots._lang as 'en' | 'hi') ?? 'en';
+
+    const { data: types } = await db
+      .from('leave_types')
+      .select('name, max_days_per_year, requires_approval, description')
+      .eq('organization_id', org_id)
+      .order('name');
+
+    if (!types?.length) {
+      return { success: true, reply: lang === 'hi'
+        ? '📋 कोई leave type कॉन्फ़िगर नहीं है। HR से संपर्क करें।'
+        : '📋 No leave types configured. Contact HR to set them up.' };
+    }
+
+    const lines = [lang === 'hi' ? '📋 *उपलब्ध Leave Types:*' : '📋 *Available Leave Types:*', ''];
+
+    (types as any[]).forEach((t, i) => {
+      const approvalStr = t.requires_approval
+        ? (lang === 'hi' ? '_(अनुमोदन जरूरी)_' : '_(requires approval)_')
+        : (lang === 'hi' ? '_(स्वतः स्वीकृत)_' : '_(auto-approved)_');
+      lines.push(`${i + 1}. *${t.name}* ${approvalStr}`);
+      if (t.max_days_per_year) lines.push(`   📊 Max: ${t.max_days_per_year} days/year`);
+      if (t.description) lines.push(`   💬 ${t.description}`);
+      lines.push('');
+    });
+
+    return { success: true, reply: lines.join('\n').trimEnd() };
+  },
+
+  // ── MY PROFILE — user's own info ────────────────────────────────────────────
+
+  async MY_PROFILE({ user_id, org_id, slots, user_name, user_role }): Promise<ToolResult> {
+    const db   = createAdminClient();
+    const lang = (slots._lang as 'en' | 'hi') ?? 'en';
+
+    const { data: u } = await db
+      .from('users')
+      .select('full_name, employee_id, department, designation, wa_number, role, manager_id, created_at, email')
+      .eq('id', user_id)
+      .single();
+
+    if (!u) return { success: false, reply: REPLIES.error(lang) };
+
+    let managerName: string | null = null;
+    if (u.manager_id) {
+      const { data: mgr } = await db.from('users').select('full_name').eq('id', u.manager_id).single();
+      managerName = mgr?.full_name ?? null;
+    }
+
+    const joinDate = u.created_at
+      ? new Date(u.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'long', year: 'numeric' })
+      : null;
+
+    const lines = [
+      lang === 'hi' ? '👤 *मेरी प्रोफ़ाइल:*' : '👤 *My Profile:*',
+      '',
+      `*Name:* ${u.full_name}`,
+      u.employee_id ? `*Employee ID:* ${u.employee_id}` : null,
+      `*Role:* ${u.role}`,
+      u.department ? `*Department:* ${u.department}` : null,
+      u.designation ? `*Designation:* ${u.designation}` : null,
+      managerName ? `*Manager:* ${managerName}` : null,
+      u.wa_number ? `*WhatsApp:* +${u.wa_number}` : null,
+      joinDate ? `*Joined:* ${joinDate}` : null,
+    ].filter(Boolean) as string[];
+
+    return { success: true, reply: lines.join('\n') };
+  },
+
+  // ── TASK STATS — quick task count breakdown ─────────────────────────────────
+
+  async TASK_STATS({ org_id, user_id, user_role, slots }): Promise<ToolResult> {
+    const db   = createAdminClient();
+    const lang = (slots._lang as 'en' | 'hi') ?? 'en';
+    const isPrivileged = ['manager', 'hr', 'admin', 'super_admin'].includes(user_role);
+    const today = todayISO();
+    const todayStartMs = new Date(`${today}T00:00:00+05:30`).getTime();
+    const todayEndMs   = todayStartMs + 86_400_000;
+
+    let baseQuery = db
+      .from('tasks')
+      .select('id, status, deadline')
+      .eq('organization_id', org_id)
+      .is('deleted_at', null);
+
+    if (!isPrivileged) baseQuery = baseQuery.eq('assignee_id', user_id);
+
+    const { data: tasks } = await baseQuery.limit(500);
+    if (!tasks) return { success: false, reply: REPLIES.error(lang) };
+
+    const all         = tasks as any[];
+    const active      = all.filter(t => !['done', 'cancelled'].includes(t.status));
+    const todo        = active.filter(t => t.status === 'todo');
+    const inProgress  = active.filter(t => t.status === 'in_progress');
+    const done        = all.filter(t => t.status === 'done');
+    const cancelled   = all.filter(t => t.status === 'cancelled');
+    const overdue     = active.filter(t => t.deadline && new Date(t.deadline).getTime() < todayStartMs);
+    const dueToday    = active.filter(t => {
+      if (!t.deadline) return false;
+      const ms = new Date(t.deadline).getTime();
+      return ms >= todayStartMs && ms < todayEndMs;
+    });
+
+    const scope = isPrivileged ? 'Team' : 'My';
+    const lines: string[] = [
+      lang === 'hi' ? `📊 *${isPrivileged ? 'टीम' : 'मेरे'} Task Stats:*` : `📊 *${scope} Task Stats:*`,
+      '',
+      `🔴 Overdue: *${overdue.length}*`,
+      `📅 Due Today: *${dueToday.length}*`,
+      `⏳ To Do: *${todo.length}*`,
+      `🔄 In Progress: *${inProgress.length}*`,
+      `✅ Completed: *${done.length}*`,
+      ...(cancelled.length > 0 ? [`❌ Cancelled: *${cancelled.length}*`] : []),
+      '',
+      `📋 *Active Total: ${active.length}*`,
+    ];
+
+    return { success: true, reply: lines.join('\n') };
+  },
+
+  // ── ADD TASK NOTE — add/replace description on an existing task ──────────────
+
+  async ADD_TASK_NOTE({ slots, org_id, user_id, user_role }): Promise<ToolResult> {
+    const db   = createAdminClient();
+    const lang = (slots._lang as 'en' | 'hi') ?? 'en';
+
+    const rawNote = slots.note ?? slots.description ?? '';
+    if (!rawNote) {
+      return { success: false, reply: lang === 'hi'
+        ? '❌ Note/description का text बताएं।'
+        : '❌ Please provide the note or description to add.' };
+    }
+    const note = rawNote.slice(0, 2000);
+
+    let query = db
+      .from('tasks')
+      .select('id, title, assignee_id')
+      .eq('organization_id', org_id)
+      .ilike('title', `%${slots.title}%`)
+      .is('deleted_at', null)
+      .limit(3);
+
+    if (user_role === 'employee') query = query.eq('assignee_id', user_id);
+
+    const { data: tasks } = await query;
+
+    if ((tasks?.length ?? 0) > 1) {
+      const titles = (tasks as any[]).map(t => `· *${t.title}*`).join('\n');
+      return { success: false, reply: lang === 'hi'
+        ? `"${slots.title}" से मेल खाते कई tasks हैं:\n${titles}\n\nकृपया पूरा task नाम बताएं।`
+        : `Multiple tasks match *"${slots.title}"*:\n${titles}\n\nPlease use the full task name.` };
+    }
+
+    const task = (tasks as any[])?.[0];
+    if (!task) return { success: false, reply: REPLIES.taskNotFound(slots.title!, lang) };
+
+    await db.from('tasks')
+      .update({ description: note, updated_at: new Date().toISOString() })
+      .eq('id', task.id);
+
+    await writeAuditLog({
+      org_id, actor_id: user_id, actor_type: 'user',
+      action: 'ADD_TASK_NOTE', table_name: 'tasks',
+      record_id: task.id, new_data: { description: note }, source: 'whatsapp',
+    });
+
+    return { success: true, reply: lang === 'hi'
+      ? `✅ *"${task.title}"* में note जोड़ा गया।`
+      : `✅ Note added to *"${task.title}"* successfully.` };
   },
 
   async ONBOARDING_STATUS({ slots, org_id, user_role, user_id }): Promise<ToolResult> {

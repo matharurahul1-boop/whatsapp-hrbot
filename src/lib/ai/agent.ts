@@ -1475,7 +1475,7 @@ async function runGroqLoop(
     const dlFmt = `${parseInt(d)} ${MON[parseInt(mo)-1]} ${y}, ${hh > 12 ? hh-12 : hh || 12}:${mn} ${hh >= 12 ? 'PM' : 'AM'} IST`;
 
     if (dpCtx.origin === 'EDITING' && dpCtx.edit_base) {
-      const merged = { ...dpCtx.edit_base, deadline };
+      const merged: Record<string, string> = { ...dpCtx.edit_base, deadline };
       const displayAssignee = merged.assignee ?? '';
       const who    = displayAssignee ? `*${displayAssignee}*` : '*you*';
       const priLow = (merged.priority ?? '').toLowerCase();

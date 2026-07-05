@@ -302,8 +302,8 @@ function parseConfirmationMessage(lastMsg: string): ConfirmationParsed | null {
   const assignM = lastMsg.match(/assign\s+\*([^*]+)\*\s+to\s+\*([^*]+)\*/i);
   if (assignM) return { tool: 'assign_task', args: { task_title: assignM[1].trim(), assignee: assignM[2].trim() } };
 
-  // UPDATE_TASK — "update *Title* — set *field* to *value*[ and *field2* to *value2*]"
-  const updateM = lastMsg.match(/update\s+\*([^*]+)\*[\s—–\-]+set\s+(?:\*([^*]+)\*|(?:its\s+)?(\w+))\s+to\s+\*([^*]+)\*(?:\s+and\s+\*([^*]+)\*\s+to\s+\*([^*]+)\*)?/i);
+  // UPDATE_TASK — "update *Title* — set [its] *field* / field to *value*"
+  const updateM = lastMsg.match(/update\s+\*([^*]+)\*[\s—–\-]+set\s+(?:its\s+)?(?:\*([^*]+)\*|(\w+))\s+to\s+\*([^*]+)\*(?:\s+and\s+\*([^*]+)\*\s+to\s+\*([^*]+)\*)?/i);
   if (updateM) {
     const args: Record<string, string> = {
       task_title:   updateM[1].trim(),
@@ -1189,9 +1189,11 @@ export async function runMasterAgent(
     if (sentM) {
       const [, fieldType, taskTitle] = sentM;
       const humanMsg =
-        fieldType === 'priority' ? `What priority for *${taskTitle}*?`
-      : fieldType === 'status'   ? `What status should *${taskTitle}* be set to?`
-      : fieldType === 'assignee' ? `Who should *${taskTitle}* be assigned to?`
+        fieldType === 'priority'      ? `What priority for *${taskTitle}*?`
+      : fieldType === 'status'        ? `What status should *${taskTitle}* be set to?`
+      : fieldType === 'assignee'      ? `Who should *${taskTitle}* be assigned to?`
+      : fieldType === 'deadline_date' ? `Picking deadline date for *${taskTitle}*`
+      : fieldType === 'deadline_time' ? `Picking deadline time for *${taskTitle}*`
       : finalReply;
       await saveMessage(conversation_id, orgId, 'assistant', 'outbound', humanMsg, { latency_ms: Date.now() - start }).catch(() => {});
       return { reply: finalReply, new_context: EMPTY_CONTEXT, debug: { latency_ms: Date.now() - start } };

@@ -6,7 +6,7 @@ import { loadSession, saveMessage, saveContext } from './memory';
 import { sendText }            from '@/lib/whatsapp/client';
 import { parseDeadlineString, formatDateTime } from '@/lib/utils/date';
 import { EMPTY_CONTEXT }       from './types';
-import type { AgentTurn, AgentUser, ConversationContext } from './types';
+import type { AgentTurn, AgentUser, ConversationContext, SupportedLanguage, ToolResult } from './types';
 import { normalizeCommandText, quickTaskListArgs, resolveTaskListPronoun } from './routing';
 
 // ── AI backend ────────────────────────────────────────────────────────────────
@@ -1280,6 +1280,44 @@ export async function runMasterAgent(
   }
 }
 
+// Resolve a person's name against the real list_tasks tool and produce a
+// deterministic (never model-generated) next prompt, used by the
+// "update <name>'s task" bypass and its RESOLVING_TASK_OWNER continuation.
+// Keeping this templated — rather than letting Groq phrase the follow-up —
+// avoids both fabricated task data and stray/garbled model output, and it
+// reuses the exact "What would you like to update on *X*?" wording that the
+// existing field-selection shortcut (0c above) already knows how to parse
+// out of the next turn's history.
+async function resolveTaskOwnerForUpdate(
+  personName:     string,
+  user:           AgentUser,
+  orgId:          string,
+  conversationId: string,
+  language:       SupportedLanguage,
+): Promise<string> {
+  const result = await dispatchToolResult('list_tasks', { assignee_name: personName }, user, orgId);
+  const tasks = (result.data?.tasks as Array<{ title: string }> | undefined) ?? [];
+
+  if (!result.success || tasks.length === 0) {
+    // Still ambiguous ("Multiple people match ...") → stay in this state so the
+    // next message is treated as a (hopefully more specific) name. Any other
+    // outcome (no user found / no tasks) has nothing left to continue.
+    const stillAmbiguous = /^Multiple people match \*/.test(result.reply);
+    await saveContext(conversationId, {
+      ...EMPTY_CONTEXT,
+      language,
+      flow_state: stillAmbiguous ? 'RESOLVING_TASK_OWNER' : 'IDLE',
+    }).catch(() => {});
+    return result.reply;
+  }
+
+  await saveContext(conversationId, { ...EMPTY_CONTEXT, language }).catch(() => {});
+  if (tasks.length === 1) {
+    return `What would you like to update on *${tasks[0].title}*?\n\nYou can change: deadline / priority / assignee / status / title`;
+  }
+  return `${result.reply}\n\nReply with the task title you'd like to update.`;
+}
+
 // ─── Gemini tool-use loop ─────────────────────────────────────────────────────
 
 async function runGroqLoop(
@@ -1313,6 +1351,16 @@ async function runGroqLoop(
     }
     ctxRef.handled = true;
     return '📅 Please type the custom date, for example: *15 Jul 2026*.';
+  }
+
+  // ── 0a. RESOLVING_TASK_OWNER state — user is answering a "which Tushar?" prompt ─
+  // Set by resolveTaskOwnerForUpdate() below when "update <name>'s task" matched
+  // more than one person. Treat this reply as the full name and re-resolve,
+  // rather than letting Groq free-generate a response to a bare name.
+  if (context.flow_state === 'RESOLVING_TASK_OWNER') {
+    const personName = message.trim();
+    console.log(`[Agent] Resolving ambiguous task-owner name: "${personName}"`);
+    return resolveTaskOwnerForUpdate(personName, user, orgId, conversationId, context.language);
   }
 
   // ── 0. EDITING state — merge user correction with base create_task payload ──
@@ -1821,8 +1869,7 @@ async function runGroqLoop(
     const personName = normalizeCommandText(message).match(UPDATE_PERSON_RE)?.[1]?.trim();
     if (personName && !/^(?:the\s+)?same$/i.test(personName)) {
       console.log(`[Agent] Update-person bypass: resolving real tasks for "${personName}"`);
-      const reply = await dispatchTool('list_tasks', { assignee_name: personName }, user, orgId);
-      return /^📋 \*/.test(reply) ? `${reply}\n\nReply with the task title you'd like to update.` : reply;
+      return resolveTaskOwnerForUpdate(personName, user, orgId, conversationId, context.language);
     }
   }
 
@@ -2421,10 +2468,28 @@ async function dispatchTool(
   user:     AgentUser,
   orgId:    string,
 ): Promise<string> {
+  const result = await dispatchToolResult(toolName, input, user, orgId);
+  // WhatsApp hard limit: 4096 chars. Truncate gracefully.
+  const reply = result.reply;
+  if (reply.length > 4000) {
+    return reply.slice(0, 3940) + '\n\n_…response shortened. Please narrow the request for more detail._';
+  }
+  return reply;
+}
+
+// Structured variant of dispatchTool used by internal orchestration (e.g. the
+// "update <name>'s task" bypass) that needs to inspect the tool's actual data
+// (like the resolved task list) rather than just the formatted WhatsApp text.
+async function dispatchToolResult(
+  toolName: string,
+  input:    Record<string, string>,
+  user:     AgentUser,
+  orgId:    string,
+): Promise<ToolResult> {
   const intent = INTENT_MAP[toolName];
   if (!intent) {
     console.error(`[Tool] Unknown tool requested: ${toolName}`);
-    return '❌ I could not match that request to a supported action. Please try again.';
+    return { success: false, reply: '❌ I could not match that request to a supported action. Please try again.' };
   }
 
   try {
@@ -2475,15 +2540,10 @@ async function dispatchTool(
       sendUserNotifications(result.notify, orgId).catch(err => console.warn('[Agent] Notify failed:', err));
     }
 
-    // WhatsApp hard limit: 4096 chars. Truncate gracefully.
-    const reply = result.reply;
-    if (reply.length > 4000) {
-      return reply.slice(0, 3940) + '\n\n_…response shortened. Please narrow the request for more detail._';
-    }
-    return reply;
+    return result;
   } catch (err) {
     console.error(`[Tool] ${toolName} failed:`, err);
-    return '❌ Something went wrong with that action. Please try again.';
+    return { success: false, reply: '❌ Something went wrong with that action. Please try again.' };
   }
 }
 

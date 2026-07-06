@@ -528,7 +528,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       lines.push(lang === 'hi' ? `_टास्क पूरा करने के लिए: "टास्क का नाम complete किया"_` : `_To complete: "mark [task name] complete"_`);
     }
 
-    return { success: true, reply: lines.join('\n') };
+    return { success: true, reply: lines.join('\n'), data: { tasks: (tasks as any[]).map(t => ({ id: t.id, title: t.title })) } };
   },
 
   async COMPLETE_TASK({ slots, org_id, user_id, user_name, user_role }): Promise<ToolResult> {

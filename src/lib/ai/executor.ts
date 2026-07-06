@@ -49,6 +49,14 @@ function priorityEmoji(p: string | null): string {
   return map[p.toLowerCase()] ?? '⚪';
 }
 
+function statusLabel(s: string | null): string {
+  const map: Record<string, string> = {
+    todo: 'To Do', pending: 'To Do', in_progress: 'In Progress',
+    done: 'Done', completed: 'Done', cancelled: 'Cancelled',
+  };
+  return map[(s ?? '').toLowerCase()] ?? (s ?? '');
+}
+
 // Normalized edit-distance similarity. Unlike sorted-character overlap, this
 // does not treat unrelated anagrams as the same employee.
 function nameSimilarity(a: string, b: string): number {
@@ -479,7 +487,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
         due = ` — ${d.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}`;
       }
       const assignee = (wantsAll || !!slots.assignee_name) && t.assignee?.full_name ? ` _(${t.assignee.full_name})_` : '';
-      return `${i + 1}. ${pEmoji} *${t.title}*${due}${assignee}`;
+      return `${i + 1}. ${pEmoji} *${t.title}*${due}${assignee} · ${statusLabel(t.status)}`;
     };
 
     const lines: string[] = [];

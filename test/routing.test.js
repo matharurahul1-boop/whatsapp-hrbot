@@ -18,6 +18,8 @@ test('routes self, team, person, typo, and completed task-list requests', () => 
   assert.deepEqual(routing.quickTaskListArgs('show tasks'), { assignee_name: 'mine' });
   assert.deepEqual(routing.quickTaskListArgs('list all tasks'), { scope: 'all' });
   assert.deepEqual(routing.quickTaskListArgs('list of all tasks'), { scope: 'all' });
+  assert.deepEqual(routing.quickTaskListArgs('list of entire tasks'), { scope: 'all' });
+  assert.deepEqual(routing.quickTaskListArgs('show whole task list'), { scope: 'all' });
   assert.deepEqual(routing.quickTaskListArgs('show team tasks'), { scope: 'all' });
   assert.deepEqual(routing.quickTaskListArgs("List of mahima's tasks"), { assignee_name: 'mahima' });
   assert.deepEqual(routing.quickTaskListArgs('show Prnay tasks'), { assignee_name: 'Prnay' });
@@ -55,6 +57,6 @@ test('"give me list of his task" resolves to the person named earlier, not the c
       { role: 'user', content: 'Tushar bali' },
       { role: 'assistant', content: 'Sure! Which task of Tushar Bali would you like to update? Please tell me the task title.' },
     ]),
-    { assignee_name: 'tushar' },
+    { assignee_name: 'Tushar Bali' },
   );
 });

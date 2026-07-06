@@ -41,6 +41,7 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
   }
 
   const args: Record<string, string> = {};
+  const isAllScope = /\b(all|entire|whole|team|everyone|everybody|organisation|organization|company)\b/i.test(t);
   if (/\b(completed|done|finished)\b/i.test(t)) args.status_filter = 'done';
   if (/\b(my|mine|me)\b/i.test(t)) {
     args.assignee_name = 'mine';
@@ -66,6 +67,13 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
       break;
     }
   }
+  // Phrases such as "entire tasks" and "whole task list" describe scope,
+  // never an employee called "entire" or "whole".
+  if (isAllScope) {
+    delete args.assignee_name;
+    args.scope = 'all';
+    return args;
+  }
   // Generic requests such as "list of tasks" always mean the caller's own
   // tasks. Expand scope only when the user explicitly asks for all/team tasks.
   if (!args.assignee_name && !/\b(all|team|everyone|everybody|organisation|organization|company)\b/i.test(t)) {
@@ -85,6 +93,7 @@ export function resolveTaskListPronoun(
 
   const patterns = [
     /\bbelonging\s+to\s+\*?([\p{L}][\p{L} .'-]{0,50}?)\*?\s+would\b/iu,
+    /\bwhich\s+tasks?\s+of\s+\*?([\p{L}][\p{L} .'-]{0,50}?)\*?\s+would\b/iu,
     /\b(?:update|change|edit|show|list)\s+(?:of\s+)?([\p{L}][\p{L} .'-]{0,50}?)[’']s\s+tasks?\b/iu,
     /\*([^*]+?)[’']s\s+tasks?\b/iu,
   ];

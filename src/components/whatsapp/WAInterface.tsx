@@ -876,7 +876,7 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium truncate" style={{ color: '#E9EDEF' }}>{convo.name}</span>
-                      <span className="text-xs shrink-0 ml-2" style={{ color: convo.unread > 0 ? '#00A884' : '#8696A0' }}>{convo.lastTime}</span>
+                      <span className="text-xs shrink-0 ml-2" style={{ color: '#8696A0' }}>{convo.lastTime}</span>
                     </div>
                     <div className="flex items-center justify-between mt-0.5">
                       <p className="text-xs truncate flex-1 flex items-center gap-1" style={{ color: '#8696A0' }}>
@@ -885,12 +885,6 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
                         )}
                         <span className="truncate">{convo.lastMessage}</span>
                       </p>
-                      {convo.unread > 0 && (
-                        <span className="ml-2 shrink-0 flex items-center justify-center rounded-full text-xs font-semibold"
-                          style={{ background: '#00A884', color: '#111B21', minWidth: 20, height: 20, padding: '0 6px' }}>
-                          {convo.unread}
-                        </span>
-                      )}
                     </div>
                   </div>
                 </div>

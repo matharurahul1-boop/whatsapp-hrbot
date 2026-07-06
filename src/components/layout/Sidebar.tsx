@@ -184,7 +184,7 @@ export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: s
               <div key={item.href} className="group relative flex justify-center">
                 <Link
                   href={item.href}
-                  onClick={() => startNavigation(item.href)}
+                  onClick={e => { if (active) e.preventDefault(); else startNavigation(item.href); }}
                   className={cn(
                     'relative flex items-center justify-center h-10 w-10 rounded-xl transition-all duration-150',
                     active ? 'bg-surface-200/80' : 'hover:bg-surface-200/40',
@@ -206,7 +206,7 @@ export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: s
             <Link
               key={item.href}
               href={item.href}
-              onClick={() => startNavigation(item.href)}
+              onClick={e => { if (active) e.preventDefault(); else startNavigation(item.href); }}
               className={cn(
                 'relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150',
                 active
@@ -235,7 +235,7 @@ export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: s
           <div className="group relative flex justify-center">
             <Link
               href="/settings"
-              onClick={() => startNavigation('/settings')}
+              onClick={e => { if (settingsActive) e.preventDefault(); else startNavigation('/settings'); }}
               className={cn(
                 'relative flex items-center justify-center h-10 w-10 rounded-xl transition-all duration-150',
                 settingsActive ? 'bg-surface-200/80' : 'hover:bg-surface-200/40',
@@ -255,7 +255,7 @@ export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: s
           <>
             <Link
               href="/settings"
-              onClick={() => startNavigation('/settings')}
+              onClick={e => { if (settingsActive) e.preventDefault(); else startNavigation('/settings'); }}
               className={cn(
                 'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150',
                 settingsActive

@@ -56,6 +56,7 @@ interface Task {
   description: string | null;
   reminders:   string[] | null;
   assignee:    { id: string; full_name: string; avatar_url: string | null } | null;
+  creator:     { id: string; full_name: string; avatar_url: string | null } | null;
   created_by:  string;
 }
 
@@ -231,7 +232,7 @@ function ListRow({
         )}
       </div>
 
-      {/* Assignee */}
+      {/* Assigned To */}
       <div className="hidden sm:flex items-center gap-1.5 w-32 shrink-0">
         {task.assignee ? (
           <>
@@ -240,6 +241,18 @@ function ListRow({
           </>
         ) : (
           <span className="text-xs text-surface-400 italic">Unassigned</span>
+        )}
+      </div>
+
+      {/* Assigned By */}
+      <div className="hidden md:flex items-center gap-1.5 w-32 shrink-0">
+        {task.creator ? (
+          <>
+            <Avatar src={task.creator.avatar_url} name={task.creator.full_name} size="xs" />
+            <span className="text-xs text-surface-600 truncate">{task.creator.full_name.split(' ')[0]}</span>
+          </>
+        ) : (
+          <span className="text-xs text-surface-400">—</span>
         )}
       </div>
 
@@ -505,7 +518,8 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
           <div className="flex items-center gap-3 px-4 py-2.5 bg-surface-200/60 border-b border-surface-300/50">
             <div className="w-5 shrink-0" />
             <div className="flex-1 text-2xs font-semibold text-surface-500 uppercase tracking-wider">Task</div>
-            <div className="hidden sm:block  w-32 shrink-0 text-2xs font-semibold text-surface-500 uppercase tracking-wider">Assignee</div>
+            <div className="hidden sm:block  w-32 shrink-0 text-2xs font-semibold text-surface-500 uppercase tracking-wider">Assigned To</div>
+            <div className="hidden md:block  w-32 shrink-0 text-2xs font-semibold text-surface-500 uppercase tracking-wider">Assigned By</div>
             <div className="hidden md:block  w-20 shrink-0 text-2xs font-semibold text-surface-500 uppercase tracking-wider">Priority</div>
             <div className="hidden lg:block  w-28 shrink-0 text-2xs font-semibold text-surface-500 uppercase tracking-wider">Status</div>
             <div className="hidden md:block  w-28 shrink-0 text-2xs font-semibold text-surface-500 uppercase tracking-wider text-right">Deadline</div>

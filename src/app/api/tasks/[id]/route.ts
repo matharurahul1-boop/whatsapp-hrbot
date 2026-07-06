@@ -46,7 +46,7 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
   const { data: profile } = await db.from('users').select('organization_id, role').eq('id', user.id).single();
   if (!profile) return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
   if (task.organization_id !== profile.organization_id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  if (isEmployee(profile.role) && task.assignee_id !== user.id && task.created_by !== user.id) {
+  if (isEmployee(profile.role) && task.assignee_id !== user.id && task.created_by !== user.id && task.updated_by !== user.id) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -87,7 +87,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   const { data: updated, error } = await db
     .from('tasks')
-    .update({ ...updateData, updated_at: new Date().toISOString() })
+    .update({ ...updateData, updated_at: new Date().toISOString(), updated_by: user.id })
     .eq('id', id)
     .select()
     .single();

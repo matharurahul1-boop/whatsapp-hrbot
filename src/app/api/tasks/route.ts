@@ -51,11 +51,11 @@ export async function GET(req: NextRequest) {
   if (status)   query = query.eq('status', status);
   if (priority) query = query.eq('priority', priority);
 
-  // Employees only ever see tasks assigned to or created by themselves,
-  // regardless of what assignee_id filter is requested. Everyone else
-  // (manager/hr/admin/super_admin) sees the whole organization.
+  // Employees only ever see tasks assigned to them, created by them, or last
+  // updated by them, regardless of what assignee_id filter is requested.
+  // Everyone else (manager/hr/admin/super_admin) sees the whole organization.
   if (isEmployee(profile.role)) {
-    query = query.or(`assignee_id.eq.${user.id},created_by.eq.${user.id}`);
+    query = query.or(`assignee_id.eq.${user.id},created_by.eq.${user.id},updated_by.eq.${user.id}`);
   } else if (assignee) {
     query = query.eq('assignee_id', assignee);
   }

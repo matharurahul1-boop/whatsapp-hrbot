@@ -42,7 +42,7 @@ export default async function RecentTasks({
   // Employees only see their own upcoming tasks here; everyone else sees
   // the whole organization's, matching the Tasks page's scoping.
   if (isEmployee(role)) {
-    query = query.or(`assignee_id.eq.${userId},created_by.eq.${userId}`);
+    query = query.or(`assignee_id.eq.${userId},created_by.eq.${userId},updated_by.eq.${userId}`);
   }
 
   const { data: tasks } = await query;

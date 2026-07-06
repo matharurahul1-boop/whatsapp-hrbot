@@ -54,7 +54,7 @@ export default async function DashboardPage() {
   if (!isAdmin) {
     const [myTasks, myAtt, myLeave] = await Promise.all([
       db.from('tasks').select('status', { count: 'exact', head: false })
-        .or(`assignee_id.eq.${user.id},created_by.eq.${user.id}`)
+        .or(`assignee_id.eq.${user.id},created_by.eq.${user.id},updated_by.eq.${user.id}`)
         .is('deleted_at', null),
       db.from('attendance_records').select('status')
         .eq('employee_id', user.id).eq('date', today).single(),

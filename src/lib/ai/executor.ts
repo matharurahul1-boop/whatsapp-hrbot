@@ -591,7 +591,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     const { data: completed, error: completeError } = await db
       .from('tasks')
-      .update({ status: 'done', completed_at: new Date().toISOString() })
+      .update({ status: 'done', completed_at: new Date().toISOString(), updated_by: user_id })
       .eq('id', task.id)
       .neq('status', 'done')
       .is('deleted_at', null)
@@ -672,7 +672,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     // Fetch updated task details for the notification
     const { data: fullTask } = await db.from('tasks').select('priority, deadline').eq('id', task.id).single() as any;
     const { data: assigned, error: assignError } = await db.from('tasks')
-      .update({ assignee_id: found.id, updated_at: new Date().toISOString() })
+      .update({ assignee_id: found.id, updated_at: new Date().toISOString(), updated_by: user_id })
       .eq('id', task.id).is('deleted_at', null).select('id').maybeSingle();
     if (assignError) throw assignError;
     if (!assigned) return { success: false, reply: '⚠️ That task changed or was deleted. Please refresh your task list.' };
@@ -728,7 +728,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     const deletedAt = new Date().toISOString();
     const { data: deleted, error: deleteError } = await db.from('tasks')
-      .update({ deleted_at: deletedAt })
+      .update({ deleted_at: deletedAt, updated_by: user_id })
       .eq('id', task.id).is('deleted_at', null).select('id').maybeSingle();
     if (deleteError) throw deleteError;
     if (!deleted) return { success: false, reply: '⚠️ That task was already deleted or changed. Please refresh your task list.' };
@@ -886,6 +886,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     }
 
     patch.updated_at = new Date().toISOString();
+    patch.updated_by = user_id;
     const { data: updatedTask, error: updateError } = await db.from('tasks')
       .update(patch).eq('id', task.id).is('deleted_at', null).select('id').maybeSingle();
     if (updateError) throw updateError;
@@ -2153,7 +2154,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     if (!task) return { success: false, reply: REPLIES.taskNotFound(slots.title!, lang) };
 
     const { data: noted, error: noteError } = await db.from('tasks')
-      .update({ description: note, updated_at: new Date().toISOString() })
+      .update({ description: note, updated_at: new Date().toISOString(), updated_by: user_id })
       .eq('id', task.id).is('deleted_at', null).select('id').maybeSingle();
     if (noteError) throw noteError;
     if (!noted) return { success: false, reply: '⚠️ That task changed or was deleted. Please refresh your task list.' };

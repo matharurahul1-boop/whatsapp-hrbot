@@ -29,17 +29,19 @@ export default async function TasksPage() {
     .from('tasks')
     .select(`
       id, title, description, status, priority, deadline, reminders, created_by,
-      assignee:users!tasks_assignee_id_fkey(id, full_name, avatar_url)
+      assignee:users!tasks_assignee_id_fkey(id, full_name, avatar_url),
+      creator:users!tasks_created_by_fkey(id, full_name, avatar_url)
     `)
     .eq('organization_id', orgId)
     .is('deleted_at', null)
     .order('created_at', { ascending: false })
     .limit(100);
 
-  // Employees only ever see tasks assigned to or created by themselves;
-  // everyone else (manager/hr/admin/super_admin) sees the whole organization.
+  // Employees only ever see tasks assigned to them, created by them, or last
+  // updated by them; everyone else (manager/hr/admin/super_admin) sees the
+  // whole organization.
   if (isEmployee(role)) {
-    taskQuery = taskQuery.or(`assignee_id.eq.${user.id},created_by.eq.${user.id}`);
+    taskQuery = taskQuery.or(`assignee_id.eq.${user.id},created_by.eq.${user.id},updated_by.eq.${user.id}`);
   }
 
   const [tasksRes, empRes] = await Promise.all([

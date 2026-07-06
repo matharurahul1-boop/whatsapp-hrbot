@@ -1,21 +1,10 @@
 import Link from 'next/link';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { formatDate } from '@/lib/utils/date';
-import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
-import { StatusBadge } from '@/components/ui/Badge';
+import { Card, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Avatar } from '@/components/ui/Avatar';
 import { ArrowRight, AlertCircle } from 'lucide-react';
-import { cn } from '@/lib/utils/cn';
-import { ExpandText } from '@/components/ui/ExpandText';
 import { isEmployee } from '@/lib/rbac';
-
-const PRIORITY_COLORS: Record<string, string> = {
-  urgent: 'bg-danger shadow-[0_0_6px_0_rgba(239,68,68,0.4)]',
-  high:   'bg-warning',
-  medium: 'bg-info',
-  low:    'bg-surface-500',
-};
+import RecentTasksList from './RecentTasksList';
 
 export default async function RecentTasks({
   orgId,
@@ -30,8 +19,9 @@ export default async function RecentTasks({
   let query = db
     .from('tasks')
     .select(`
-      id, title, status, priority, deadline,
-      assignee:users!tasks_assignee_id_fkey(id, full_name, avatar_url)
+      id, title, description, status, priority, deadline,
+      assignee:users!tasks_assignee_id_fkey(id, full_name, avatar_url),
+      creator:users!tasks_created_by_fkey(id, full_name, avatar_url)
     `)
     .eq('organization_id', orgId)
     .is('deleted_at', null)
@@ -67,33 +57,7 @@ export default async function RecentTasks({
           <p className="empty-state-desc">All caught up! Create a new task to get started.</p>
         </div>
       ) : (
-        <ul className="divide-y divide-surface-300/40">
-          {tasks.map(t => {
-            const assignee = t.assignee as { id?: string; full_name?: string; avatar_url?: string } | null;
-            const overdue  = t.deadline && new Date(t.deadline) < new Date();
-            return (
-              <li key={t.id} className="task-row px-3 py-3 hover:bg-surface-200/30 transition-colors">
-                <span className={cn('h-2 w-2 rounded-full', PRIORITY_COLORS[t.priority] ?? 'bg-surface-500')} />
-                <div className="min-w-0">
-                  <ExpandText className="text-sm font-medium text-surface-900 block">{t.title}</ExpandText>
-                  {t.deadline ? (
-                    <p className={cn('text-xs mt-0.5 truncate', overdue ? 'text-danger font-medium' : 'text-surface-600')}>
-                      {overdue ? '⚠ Overdue · ' : ''}{formatDate(t.deadline)}
-                    </p>
-                  ) : (
-                    <p className="text-xs text-surface-500 mt-0.5 truncate">No deadline</p>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  {assignee && (
-                    <Avatar src={assignee.avatar_url} name={assignee.full_name} size="xs" />
-                  )}
-                  <StatusBadge status={t.status} />
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+        <RecentTasksList tasks={tasks as unknown as Parameters<typeof RecentTasksList>[0]['tasks']} />
       )}
     </Card>
   );

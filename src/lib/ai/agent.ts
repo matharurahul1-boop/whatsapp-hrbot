@@ -51,7 +51,18 @@ const GROQ_KEYS = [
   process.env.GROQ_API_KEY_10,
 ].map(k => k?.trim()).filter((k): k is string => Boolean(k));
 const groqClients  = GROQ_KEYS.map(k => new Groq({ apiKey: k }));
-let   groqKeyIndex = 0; // round-robins across serverless warm instances
+
+// Fisher-Yates shuffle — used to pick a random key order per request so load
+// spreads randomly across all configured keys, and a 429/failure falls back
+// to a random remaining key rather than the next one in a fixed sequence.
+function shuffledIndices(n: number): number[] {
+  const arr = Array.from({ length: n }, (_, i) => i);
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY ?? '' });
 const genAI     = new GoogleGenerativeAI(process.env.GEMINI_API_KEY ?? '');
 const openai    = new OpenAI({
@@ -2283,14 +2294,14 @@ async function runGroqLoop(
       { role: 'user', content: effectiveMessage },
     ];
 
-    // Advance global index BEFORE any await so parallel requests on the same warm
-    // instance read different starting positions (eliminates read-after-write races).
-    const startIdx = groqKeyIndex;
-    groqKeyIndex   = (startIdx + 1) % (groqClients.length || 1);
+    // Random key order per request — spreads load randomly across all
+    // configured keys, and a 429/failure falls back to a random remaining
+    // key rather than a fixed next-in-sequence one.
+    const keyOrder = shuffledIndices(groqClients.length);
 
-    // Try each Groq key in rotation; on 429 move to the next key
+    // Try each Groq key in random order; on 429 move to another random key
     for (let keyTry = 0; keyTry < groqClients.length; keyTry++) {
-      const clientIdx = (startIdx + keyTry) % groqClients.length;
+      const clientIdx = keyOrder[keyTry];
       const client    = groqClients[clientIdx];
 
       try {

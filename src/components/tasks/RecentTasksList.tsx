@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { formatDate, formatDateTime } from '@/lib/utils/date';
 import { StatusBadge } from '@/components/ui/Badge';
 import { Avatar } from '@/components/ui/Avatar';
@@ -41,6 +41,15 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
 
 export default function RecentTasksList({ tasks }: { tasks: Task[] }) {
   const [selected, setSelected] = useState<Task | null>(null);
+
+  // Multiple independent Radix Dialogs live on this dashboard page (this one
+  // + the Recent Activity detail modal). Radix's controlled-dialog close can
+  // occasionally leave `pointer-events: none` stuck on <body>, which makes
+  // every subsequent click (including opening another dialog) silently do
+  // nothing. Explicitly clear it whenever this dialog closes.
+  useEffect(() => {
+    if (!selected) document.body.style.pointerEvents = '';
+  }, [selected]);
 
   return (
     <>

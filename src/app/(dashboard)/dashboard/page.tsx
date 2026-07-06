@@ -122,7 +122,9 @@ export default async function DashboardPage() {
           <StatCard label="Completed"      value={personalStats.doneTasks}    icon={<TrendingUp  className="h-4 w-4" />} color="success" />
           <StatCard
             label="Today"
-            value={personalStats.todayStatus ? personalStats.todayStatus.replace('_', ' ') : 'Not checked in'}
+            value={personalStats.todayStatus
+              ? personalStats.todayStatus.replace('_', ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
+              : 'Not checked in'}
             icon={<Clock className="h-4 w-4" />}
             color={personalStats.todayStatus === 'present' ? 'success' : personalStats.todayStatus === 'absent' ? 'danger' : 'warning'}
           />

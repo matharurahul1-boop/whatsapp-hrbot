@@ -747,7 +747,16 @@ async function handleAudioFlow(
       pending_slot:       field,
     }).catch(() => {});
 
-    await sendText(from, fieldPrompt(field), orgId).catch(() => {});
+    // Priority and assignee are constrained choices — reuse the same
+    // interactive list/button pickers the update-task flow already has,
+    // instead of asking the user to type a free-text answer.
+    const fieldKey = field.toLowerCase().replace(/_/g, ' ');
+    const sentinelFieldType = fieldKey === 'priority' ? 'priority' : fieldKey === 'assign to' ? 'assignee' : null;
+    if (sentinelFieldType) {
+      await sendAgentReply(from, `[[SHOW_OPTIONS:${sentinelFieldType}:this task]]`, orgId).catch(() => {});
+    } else {
+      await sendText(from, fieldPrompt(field), orgId).catch(() => {});
+    }
     return true;
   }
 

@@ -375,7 +375,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     const notify = assignedTo !== user_id ? [{
       user_id: assignedTo,
-      message: NOTIFICATIONS.taskAssigned('your colleague', slots.title!, deadlineISO),
+      message: NOTIFICATIONS.taskAssigned(user_name || 'your colleague', slots.title!, deadlineISO),
     }] : [];
 
     if (assignedTo !== user_id) {

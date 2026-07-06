@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import TaskKanban from '@/components/tasks/TaskKanban';
 import CreateTaskModal from '@/components/tasks/CreateTaskModal';
 import RefreshButton from '@/components/ui/RefreshButton';
+import { isEmployee } from '@/lib/rbac';
 
 export const metadata = { title: 'Tasks — HRBot' };
 export const revalidate = 0;
@@ -24,7 +25,7 @@ export default async function TasksPage() {
   const { organization_id: orgId, role } = profile;
 
   // Fetch tasks + employees in parallel
-  const taskQuery = db
+  let taskQuery = db
     .from('tasks')
     .select(`
       id, title, description, status, priority, deadline, reminders, created_by,
@@ -34,6 +35,12 @@ export default async function TasksPage() {
     .is('deleted_at', null)
     .order('created_at', { ascending: false })
     .limit(100);
+
+  // Employees only ever see tasks assigned to or created by themselves;
+  // everyone else (manager/hr/admin/super_admin) sees the whole organization.
+  if (isEmployee(role)) {
+    taskQuery = taskQuery.or(`assignee_id.eq.${user.id},created_by.eq.${user.id}`);
+  }
 
   const [tasksRes, empRes] = await Promise.all([
     taskQuery,

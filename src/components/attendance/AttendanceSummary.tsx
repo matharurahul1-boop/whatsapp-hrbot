@@ -2,12 +2,13 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Avatar } from '@/components/ui/Avatar';
 import { StatusBadge } from '@/components/ui/Badge';
+import { isEmployee } from '@/lib/rbac';
 
-export default async function AttendanceSummary({ orgId }: { orgId: string }) {
+export default async function AttendanceSummary({ orgId, userId, role }: { orgId: string; userId: string; role: string }) {
   const db    = createAdminClient();
   const today = new Date().toISOString().split('T')[0];
 
-  const { data: records } = await db
+  let query = db
     .from('attendance_records')
     .select(`
       id, status, check_in_time, check_out_time,
@@ -17,6 +18,12 @@ export default async function AttendanceSummary({ orgId }: { orgId: string }) {
     .eq('date', today)
     .order('check_in_time', { ascending: false })
     .limit(8);
+
+  // Employees see only their own attendance status here; everyone else sees
+  // the whole organization's, matching the Attendance page's scoping.
+  if (isEmployee(role)) query = query.eq('employee_id', userId);
+
+  const { data: records } = await query;
 
   const present = records?.filter(r => ['present','late'].includes(r.status)).length ?? 0;
   const absent  = records?.filter(r => r.status === 'absent').length ?? 0;

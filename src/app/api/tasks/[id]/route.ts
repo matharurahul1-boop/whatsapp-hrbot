@@ -4,6 +4,7 @@ import { createAdminClient }  from '@/lib/supabase/admin';
 import { writeAuditLog }      from '@/lib/utils/audit';
 import { notifyTaskAssigned, notifyTaskCompleted } from '@/lib/whatsapp/notify';
 import { scheduleTaskReminders } from '@/lib/tasks/scheduleReminders';
+import { isEmployee } from '@/lib/rbac';
 import { z } from 'zod';
 
 const UpdateTaskSchema = z.object({
@@ -45,6 +46,9 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
   const { data: profile } = await db.from('users').select('organization_id, role').eq('id', user.id).single();
   if (!profile) return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
   if (task.organization_id !== profile.organization_id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  if (isEmployee(profile.role) && task.assignee_id !== user.id && task.created_by !== user.id) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
 
   return NextResponse.json({ data: task });
 }

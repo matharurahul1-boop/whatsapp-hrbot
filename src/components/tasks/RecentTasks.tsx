@@ -8,6 +8,7 @@ import { Avatar } from '@/components/ui/Avatar';
 import { ArrowRight, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import { ExpandText } from '@/components/ui/ExpandText';
+import { isEmployee } from '@/lib/rbac';
 
 const PRIORITY_COLORS: Record<string, string> = {
   urgent: 'bg-danger shadow-[0_0_6px_0_rgba(239,68,68,0.4)]',
@@ -18,13 +19,15 @@ const PRIORITY_COLORS: Record<string, string> = {
 
 export default async function RecentTasks({
   orgId,
+  userId,
+  role,
 }: {
   orgId:  string;
   userId: string;
   role:   string;
 }) {
   const db = createAdminClient();
-  const query = db
+  let query = db
     .from('tasks')
     .select(`
       id, title, status, priority, deadline,
@@ -35,6 +38,12 @@ export default async function RecentTasks({
     .not('status', 'in', '("done","cancelled")')
     .order('deadline', { ascending: true, nullsFirst: false })
     .limit(6);
+
+  // Employees only see their own upcoming tasks here; everyone else sees
+  // the whole organization's, matching the Tasks page's scoping.
+  if (isEmployee(role)) {
+    query = query.or(`assignee_id.eq.${userId},created_by.eq.${userId}`);
+  }
 
   const { data: tasks } = await query;
 

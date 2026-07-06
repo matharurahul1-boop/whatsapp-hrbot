@@ -3,7 +3,7 @@ import { createClient }    from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { writeAuditLog }   from '@/lib/utils/audit';
 import { todayISO, istNow } from '@/lib/utils/date';
-import { isHrOrAbove, isManagerOrAbove } from '@/lib/rbac';
+import { isHrOrAbove, isEmployee } from '@/lib/rbac';
 import { z } from 'zod';
 
 // ── Self check-in (employees, managers, everyone) ─────────────────────────────
@@ -32,9 +32,8 @@ const EditRecordSchema = z.object({
 });
 
 // GET /api/attendance
-// employee  → own records only
-// manager   → their direct reports + self
-// hr/admin  → entire org
+// employee            → own records only
+// manager/hr/admin/+  → entire org
 export async function GET(req: NextRequest) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -66,28 +65,9 @@ export async function GET(req: NextRequest) {
     .order('check_in_time', { ascending: false })
     .range(offset, offset + limit - 1);
 
-  if (isHrOrAbove(profile.role)) {
-    // HR+ see everyone; optional filter by employee_id
+  if (!isEmployee(profile.role)) {
+    // Manager/HR/admin/super_admin: see everyone; optional filter by employee_id
     if (employeeId) query = query.eq('employee_id', employeeId);
-  } else if (isManagerOrAbove(profile.role)) {
-    // Manager: own records + direct reports
-    if (employeeId) {
-      // Verify the requested employee is their direct report
-      const { data: report } = await db
-        .from('users').select('id')
-        .eq('id', employeeId).eq('manager_id', user.id).maybeSingle();
-      if (!report) {
-        return NextResponse.json({ error: 'Forbidden — not your direct report' }, { status: 403 });
-      }
-      query = query.eq('employee_id', employeeId);
-    } else {
-      // All direct reports + self
-      const { data: reports } = await db
-        .from('users').select('id')
-        .eq('manager_id', user.id).eq('organization_id', profile.organization_id);
-      const ids = [user.id, ...(reports ?? []).map((r: any) => r.id)];
-      query = query.in('employee_id', ids);
-    }
   } else {
     // Employee: own records only
     query = query.eq('employee_id', user.id);

@@ -4,6 +4,7 @@ import { createAdminClient }  from '@/lib/supabase/admin';
 import { writeAuditLog }      from '@/lib/utils/audit';
 import { notifyTaskAssigned } from '@/lib/whatsapp/notify';
 import { scheduleTaskReminders } from '@/lib/tasks/scheduleReminders';
+import { isEmployee } from '@/lib/rbac';
 import { z } from 'zod';
 
 const CreateTaskSchema = z.object({
@@ -50,7 +51,14 @@ export async function GET(req: NextRequest) {
   if (status)   query = query.eq('status', status);
   if (priority) query = query.eq('priority', priority);
 
-  if (assignee) query = query.eq('assignee_id', assignee);
+  // Employees only ever see tasks assigned to or created by themselves,
+  // regardless of what assignee_id filter is requested. Everyone else
+  // (manager/hr/admin/super_admin) sees the whole organization.
+  if (isEmployee(profile.role)) {
+    query = query.or(`assignee_id.eq.${user.id},created_by.eq.${user.id}`);
+  } else if (assignee) {
+    query = query.eq('assignee_id', assignee);
+  }
 
   const { data, error, count } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

@@ -3,7 +3,7 @@ import { createClient }         from '@/lib/supabase/server';
 import { createAdminClient }    from '@/lib/supabase/admin';
 import { writeAuditLog }        from '@/lib/utils/audit';
 import { notifyLeaveSubmitted, notifyLeaveCancelled } from '@/lib/whatsapp/notify';
-import { isHrOrAbove, isManager } from '@/lib/rbac';
+import { isHrOrAbove, isEmployee } from '@/lib/rbac';
 import { z } from 'zod';
 
 const ApplyLeaveSchema = z.object({
@@ -49,17 +49,9 @@ export async function GET(req: NextRequest) {
 
   if (status)     query = query.eq('status', status);
 
-  // Employees see only their own requests
-  if (profile.role === 'employee') {
+  // Employees see only their own requests; everyone else sees the whole org.
+  if (isEmployee(profile.role)) {
     query = query.eq('employee_id', user.id);
-  } else if (isManager(profile.role)) {
-    const { data: reports } = await db.from('users').select('id')
-      .eq('organization_id', profile.organization_id).eq('manager_id', user.id);
-    const allowedIds = [user.id, ...(reports ?? []).map(r => r.id)];
-    if (employeeId && !allowedIds.includes(employeeId)) {
-      return NextResponse.json({ error: 'Managers can only view their direct reports' }, { status: 403 });
-    }
-    query = employeeId ? query.eq('employee_id', employeeId) : query.in('employee_id', allowedIds);
   } else if (employeeId) {
     query = query.eq('employee_id', employeeId);
   }

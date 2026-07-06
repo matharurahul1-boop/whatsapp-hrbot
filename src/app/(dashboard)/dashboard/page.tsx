@@ -161,11 +161,11 @@ export default async function DashboardPage() {
         {/* Right column */}
         <div className="space-y-6">
           <Suspense fallback={<SkeletonCard className="h-48" />}>
-            <AttendanceSummary orgId={orgId} />
+            <AttendanceSummary orgId={orgId} userId={user.id} role={profile.role} />
           </Suspense>
 
           <Suspense fallback={<SkeletonCard className="h-64" />}>
-            <ActivityFeed orgId={orgId} />
+            <ActivityFeed orgId={orgId} userId={user.id} role={profile.role} />
           </Suspense>
         </div>
       </div>

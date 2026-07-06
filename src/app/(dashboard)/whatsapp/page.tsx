@@ -36,7 +36,7 @@ export default async function WhatsAppLogsPage() {
 
   // Normalize the user's wa_number (remove +, spaces, dashes)
   const userWaNumber = normalizeWa(profile.wa_number);
-  const canViewOrganizationChats = ['super_admin', 'admin', 'hr'].includes(profile.role);
+  const canViewOrganizationChats = profile.role !== 'employee';
 
   // No wa_number linked → show empty state with Meta number prompt
   if (!userWaNumber && !canViewOrganizationChats) {

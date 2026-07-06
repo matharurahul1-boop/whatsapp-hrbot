@@ -3,9 +3,12 @@ import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Avatar } from '@/components/ui/Avatar';
 import { StatusBadge } from '@/components/ui/Badge';
 import { CheckSquare, Calendar, Clock, UserPlus } from 'lucide-react';
+import { isEmployee } from '@/lib/rbac';
 
 interface ActivityFeedProps {
-  orgId: string;
+  orgId:  string;
+  userId: string;
+  role:   string;
 }
 
 const ACTION_ICONS: Record<string, React.ReactNode> = {
@@ -26,9 +29,9 @@ function timeAgo(dateStr: string) {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-export default async function ActivityFeed({ orgId }: ActivityFeedProps) {
+export default async function ActivityFeed({ orgId, userId, role }: ActivityFeedProps) {
   const db = createAdminClient();
-  const { data: logs } = await db
+  let query = db
     .from('audit_logs')
     .select(`
       id, action, table_name, new_data, created_at,
@@ -37,6 +40,12 @@ export default async function ActivityFeed({ orgId }: ActivityFeedProps) {
     .eq('organization_id', orgId)
     .order('created_at', { ascending: false })
     .limit(12);
+
+  // Employees only see their own activity; everyone else sees the whole
+  // organization's, matching the rest of the dashboard's scoping.
+  if (isEmployee(role)) query = query.eq('actor_id', userId);
+
+  const { data: logs } = await query;
 
   if (!logs || logs.length === 0) {
     return (

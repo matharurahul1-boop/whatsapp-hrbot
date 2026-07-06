@@ -1,12 +1,11 @@
 import { NextResponse } from 'next/server';
 import { createClient }    from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { isHrOrAbove, isManager } from '@/lib/rbac';
+import { isEmployee } from '@/lib/rbac';
 
 // GET /api/dashboard/kpis
-// employee  → own personal stats
-// manager   → team stats (direct reports) + own
-// hr/admin  → full org KPIs with charts
+// employee            → own personal stats
+// manager/hr/admin/+  → full org KPIs with charts
 export async function GET() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -17,11 +16,10 @@ export async function GET() {
     .from('users').select('organization_id, role').eq('id', user.id).single();
   if (!profile) return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
 
-  const today = new Date().toISOString().slice(0, 10);
   const monthAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
 
-  // ── HR / Admin: full org KPIs ──────────────────────────────────────────────
-  if (isHrOrAbove(profile.role)) {
+  // ── Manager / HR / Admin / Super Admin: full org KPIs ──────────────────────
+  if (!isEmployee(profile.role)) {
     const { data: kpis, error } = await db.rpc('get_org_kpis', { p_org_id: profile.organization_id });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
@@ -35,47 +33,6 @@ export async function GET() {
       kpis:               kpis?.[0] ?? null,
       task_trend:         taskTrend ?? [],
       attendance_heatmap: heatmap ?? [],
-    });
-  }
-
-  // ── Manager: team-level stats ──────────────────────────────────────────────
-  if (isManager(profile.role)) {
-    // Get all direct reports
-    const { data: reports } = await db
-      .from('users').select('id')
-      .eq('manager_id', user.id).eq('organization_id', profile.organization_id).eq('is_active', true);
-
-    const teamIds = [user.id, ...(reports ?? []).map((r: any) => r.id)];
-
-    const [tasksRes, attendanceRes, leaveRes] = await Promise.all([
-      db.from('tasks')
-        .select('id, status, deadline, priority', { count: 'exact', head: false })
-        .in('assignee_id', teamIds)
-        .is('deleted_at', null),
-      db.from('attendance_records')
-        .select('employee_id, status')
-        .in('employee_id', teamIds)
-        .eq('date', today),
-      db.from('leave_requests')
-        .select('id, status')
-        .in('employee_id', teamIds)
-        .eq('status', 'pending'),
-    ]);
-
-    const tasks = tasksRes.data ?? [];
-    const attendance = attendanceRes.data ?? [];
-    const now = new Date().toISOString().slice(0, 10);
-
-    return NextResponse.json({
-      scope:             'team',
-      team_size:         teamIds.length,
-      open_tasks:        tasks.filter(t => !['done', 'cancelled'].includes(t.status)).length,
-      completed_tasks:   tasks.filter(t => t.status === 'done').length,
-      overdue_tasks:     tasks.filter(t => t.deadline && t.deadline < now && !['done', 'cancelled'].includes(t.status)).length,
-      present_today:     attendance.filter(a => ['present', 'late'].includes(a.status)).length,
-      absent_today:      teamIds.length - attendance.filter(a => ['present', 'late', 'on_leave'].includes(a.status)).length,
-      on_leave_today:    attendance.filter(a => a.status === 'on_leave').length,
-      pending_leave:     leaveRes.data?.length ?? 0,
     });
   }
 

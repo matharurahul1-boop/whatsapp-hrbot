@@ -24,7 +24,7 @@ export default async function TasksPage() {
   const { organization_id: orgId, role } = profile;
 
   // Fetch tasks + employees in parallel
-  let taskQuery = db
+  const taskQuery = db
     .from('tasks')
     .select(`
       id, title, description, status, priority, deadline, reminders, created_by,
@@ -34,10 +34,6 @@ export default async function TasksPage() {
     .is('deleted_at', null)
     .order('created_at', { ascending: false })
     .limit(100);
-
-  if (role === 'employee') {
-    taskQuery = taskQuery.eq('assignee_id', user.id);
-  }
 
   const [tasksRes, empRes] = await Promise.all([
     taskQuery,
@@ -51,8 +47,6 @@ export default async function TasksPage() {
 
   const tasks     = (tasksRes.data ?? []) as unknown as Parameters<typeof TaskKanban>[0]['tasks'];
   const employees = empRes.data ?? [];
-
-  const isManager = ['super_admin', 'admin', 'hr', 'manager'].includes(role);
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto animate-fade-up">

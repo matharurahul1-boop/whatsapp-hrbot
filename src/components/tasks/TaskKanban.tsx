@@ -165,8 +165,8 @@ function EmployeeDropdown({
 
 /* ── Inline list-row quick toggle (mirrors TaskCard quickToggle) ── */
 function ListRow({
-  task, canEdit, employees, onStatusChange,
-}: { task: Task; canEdit: boolean; employees: Employee[]; onStatusChange: (id: string, status: string) => void }) {
+  task, canEdit, canDelete, employees, onStatusChange,
+}: { task: Task; canEdit: boolean; canDelete: boolean; employees: Employee[]; onStatusChange: (id: string, status: string) => void }) {
   const [status,   setStatus]   = useState<TaskStatus>(task.status as TaskStatus);
   const [updating, setUpdating] = useState(false);
 
@@ -273,7 +273,7 @@ function ListRow({
       {/* Edit via TaskCard — rendered invisible, triggered by wrapper */}
       {canEdit && (
         <div className="shrink-0">
-          <TaskCard task={task} canEdit={canEdit} employees={employees} listMode />
+          <TaskCard task={task} canEdit={canEdit} canDelete={canDelete} employees={employees} listMode />
         </div>
       )}
     </div>
@@ -298,12 +298,8 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
     router.refresh();
   }
 
-  const isManager = ['super_admin', 'admin', 'hr', 'manager'].includes(userRole);
-
-  const canEdit = (t: Task) =>
-    ['super_admin','admin','hr','manager'].includes(userRole) ||
-    t.assignee?.id === userId ||
-    t.created_by === userId;
+  const canEdit = (_t: Task) => true;
+  const canDelete = userRole !== 'employee';
 
   const now = new Date();
   const overdueCount = localTasks.filter(t =>
@@ -387,7 +383,7 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
         </div>
 
         {/* Employee dropdown — managers only */}
-        {isManager && employees.length > 0 && (
+        {employees.length > 0 && (
           <EmployeeDropdown employees={employees} value={assigneeFilter} onChange={setAssigneeFilter} />
         )}
 
@@ -493,7 +489,7 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
                       No tasks
                     </div>
                   ) : cards.map(task => (
-                    <TaskCard key={task.id} task={task} canEdit={canEdit(task)} employees={employees} onStatusChange={updateTaskStatus} />
+                    <TaskCard key={task.id} task={task} canEdit={canEdit(task)} canDelete={canDelete} employees={employees} onStatusChange={updateTaskStatus} />
                   ))}
                 </div>
               </div>
@@ -537,6 +533,7 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
                       key={task.id}
                       task={task}
                       canEdit={canEdit(task)}
+                      canDelete={canDelete}
                       employees={employees}
                       onStatusChange={updateTaskStatus}
                     />

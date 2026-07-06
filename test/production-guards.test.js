@@ -47,3 +47,12 @@ test('task-list requests use the deterministic fast path and reasoning leaks are
   assert.match(source, /the user \(\?:says\|wrote\|typed/);
   assert.match(read('src/app/api/webhooks/whatsapp/route.ts'), /looksLikeInternalReasoning/);
 });
+
+test('task permissions allow organization-wide view/create/update but block employee deletion', () => {
+  const executor = read('src/lib/ai/executor.ts');
+  const taskApi = read('src/app/api/tasks/[id]/route.ts');
+  assert.match(executor, /user_role === 'employee'[\s\S]{0,120}Employees cannot delete tasks/);
+  assert.doesNotMatch(executor, /Employees can only create tasks for themselves/);
+  assert.doesNotMatch(executor, /Employees can only update a task's status/);
+  assert.match(taskApi, /profile\.role === 'employee'[\s\S]{0,120}Employees cannot delete tasks/);
+});

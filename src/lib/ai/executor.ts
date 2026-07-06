@@ -80,11 +80,6 @@ async function managerTeamIds(orgId: string, managerId: string): Promise<string[
   return (data ?? []).map(row => row.id);
 }
 
-function managerTaskScope(teamIds: string[], managerId: string): string {
-  const assignees = [managerId, ...teamIds].join(',');
-  return `assignee_id.in.(${assignees}),created_by.eq.${managerId}`;
-}
-
 // ─── Tool Map ─────────────────────────────────────────────────────────────────
 
 const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolResult>>> = {
@@ -238,31 +233,21 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     // Treat any self-referential word as "assign to self" (Groq may pass "me", "myself", "you", "mine" etc.)
     const ASSIGNEE_SELF_RE = /^(me|myself|mine|my|i|you|yourself|self|own)$/i;
     if (slots.assignee && !ASSIGNEE_SELF_RE.test(slots.assignee.trim())) {
-      // RBAC: employees can only create tasks for themselves via bot
-      if (user_role === 'employee') {
-        return {
-          success: false,
-          reply: lang === 'hi'
-            ? `❌ Employees केवल अपने लिए task बना सकते हैं। Task किसी और को assign करने के लिए dashboard उपयोग करें।`
-            : `❌ Employees can only create tasks for themselves. Use the dashboard to assign tasks to others.`,
-        };
-      }
-
       // 1. Exact substring match
       const { data: ilikeRow } = await db
-        .from('users').select('id, full_name, manager_id')
+        .from('users').select('id, full_name')
         .eq('organization_id', org_id).eq('is_active', true)
         .ilike('full_name', `%${slots.assignee}%`).limit(1).maybeSingle();
 
-      let resolvedUser: { id: string; full_name: string; manager_id?: string | null } | null = (ilikeRow as { id: string; full_name: string; manager_id?: string | null } | null) ?? null;
+      let resolvedUser: { id: string; full_name: string } | null = (ilikeRow as { id: string; full_name: string } | null) ?? null;
 
       // 2. Fuzzy fallback for typos / partial names
       if (!resolvedUser) {
         const { data: allActive } = await db
-          .from('users').select('id, full_name, manager_id')
+          .from('users').select('id, full_name')
           .eq('organization_id', org_id).eq('is_active', true).limit(50);
         let bestScore = 0;
-        for (const u of (allActive ?? []) as { id: string; full_name: string; manager_id?: string | null }[]) {
+        for (const u of (allActive ?? []) as { id: string; full_name: string }[]) {
           const scores = [u.full_name, ...u.full_name.split(' ')]
             .map(n => nameSimilarity(slots.assignee!, n));
           const score = Math.max(...scores);
@@ -277,10 +262,6 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
               : `❌ No active user found matching *${slots.assignee}*.\n\nAvailable:\n${names}`,
           };
         }
-      }
-
-      if (user_role === 'manager' && resolvedUser!.id !== user_id && resolvedUser!.manager_id !== user_id) {
-        return { success: false, reply: '🚫 Managers can only create tasks for themselves or their direct reports.' };
       }
 
       assignedTo   = resolvedUser!.id;
@@ -397,22 +378,12 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const db    = createAdminClient();
     const lang  = (slots._lang as 'en' | 'hi') ?? 'en';
     const today = todayISO();
-    const isPrivileged = ['manager', 'hr', 'admin', 'super_admin'].includes(user_role);
 
     // Normalize self-referential assignee_name words that Groq sometimes passes.
     // Covers: mine/my/me/myself/i/own/self/your (all mean "show the caller's own tasks")
     const SELF_NAME_RE = /^(mine|my|me|myself|i|own|self|your)$/i;
     const isSelfQuery = !!slots.assignee_name && SELF_NAME_RE.test(slots.assignee_name.trim());
-
-    // Employees cannot list another person's tasks
-    if (!isPrivileged && slots.assignee_name && !isSelfQuery) {
-      return {
-        success: false,
-        reply: lang === 'hi'
-          ? `🚫 आपके पास दूसरों के टास्क देखने की अनुमति नहीं है। अपने टास्क देखने के लिए *my tasks* टाइप करें।`
-          : `🚫 You don't have permission to view other people's tasks. Type *my tasks* to see your own.`,
-      };
-    }
+    const wantsAll = slots.scope === 'all';
 
     // status_filter: 'done' → show completed tasks; 'all' → show everything; default → active only
     const statusFilter = (slots.status_filter as string | null)?.toLowerCase();
@@ -431,11 +402,9 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     }
 
     query = (query as any).limit(10);
-    const teamIds = user_role === 'manager' ? await managerTeamIds(org_id, user_id) : [];
 
-    if (!isPrivileged || isSelfQuery) {
-      // Employees always see only their own tasks.
-      // Privileged users using self-referential words ("mine", "my", "me") also get own tasks.
+    if (isSelfQuery || (!slots.assignee_name && !wantsAll)) {
+      // Generic task lists default to the caller. Named/all requests expand scope.
       query = query.eq('assignee_id', user_id);
     } else if (slots.assignee_name) {
       // Manager/admin filtering by a specific person
@@ -477,20 +446,15 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
           };
         }
       }
-      if (user_role === 'manager' && target!.id !== user_id && !teamIds.includes(target!.id)) {
-        return { success: false, reply: '🚫 Managers can only view tasks for themselves or their direct reports.' };
-      }
       query = query.eq('assignee_id', target!.id);
-    } else if (user_role === 'manager') {
-      query = query.or(managerTaskScope(teamIds, user_id));
     }
-    // else: privileged user with no filter → show all org tasks
+    // Explicit all/team requests show all organization tasks for every role.
 
     const { data: tasks, error: taskListError } = await query;
     if (taskListError) throw taskListError;
 
     if (!tasks?.length) {
-      const noTasksName = slots.assignee_name && isPrivileged && !isSelfQuery ? slots.assignee_name : null;
+      const noTasksName = slots.assignee_name && !isSelfQuery ? slots.assignee_name : null;
       if (showDone) {
         return { success: true, reply: noTasksName
           ? `📋 No completed tasks found for *${noTasksName}*.`
@@ -514,12 +478,12 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
         const d = new Date(t.deadline);
         due = ` — ${d.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}`;
       }
-      const assignee = user_role !== 'employee' && t.assignee?.full_name ? ` _(${t.assignee.full_name})_` : '';
+      const assignee = (wantsAll || !!slots.assignee_name) && t.assignee?.full_name ? ` _(${t.assignee.full_name})_` : '';
       return `${i + 1}. ${pEmoji} *${t.title}*${due}${assignee}`;
     };
 
     const lines: string[] = [];
-    const headerName = slots.assignee_name && isPrivileged && !isSelfQuery
+    const headerName = slots.assignee_name && !isSelfQuery
       ? (tasks as any[])[0]?.assignee?.full_name ?? slots.assignee_name
       : null;
 
@@ -528,13 +492,17 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       // (bucketing by deadline makes no sense for already-done tasks)
       const header = headerName
         ? `✅ *${headerName}'s completed tasks (${tasks.length}):*`
-        : (lang === 'hi' ? `✅ *Completed Tasks (${tasks.length}):*` : `✅ *Completed Tasks (${tasks.length}):*`);
+        : wantsAll
+          ? `✅ *${user_role === 'manager' ? 'Team' : 'All'} completed tasks (${tasks.length}):*`
+          : `✅ *Your completed tasks (${tasks.length}):*`;
       lines.push(header, '');
       (tasks as any[]).forEach((t, i) => lines.push(formatTask(t, i)));
     } else {
       const header = headerName
         ? `📋 *${headerName}'s tasks:*`
-        : (lang === 'hi' ? `📋 *आपके टास्क:*` : `📋 *Your tasks:*`);
+        : wantsAll
+          ? (user_role === 'manager' ? '📋 *Team tasks:*' : '📋 *All tasks:*')
+          : (lang === 'hi' ? `📋 *आपके टास्क:*` : `📋 *Your tasks:*`);
       lines.push(header);
 
       const overdue  = (tasks as any[]).filter((t) => t.deadline && new Date(t.deadline).getTime() < todayStartMs);
@@ -566,9 +534,8 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
   async COMPLETE_TASK({ slots, org_id, user_id, user_name, user_role }): Promise<ToolResult> {
     const db   = createAdminClient();
     const lang = (slots._lang as 'en' | 'hi') ?? 'en';
-    const isPrivileged = ['manager', 'hr', 'admin', 'super_admin'].includes(user_role);
 
-    let query = db
+    const query = db
       .from('tasks')
       .select('id, title, created_by, status')
       .eq('organization_id', org_id)
@@ -576,9 +543,6 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       .is('deleted_at', null)
       .neq('status', 'done')
       .limit(3);
-
-    if (!isPrivileged) query = query.eq('assignee_id', user_id);
-    else if (user_role === 'manager') query = query.or(managerTaskScope(await managerTeamIds(org_id, user_id), user_id));
 
     const { data: tasks, error: completeLookupError } = await query;
     if (completeLookupError) throw completeLookupError;
@@ -636,19 +600,12 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const db   = createAdminClient();
     const lang = (slots._lang as 'en' | 'hi') ?? 'en';
 
-    // RBAC: only manager+ can assign tasks to others via bot
-    if (!['manager', 'hr', 'admin', 'super_admin'].includes(user_role)) {
-      return { success: false, reply: REPLIES.permissionDenied('assign tasks to others', lang) };
-    }
-
-    let taskQuery = db
+    const taskQuery = db
       .from('tasks')
       .select('id, title')
       .eq('organization_id', org_id)
       .ilike('title', `%${slots.title}%`)
       .is('deleted_at', null);
-    const managerTeam = user_role === 'manager' ? await managerTeamIds(org_id, user_id) : [];
-    if (user_role === 'manager') taskQuery = taskQuery.or(managerTaskScope(managerTeam, user_id));
     const { data: taskRows } = await taskQuery.limit(3);
 
     if ((taskRows?.length ?? 0) > 1) {
@@ -663,7 +620,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     if (!task) return { success: false, reply: REPLIES.taskNotFound(slots.title!, lang) };
 
     const { data: foundRows } = await db
-      .from('users').select('id, full_name, manager_id')
+      .from('users').select('id, full_name')
       .eq('organization_id', org_id)
       .eq('is_active', true)
       .ilike('full_name', `%${slots.assignee}%`)
@@ -689,10 +646,6 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
           : `❌ *${slots.assignee}* not found.\n\nAvailable assignees:\n${names}`,
       };
     }
-    if (user_role === 'manager' && found.id !== user_id && found.manager_id !== user_id) {
-      return { success: false, reply: '🚫 Managers can only assign tasks to themselves or direct reports.' };
-    }
-
     // Fetch updated task details for the notification
     const { data: fullTask } = await db.from('tasks').select('priority, deadline').eq('id', task.id).single() as any;
     const { data: assigned, error: assignError } = await db.from('tasks')
@@ -724,18 +677,17 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
   async DELETE_TASK({ slots, org_id, user_id, user_role }): Promise<ToolResult> {
     const db   = createAdminClient();
     const lang = (slots._lang as 'en' | 'hi') ?? 'en';
-    const isPrivileged = ['manager', 'hr', 'admin', 'super_admin'].includes(user_role);
+    if (user_role === 'employee') {
+      return { success: false, reply: '🚫 Employees cannot delete tasks.' };
+    }
 
-    let query = db
+    const query = db
       .from('tasks')
       .select('id, title, assignee_id')
       .eq('organization_id', org_id)
       .ilike('title', `%${slots.title}%`)
       .is('deleted_at', null)
       .limit(3);
-
-    if (!isPrivileged) query = query.eq('created_by', user_id);
-    else if (user_role === 'manager') query = query.or(managerTaskScope(await managerTeamIds(org_id, user_id), user_id));
 
     const { data: tasks, error: deleteLookupError } = await query;
     if (deleteLookupError) throw deleteLookupError;
@@ -800,16 +752,13 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
         : `❌ What would you like to update on *${taskTitle}*?\n\nYou can change: deadline / priority / assignee / status / title` };
     }
 
-    let query = db
+    const query = db
       .from('tasks')
       .select('id, title, assignee_id')
       .eq('organization_id', org_id)
       .ilike('title', `%${taskTitle}%`)
       .is('deleted_at', null)
       .limit(3);
-
-    if (user_role === 'employee') query = query.eq('assignee_id', user_id);
-    else if (user_role === 'manager') query = query.or(managerTaskScope(await managerTeamIds(org_id, user_id), user_id));
 
     const { data: tasks, error: updateLookupError } = await query;
     if (updateLookupError) throw updateLookupError;
@@ -869,7 +818,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
         if (mapped === 'done') patch.completed_at = new Date().toISOString();
       } else if (f === 'assignee') {
         const { data: foundRows } = await db
-          .from('users').select('id, full_name, manager_id')
+          .from('users').select('id, full_name')
           .eq('organization_id', org_id).eq('is_active', true).is('deleted_at', null).ilike('full_name', `%${value}%`).limit(5);
         const found = foundRows?.[0] ?? null;
         if ((foundRows?.length ?? 0) > 1) {
@@ -885,9 +834,6 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
             ? `❌ *${value}* नहीं मिला।\n\nउपलब्ध assignees:\n${names}`
             : `❌ *${value}* not found.\n\nAvailable assignees:\n${names}`;
         }
-        if (user_role === 'manager' && found.id !== user_id && found.manager_id !== user_id) {
-          return '🚫 Managers can only assign tasks to themselves or direct reports.';
-        }
         patch.assignee_id = found.id;
         updatedAssigneeId = found.id;
       } else {
@@ -899,14 +845,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       return null;
     };
 
-    // RBAC: employees can only change status
     const field = slots.update_field?.toLowerCase().trim();
-    if (user_role === 'employee' && field && field !== 'status') {
-      return { success: false, reply: lang === 'hi'
-        ? `❌ Employees केवल task का status बदल सकते हैं।`
-        : `❌ Employees can only update a task's status. Ask your manager to change priority, deadline, or assignee.`
-      };
-    }
 
     const errMsg1 = await applyField(slots.update_field ?? undefined, slots.update_value?.trim() ?? '');
     if (errMsg1) return { success: false, reply: errMsg1 };
@@ -1066,7 +1005,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
         : '❌ Which task would you like details for? Please provide the task name.' };
     }
 
-    let query = db
+    const query = db
       .from('tasks')
       .select(`id, title, status, deadline, priority, description,
         assignee:users!tasks_assignee_id_fkey(full_name),
@@ -1075,9 +1014,6 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       .ilike('title', `%${slots.title}%`)
       .is('deleted_at', null)
       .limit(1);
-
-    if (user_role === 'employee') query = query.eq('assignee_id', user_id);
-    else if (user_role === 'manager') query = query.or(managerTaskScope(await managerTeamIds(org_id, user_id), user_id));
 
     const { data: tasks, error: detailLookupError } = await query;
     if (detailLookupError) throw detailLookupError;
@@ -2107,19 +2043,15 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
   async TASK_STATS({ org_id, user_id, user_role, slots }): Promise<ToolResult> {
     const db   = createAdminClient();
     const lang = (slots._lang as 'en' | 'hi') ?? 'en';
-    const isPrivileged = ['manager', 'hr', 'admin', 'super_admin'].includes(user_role);
     const today = todayISO();
     const todayStartMs = new Date(`${today}T00:00:00+05:30`).getTime();
     const todayEndMs   = todayStartMs + 86_400_000;
 
-    let baseQuery = db
+    const baseQuery = db
       .from('tasks')
       .select('id, status, deadline')
       .eq('organization_id', org_id)
       .is('deleted_at', null);
-
-    if (!isPrivileged) baseQuery = baseQuery.eq('assignee_id', user_id);
-    else if (user_role === 'manager') baseQuery = baseQuery.or(managerTaskScope(await managerTeamIds(org_id, user_id), user_id));
 
     const { data: tasks } = await baseQuery.limit(1000);
     if (!tasks) return { success: false, reply: REPLIES.error(lang) };
@@ -2138,9 +2070,9 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       return ms >= todayStartMs && ms < todayEndMs;
     });
 
-    const scope = isPrivileged ? 'Team' : 'My';
+    const scope = 'Organization';
     const lines: string[] = [
-      lang === 'hi' ? `📊 *${isPrivileged ? 'टीम' : 'मेरे'} Task Stats:*` : `📊 *${scope} Task Stats:*`,
+      lang === 'hi' ? `📊 *Organization Task Stats:*` : `📊 *${scope} Task Stats:*`,
       '',
       `🔴 Overdue: *${overdue.length}*`,
       `📅 Due Today: *${dueToday.length}*`,
@@ -2176,16 +2108,13 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     }
     const note = rawNote.slice(0, 2000);
 
-    let query = db
+    const query = db
       .from('tasks')
       .select('id, title, assignee_id')
       .eq('organization_id', org_id)
       .ilike('title', `%${slots.title}%`)
       .is('deleted_at', null)
       .limit(3);
-
-    if (user_role === 'employee') query = query.eq('assignee_id', user_id);
-    else if (user_role === 'manager') query = query.or(managerTaskScope(await managerTeamIds(org_id, user_id), user_id));
 
     const { data: tasks, error: noteLookupError } = await query;
     if (noteLookupError) throw noteLookupError;

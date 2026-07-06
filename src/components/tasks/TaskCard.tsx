@@ -56,12 +56,13 @@ interface TaskCardProps {
     assignee: { id: string; full_name: string; avatar_url: string | null } | null;
   };
   canEdit:        boolean;
+  canDelete?:     boolean;
   employees:      Employee[];
   listMode?:      boolean;
   onStatusChange?: (id: string, status: string) => void;
 }
 
-export default function TaskCard({ task, canEdit, employees, listMode = false, onStatusChange }: TaskCardProps) {
+export default function TaskCard({ task, canEdit, canDelete = false, employees, listMode = false, onStatusChange }: TaskCardProps) {
   const router = useRouter();
   const [editOpen,      setEditOpen]      = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -209,14 +210,16 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
                 >
                   Edit Task
                 </DropdownMenu.Item>
-                <DropdownMenu.Separator className="my-1 h-px bg-surface-300/80" />
-                <DropdownMenu.Item
-                  onSelect={() => setConfirmDelete(true)}
-                  className="flex items-center gap-2.5 px-2.5 py-2 text-xs text-danger rounded-lg cursor-pointer hover:bg-danger/10 outline-none"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  Delete Task
-                </DropdownMenu.Item>
+                {canDelete && <>
+                  <DropdownMenu.Separator className="my-1 h-px bg-surface-300/80" />
+                  <DropdownMenu.Item
+                    onSelect={() => setConfirmDelete(true)}
+                    className="flex items-center gap-2.5 px-2.5 py-2 text-xs text-danger rounded-lg cursor-pointer hover:bg-danger/10 outline-none"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Delete Task
+                  </DropdownMenu.Item>
+                </>}
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
           </DropdownMenu.Root>
@@ -367,15 +370,16 @@ export default function TaskCard({ task, canEdit, employees, listMode = false, o
                     Edit Task
                   </DropdownMenu.Item>
 
-                  <DropdownMenu.Separator className="my-1 h-px bg-surface-300/80" />
-
-                  <DropdownMenu.Item
-                    onSelect={() => setConfirmDelete(true)}
-                    className="flex items-center gap-2.5 px-2.5 py-2 text-xs text-danger rounded-lg cursor-pointer hover:bg-danger/10 outline-none"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    Delete Task
-                  </DropdownMenu.Item>
+                  {canDelete && <>
+                    <DropdownMenu.Separator className="my-1 h-px bg-surface-300/80" />
+                    <DropdownMenu.Item
+                      onSelect={() => setConfirmDelete(true)}
+                      className="flex items-center gap-2.5 px-2.5 py-2 text-xs text-danger rounded-lg cursor-pointer hover:bg-danger/10 outline-none"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Delete Task
+                    </DropdownMenu.Item>
+                  </>}
                 </DropdownMenu.Content>
               </DropdownMenu.Portal>
             </DropdownMenu.Root>

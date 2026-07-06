@@ -7,7 +7,7 @@ import { sendText }            from '@/lib/whatsapp/client';
 import { parseDeadlineString, formatDateTime } from '@/lib/utils/date';
 import { EMPTY_CONTEXT }       from './types';
 import type { AgentTurn, AgentUser, ConversationContext } from './types';
-import { normalizeCommandText, quickTaskListArgs } from './routing';
+import { normalizeCommandText, quickTaskListArgs, resolveTaskListPronoun } from './routing';
 
 // ── AI backend ────────────────────────────────────────────────────────────────
 // Controlled at runtime via organizations.settings.ai_backend (set from /settings page).
@@ -413,11 +413,12 @@ const HRBOT_TOOLS: any[] = [
   },
   {
     name: 'list_tasks',
-    description: "List tasks. Pass assignee_name='mine' for own tasks, a name for a specific person (privileged only), or omit for all org tasks. Pass status_filter='done' to show completed tasks instead of active ones.",
+    description: "List tasks. Generic requests and assignee_name='mine' mean the caller's tasks. A person's name means that person's tasks. scope='all' is only for explicit all/team/company requests. All roles may use these scopes.",
     parameters: {
       type: 'OBJECT',
       properties: {
-        assignee_name: { type: 'STRING', description: "'mine' = caller's own tasks. First/full name = that person's tasks (privileged only). Omit = all org tasks (privileged) or own tasks (employees)." },
+        assignee_name: { type: 'STRING', description: "'mine' = caller's own tasks. First/full name = that person's tasks. Omit for generic requests, which default to the caller's own tasks." },
+        scope: { type: 'STRING', enum: ['all'], description: "Use 'all' only when the user explicitly asks for all/team/company tasks." },
         status_filter: { type: 'STRING', description: "done | completed — show completed tasks. Omit for active/pending tasks." },
       },
     },
@@ -700,10 +701,11 @@ function buildSystemPrompt(user: AgentUser): string {
 - IMPORTANT: You cannot approve/reject leave for employees who are not your direct reports`;
   } else {
     permissionsBlock = `## Your permissions (employee)
-- Tasks: create tasks for yourself only; update only the *status* of your own tasks; complete your own tasks
+- Tasks: view all organization tasks, create tasks for anyone, update any task field, assign/reassign and complete any task
+- Task deletion: employees CANNOT delete tasks
 - Leave: apply for your own leave, check your own balance, cancel your own leave — cannot approve/reject
 - Attendance: check in / check out, view your own attendance history
-- CANNOT do: assign tasks to others, update task deadline/priority/assignee, approve/reject leave, view team data, list users
+- CANNOT do: delete tasks, approve/reject leave, view attendance team data, list users
 - If asked to do something outside these permissions, explain you don't have access and suggest contacting a manager or HR`;
   }
 
@@ -760,11 +762,11 @@ Self-listing (user asking for their OWN tasks) — ALWAYS pass assignee_name="mi
 - "list my tasks" / "show my tasks" / "get my tasks" / "give me my tasks"
 - "what are my tasks" / "my pending tasks" / "tasks assigned to me"
 
-All-org listing (privileged only) — call list_tasks() with NO assignee_name:
-- "list all tasks" / "show all tasks" / "all tasks" / "list tasks"
+All-org/team listing (all roles) — call list_tasks(scope="all") ONLY when explicitly requested:
+- "list all tasks" / "show all tasks" / "all tasks"
 - "pending tasks" / "open tasks" / "due tasks" / "org tasks" / "team tasks"
 
-Specific-person listing (managers/admins/hr only) — pass assignee_name="[Name]":
+Specific-person listing (all roles) — pass assignee_name="[Name]":
 - "list [Name]'s tasks" / "show [Name]'s tasks" / "[Name]'s tasks"
 - "list of [Name]" / "list [Name]" / "show [Name]" / "tasks of [Name]"
 - Examples: "list tushar" → list_tasks(assignee_name="Tushar")
@@ -1807,8 +1809,26 @@ async function runGroqLoop(
     }
   }
 
+  // ── 0e. "Update <name>'s task(s)" bypass ──────────────────────────────────────
+  // Resolve the named person deterministically through the real list_tasks tool
+  // (name matching, fuzzy fallback, and "multiple people match" disambiguation
+  // are already handled correctly there) instead of letting Groq guess a task
+  // list from scratch. Groq has been observed skipping the tool call for this
+  // phrasing and fabricating a fake task (e.g. "Fix login bug" — one of its own
+  // few-shot examples in the system prompt) instead of real data.
+  {
+    const UPDATE_PERSON_RE = /^(?:please\s+)?update\s+(.+?)[’']s\s+tasks?\s*[!.?]*$/i;
+    const personName = normalizeCommandText(message).match(UPDATE_PERSON_RE)?.[1]?.trim();
+    if (personName && !/^(?:the\s+)?same$/i.test(personName)) {
+      console.log(`[Agent] Update-person bypass: resolving real tasks for "${personName}"`);
+      const reply = await dispatchTool('list_tasks', { assignee_name: personName }, user, orgId);
+      return /^📋 \*/.test(reply) ? `${reply}\n\nReply with the task title you'd like to update.` : reply;
+    }
+  }
+
   // ── 1. Quick-route deterministic patterns — bypass AI for unambiguous commands ─
-  const taskListArgs = quickTaskListArgs(message);
+  const parsedTaskListArgs = quickTaskListArgs(message);
+  const taskListArgs = parsedTaskListArgs ? resolveTaskListPronoun(parsedTaskListArgs, history) : null;
   if (taskListArgs) {
     console.log(`[Agent] Quick task-list route: "${message}"`, taskListArgs);
     return dispatchTool('list_tasks', taskListArgs, user, orgId);
@@ -2436,6 +2456,7 @@ async function dispatchTool(
       channel:       input.channel                             ?? null,
       description:   input.description                         ?? null,
       status_filter: input.status_filter                       ?? null,
+      scope:         input.scope                               ?? null,
       note:          input.note                                ?? null,
     };
 

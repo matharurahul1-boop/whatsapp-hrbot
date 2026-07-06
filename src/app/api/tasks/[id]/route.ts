@@ -3,7 +3,6 @@ import { createClient }       from '@/lib/supabase/server';
 import { createAdminClient }  from '@/lib/supabase/admin';
 import { writeAuditLog }      from '@/lib/utils/audit';
 import { notifyTaskAssigned, notifyTaskCompleted } from '@/lib/whatsapp/notify';
-import { isEmployee, isManager } from '@/lib/rbac';
 import { scheduleTaskReminders } from '@/lib/tasks/scheduleReminders';
 import { z } from 'zod';
 
@@ -47,15 +46,6 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
   if (!profile) return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
   if (task.organization_id !== profile.organization_id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  if (profile.role === 'employee' && task.assignee_id !== user.id && task.created_by !== user.id) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
-  if (profile.role === 'manager' && task.created_by !== user.id && task.assignee_id !== user.id) {
-    const { data: report } = await db.from('users').select('id').eq('id', task.assignee_id ?? '')
-      .eq('manager_id', user.id).eq('organization_id', profile.organization_id).maybeSingle();
-    if (!report) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
-
   return NextResponse.json({ data: task });
 }
 
@@ -81,46 +71,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     deadlineFields.deadline = deadlineISO === null ? null : new Date(deadlineISO + ':00+05:30').toISOString().slice(0, 19);
   }
 
-  // ── Build updateData — filtered by role ──────────────────────────────────────
-  let updateData: Record<string, unknown> = { ...parsedRest, ...deadlineFields };
-
-  // ── RBAC: who can touch this task? ───────────────────────────────────────────
-  if (isEmployee(profile.role)) {
-    // Employees: only their own assigned or created tasks
-    if (task.assignee_id !== user.id && task.created_by !== user.id) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
-    // Strip manager-only fields silently — employees can only update status and description
-    updateData = {};
-    if (parsed.data.status      !== undefined) updateData.status      = parsed.data.status;
-    if (parsed.data.description !== undefined) updateData.description = parsed.data.description;
-  }
-
-  if (isManager(profile.role)) {
-    // Managers: tasks in their team (assigned to direct reports, or created by them)
-    const { data: isTeamTask } = await db
-      .from('users')
-      .select('id')
-      .eq('id', task.assignee_id ?? '')
-      .eq('manager_id', user.id)
-      .eq('organization_id', profile.organization_id)
-      .maybeSingle();
-    const isOwnCreated = task.created_by === user.id;
-    if (!isTeamTask && !isOwnCreated) {
-      return NextResponse.json({ error: 'Managers can only update tasks in their team' }, { status: 403 });
-    }
-  }
-  // HR+ can update any task in the org — no extra check
+  const updateData: Record<string, unknown> = { ...parsedRest, ...deadlineFields };
 
   const newAssignee = updateData.assignee_id;
   if (typeof newAssignee === 'string') {
-    const { data: assignee } = await db.from('users').select('id, manager_id')
+    const { data: assignee } = await db.from('users').select('id')
       .eq('id', newAssignee).eq('organization_id', profile.organization_id)
       .eq('is_active', true).is('deleted_at', null).maybeSingle();
     if (!assignee) return NextResponse.json({ error: 'Assignee is not an active member of your organization' }, { status: 422 });
-    if (isManager(profile.role) && newAssignee !== user.id && assignee.manager_id !== user.id) {
-      return NextResponse.json({ error: 'Managers can only assign tasks to themselves or direct reports' }, { status: 403 });
-    }
   }
 
   const { data: updated, error } = await db
@@ -188,14 +146,10 @@ export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id:
   if (!profile || !task) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   if (task.organization_id !== profile.organization_id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  // Only manager+ or creator can delete
-  let canDelete = ['super_admin','admin','hr'].includes(profile.role) || task.created_by === user.id;
-  if (profile.role === 'manager' && !canDelete) {
-    const { data: report } = await db.from('users').select('id').eq('id', task.assignee_id ?? '')
-      .eq('manager_id', user.id).eq('organization_id', profile.organization_id).maybeSingle();
-    canDelete = !!report;
+  if (profile.role === 'employee') return NextResponse.json({ error: 'Employees cannot delete tasks' }, { status: 403 });
+  if (!['manager','hr','admin','super_admin'].includes(profile.role)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
-  if (!canDelete) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   await db.from('tasks').update({ deleted_at: new Date().toISOString() }).eq('id', id);
   await writeAuditLog({ org_id: profile.organization_id, actor_id: user.id, action: 'DELETE', table_name: 'tasks', record_id: id, old_data: task });

@@ -17,14 +17,14 @@ const PRIORITY_COLORS: Record<string, string> = {
 };
 
 export default async function RecentTasks({
-  orgId, userId, role,
+  orgId,
 }: {
   orgId:  string;
   userId: string;
   role:   string;
 }) {
   const db = createAdminClient();
-  let query = db
+  const query = db
     .from('tasks')
     .select(`
       id, title, status, priority, deadline,
@@ -35,10 +35,6 @@ export default async function RecentTasks({
     .not('status', 'in', '("done","cancelled")')
     .order('deadline', { ascending: true, nullsFirst: false })
     .limit(6);
-
-  if (role === 'employee') {
-    query = query.or(`assignee_id.eq.${userId},created_by.eq.${userId}`);
-  }
 
   const { data: tasks } = await query;
 

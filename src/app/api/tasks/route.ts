@@ -3,7 +3,6 @@ import { createClient }       from '@/lib/supabase/server';
 import { createAdminClient }  from '@/lib/supabase/admin';
 import { writeAuditLog }      from '@/lib/utils/audit';
 import { notifyTaskAssigned } from '@/lib/whatsapp/notify';
-import { isEmployee, isManager, isHrOrAbove } from '@/lib/rbac';
 import { scheduleTaskReminders } from '@/lib/tasks/scheduleReminders';
 import { z } from 'zod';
 
@@ -51,16 +50,7 @@ export async function GET(req: NextRequest) {
   if (status)   query = query.eq('status', status);
   if (priority) query = query.eq('priority', priority);
 
-  // Employees only see their own + assigned tasks
-  if (profile.role === 'employee') {
-    if (assignee) {
-      query = query.eq('assignee_id', user.id);
-    } else {
-      query = query.or(`assignee_id.eq.${user.id},created_by.eq.${user.id}`);
-    }
-  } else if (assignee) {
-    query = query.eq('assignee_id', assignee);
-  }
+  if (assignee) query = query.eq('assignee_id', assignee);
 
   const { data, error, count } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -82,32 +72,15 @@ export async function POST(req: NextRequest) {
   const { data: profile } = await db.from('users').select('organization_id, role').eq('id', user.id).single();
   if (!profile) return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
 
-  // ── RBAC: assignee restrictions ──────────────────────────────────────────────
+  // Any employee may create a task for any active colleague in the same org.
   const requestedAssignee = parsed.data.assignee_id;
   if (requestedAssignee !== user.id) {
-    const { data: requestedUser } = await db.from('users').select('id, manager_id')
+    const { data: requestedUser } = await db.from('users').select('id')
       .eq('id', requestedAssignee).eq('organization_id', profile.organization_id)
       .eq('is_active', true).is('deleted_at', null).maybeSingle();
     if (!requestedUser) {
       return NextResponse.json({ error: 'Assignee is not an active member of your organization' }, { status: 422 });
     }
-    if (isEmployee(profile.role)) {
-      // Employees can only create tasks for themselves
-      return NextResponse.json(
-        { error: 'Employees can only assign tasks to themselves' },
-        { status: 403 },
-      );
-    }
-    if (isManager(profile.role)) {
-      // Managers can only assign to their direct reports
-      if (requestedUser.manager_id !== user.id) {
-        return NextResponse.json(
-          { error: 'Managers can only assign tasks to their direct reports' },
-          { status: 403 },
-        );
-      }
-    }
-    // HR+ can assign to anyone in the org — no extra check
   }
 
   // datetime-local input is in IST (browser local time). Convert to UTC for storage.

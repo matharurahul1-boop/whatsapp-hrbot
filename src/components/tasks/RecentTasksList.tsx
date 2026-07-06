@@ -5,7 +5,6 @@ import { formatDate, formatDateTime } from '@/lib/utils/date';
 import { StatusBadge } from '@/components/ui/Badge';
 import { Avatar } from '@/components/ui/Avatar';
 import { cn } from '@/lib/utils/cn';
-import { ExpandText } from '@/components/ui/ExpandText';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody,
 } from '@/components/ui/Modal';
@@ -64,7 +63,7 @@ export default function RecentTasksList({ tasks }: { tasks: Task[] }) {
               >
                 <span className={cn('h-2 w-2 rounded-full', PRIORITY_COLORS[t.priority] ?? 'bg-surface-500')} />
                 <div className="min-w-0">
-                  <ExpandText className="text-sm font-medium text-surface-900 block">{t.title}</ExpandText>
+                  <span className="text-sm font-medium text-surface-900 block truncate">{t.title}</span>
                   {t.deadline ? (
                     <p className={cn('text-xs mt-0.5 truncate', overdue ? 'text-danger font-medium' : 'text-surface-600')}>
                       {overdue ? '⚠ Overdue · ' : ''}{formatDate(t.deadline)}

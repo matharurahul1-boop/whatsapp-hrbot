@@ -142,9 +142,17 @@ function labelFor(key: string): string {
   return key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
+const ISO_DATETIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
+
 function formatValue(v: unknown): string {
   if (v === null || v === undefined || v === '') return '—';
   if (typeof v === 'boolean') return v ? 'Yes' : 'No';
+  if (typeof v === 'string' && ISO_DATETIME_RE.test(v)) {
+    const d = new Date(v);
+    if (!isNaN(d.getTime())) {
+      return `${d.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kolkata' })} IST`;
+    }
+  }
   return String(v);
 }
 
@@ -187,7 +195,7 @@ export default function ActivityFeedList({ logs }: { logs: ActivityLog[] }) {
       </div>
 
       <Dialog open={!!selected} onOpenChange={open => !open && setSelected(null)}>
-        <DialogContent size="sm">
+        <DialogContent size="lg">
           <DialogHeader>
             <DialogTitle>{selected ? friendlyActionLabel(selected) : ''}</DialogTitle>
           </DialogHeader>
@@ -200,7 +208,7 @@ export default function ActivityFeedList({ logs }: { logs: ActivityLog[] }) {
                   <p className="text-2xs text-surface-500">
                     {new Date(selected.created_at).toLocaleString('en-IN', {
                       dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kolkata',
-                    })}
+                    })} IST
                   </p>
                 </div>
               </div>

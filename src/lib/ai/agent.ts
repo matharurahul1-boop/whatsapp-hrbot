@@ -130,6 +130,23 @@ const VERBATIM_TOOLS = new Set([
 function isYes(msg: string): boolean { return YES_RE.test(msg.trim()); }
 function isNo (msg: string): boolean { return NO_RE.test(msg.trim()); }
 
+// A narrower, unanchored-at-end version of YES_RE for compound replies like
+// "Yes and it's mahima's task" — confirming a pending action *and* immediately
+// supplying the next request in the same message. isYes() requires the whole
+// message to be just an affirmative, so compound replies like this used to
+// fall through, silently discard the pending confirmation, and only act on
+// the trailing text. Deliberately narrower than YES_RE (drops ambiguous
+// phrases like "do it"/"sounds good" that could legitimately start an
+// unrelated sentence) to avoid misfiring on ordinary messages.
+const LEADING_YES_RE = /^(?:yes|yeah|yep|sure|ok|okay|go\s*ahead|proceed|confirm|haan|haa|theek\s*hai|bilkul)\b[\s,!.:;-]*(?:and\s+|but\s+)?/i;
+function splitLeadingYes(msg: string): string | null {
+  const trimmed = msg.trim();
+  const m = trimmed.match(LEADING_YES_RE);
+  if (!m) return null;
+  const remainder = trimmed.slice(m[0].length).trim();
+  return remainder.length > 0 ? remainder : null;
+}
+
 function lastBotMessage(history: ChatMessage[]): string {
   for (let i = history.length - 1; i >= 0; i--) {
     if (history[i].role === 'assistant') return history[i].content ?? '';
@@ -1738,6 +1755,21 @@ async function runGroqLoop(
       console.log('[Agent] Context shortcircuit: NO → cancel');
       await saveContext(conversationId, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
       return 'Got it, cancelled. What else can I help with? 😊';
+    }
+
+    // Compound reply: "Yes and it's mahima's task" — confirm the pending
+    // action, then process the remainder as a fresh message instead of
+    // silently dropping the confirmation (see splitLeadingYes above).
+    const leadingYesRemainder = splitLeadingYes(message);
+    if (leadingYesRemainder) {
+      console.log(`[Agent] Context shortcircuit: compound YES + "${leadingYesRemainder}" → execute then continue`);
+      const result = await dispatchTool(payload.tool, payload.args, user, orgId);
+      await saveContext(conversationId, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
+      const continued = await runGroqLoop(
+        leadingYesRemainder, history, user, orgId,
+        { ...EMPTY_CONTEXT, language: context.language }, conversationId, { handled: false },
+      );
+      return `${result}\n\n${continued}`;
     }
 
     if (/^edit$/i.test(message.trim())) {

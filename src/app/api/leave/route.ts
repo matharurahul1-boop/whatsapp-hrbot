@@ -159,13 +159,15 @@ export async function POST(req: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  // Fetch leave type name for the notification + audit log
+  const { data: lt } = await db.from('leave_types').select('name').eq('id', parsed.data.leave_type_id).single();
+
   await writeAuditLog({
     org_id: profile.organization_id, actor_id: user.id,
-    action: 'CREATE', table_name: 'leave_requests', record_id: request.id, new_data: request,
+    action: 'CREATE', table_name: 'leave_requests', record_id: request.id,
+    new_data: { ...request, leave_type_name: lt?.name ?? null },
   });
 
-  // Fetch leave type name for the notification
-  const { data: lt } = await db.from('leave_types').select('name').eq('id', parsed.data.leave_type_id).single();
   notifyLeaveSubmitted({
     orgId:         profile.organization_id,
     managerId:     (targetProfile as any).manager_id ?? null,
@@ -225,15 +227,17 @@ export async function DELETE(req: NextRequest) {
   if (cancelError) return NextResponse.json({ error: cancelError.message }, { status: 500 });
   if (!cancelled) return NextResponse.json({ error: 'Leave request changed concurrently; please retry' }, { status: 409 });
 
+  const { data: cancelledLt } = await db.from('leave_types').select('name').eq('id', request.leave_type_id).single();
+
   await writeAuditLog({
     org_id: profile.organization_id, actor_id: user.id,
     action: 'CANCEL', table_name: 'leave_requests', record_id: leaveId,
-    old_data: request, new_data: { status: 'cancelled' },
+    old_data: { ...request, leave_type_name: cancelledLt?.name ?? null }, new_data: { status: 'cancelled' },
   });
 
   // Notify manager when employee self-cancels
   if (request.employee_id === user.id) {
-    const { data: lt } = await db.from('leave_types').select('name').eq('id', request.leave_type_id).single();
+    const lt = cancelledLt;
     notifyLeaveCancelled({
       orgId:         profile.organization_id,
       managerId:     (profile as any).manager_id ?? null,

@@ -603,7 +603,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     await writeAuditLog({
       org_id, actor_id: user_id, actor_type: 'user',
       action: 'COMPLETE_TASK', table_name: 'tasks',
-      record_id: task.id, new_data: { status: 'completed' }, source: 'whatsapp',
+      record_id: task.id, new_data: { status: 'completed', title: task.title }, source: 'whatsapp',
     });
 
     // Notify creator if different from the person completing
@@ -736,7 +736,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     await writeAuditLog({
       org_id, actor_id: user_id, actor_type: 'user',
       action: 'DELETE_TASK', table_name: 'tasks',
-      record_id: task.id, new_data: { deleted_at: deletedAt }, source: 'whatsapp',
+      record_id: task.id, new_data: { deleted_at: deletedAt, title: task.title }, source: 'whatsapp',
     });
 
     if (task.assignee_id && task.assignee_id !== user_id) {
@@ -895,7 +895,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     await writeAuditLog({
       org_id, actor_id: user_id, actor_type: 'user',
       action: 'UPDATE_TASK', table_name: 'tasks',
-      record_id: task.id, new_data: patch, source: 'whatsapp',
+      record_id: task.id, new_data: { ...patch, title: task.title }, source: 'whatsapp',
     });
 
     // Use human-readable values in the reply (avoid showing UUIDs for assignee).
@@ -1195,7 +1195,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     await writeAuditLog({
       org_id, actor_id: user_id, actor_type: 'user',
       action: 'APPLY_LEAVE', table_name: 'leave_requests',
-      record_id: request.id, new_data: request, source: 'whatsapp',
+      record_id: request.id, new_data: { ...request, leave_type_name: leaveType.name }, source: 'whatsapp',
     });
 
     n8n.notifyLeaveRequest(org_id, request.id).catch(() => {});
@@ -2162,7 +2162,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     await writeAuditLog({
       org_id, actor_id: user_id, actor_type: 'user',
       action: 'ADD_TASK_NOTE', table_name: 'tasks',
-      record_id: task.id, new_data: { description: note }, source: 'whatsapp',
+      record_id: task.id, new_data: { description: note, title: task.title }, source: 'whatsapp',
     });
 
     return { success: true, reply: lang === 'hi'

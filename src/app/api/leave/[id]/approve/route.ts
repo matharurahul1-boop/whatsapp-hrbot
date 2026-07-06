@@ -94,11 +94,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   await writeAuditLog({
     org_id:     profile.organization_id,
     actor_id:   user.id,
-    action:     'UPDATE',
+    action:     parsed.data.action === 'approved' ? 'APPROVE_LEAVE' : 'REJECT_LEAVE',
     table_name: 'leave_requests',
     record_id:  id,
     old_data:   request as Record<string, unknown>,
-    new_data:   updated as Record<string, unknown>,
+    new_data: {
+      ...(updated as Record<string, unknown>),
+      leave_type_name: (request.leave_type as { name?: string } | null)?.name ?? null,
+      employee_name:   employee?.full_name ?? null,
+    },
   });
 
   const { data: reviewer } = await db.from('users').select('full_name').eq('id', user.id).single();

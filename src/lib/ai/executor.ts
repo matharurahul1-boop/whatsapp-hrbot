@@ -241,13 +241,20 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     // Treat any self-referential word as "assign to self" (Groq may pass "me", "myself", "you", "mine" etc.)
     const ASSIGNEE_SELF_RE = /^(me|myself|mine|my|i|you|yourself|self|own)$/i;
     if (slots.assignee && !ASSIGNEE_SELF_RE.test(slots.assignee.trim())) {
-      // 1. Exact substring match
-      const { data: ilikeRow } = await db
+      // A partial name is valid only when it identifies exactly one person.
+      const { data: matchingUsers } = await db
         .from('users').select('id, full_name')
         .eq('organization_id', org_id).eq('is_active', true)
-        .ilike('full_name', `%${slots.assignee}%`).limit(1).maybeSingle();
+        .is('deleted_at', null)
+        .ilike('full_name', `%${slots.assignee}%`).limit(5);
 
-      let resolvedUser: { id: string; full_name: string } | null = (ilikeRow as { id: string; full_name: string } | null) ?? null;
+      const requestedName = slots.assignee.trim().toLowerCase();
+      const exactUser = (matchingUsers ?? []).find(u => u.full_name.toLowerCase() === requestedName) ?? null;
+      if (!exactUser && (matchingUsers?.length ?? 0) > 1) {
+        const options = matchingUsers!.map(u => `· ${u.full_name}`).join('\n');
+        return { success: false, reply: `Multiple people match *${slots.assignee}*:\n${options}\n\nPlease use the full name.` };
+      }
+      let resolvedUser: { id: string; full_name: string } | null = exactUser ?? matchingUsers?.[0] ?? null;
 
       // 2. Fuzzy fallback for typos / partial names
       if (!resolvedUser) {
@@ -405,6 +412,12 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     if (showDone) {
       query = (query as any).eq('status', 'done').order('completed_at', { ascending: false, nullsFirst: false });
+    } else if (statusFilter === 'todo') {
+      query = (query as any).eq('status', 'todo').order('deadline', { ascending: true, nullsFirst: false });
+    } else if (statusFilter === 'in_progress') {
+      query = (query as any).eq('status', 'in_progress').order('deadline', { ascending: true, nullsFirst: false });
+    } else if (statusFilter === 'cancelled' || statusFilter === 'canceled') {
+      query = (query as any).eq('status', 'cancelled').order('updated_at', { ascending: false, nullsFirst: false });
     } else {
       query = (query as any).neq('status', 'done').neq('status', 'cancelled').order('deadline', { ascending: true, nullsFirst: false });
     }
@@ -463,10 +476,11 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     if (!tasks?.length) {
       const noTasksName = slots.assignee_name && !isSelfQuery ? slots.assignee_name : null;
-      if (showDone) {
+      if (statusFilter) {
+        const label = statusFilter === 'in_progress' ? 'in progress' : statusFilter === 'todo' ? 'to do' : statusFilter;
         return { success: true, reply: noTasksName
-          ? `📋 No completed tasks found for *${noTasksName}*.`
-          : (lang === 'hi' ? `📋 कोई completed टास्क नहीं मिला।` : `📋 No completed tasks found.`) };
+          ? `📋 No ${label} tasks found for *${noTasksName}*.`
+          : `📋 No ${label} tasks found.` };
       }
       return {
         success: true,
@@ -506,11 +520,12 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       lines.push(header, '');
       (tasks as any[]).forEach((t, i) => lines.push(formatTask(t, i)));
     } else {
+      const filterLabel = statusFilter === 'in_progress' ? 'In Progress' : statusFilter === 'todo' ? 'To Do' : statusFilter === 'cancelled' ? 'Cancelled' : null;
       const header = headerName
-        ? `📋 *${headerName}'s tasks:*`
+        ? `📋 *${headerName}'s${filterLabel ? ` ${filterLabel}` : ''} tasks:*`
         : wantsAll
-          ? (user_role === 'manager' ? '📋 *Team tasks:*' : '📋 *All tasks:*')
-          : (lang === 'hi' ? `📋 *आपके टास्क:*` : `📋 *Your tasks:*`);
+          ? `📋 *${user_role === 'manager' ? 'Team' : 'All'}${filterLabel ? ` ${filterLabel}` : ''} tasks:*`
+          : (lang === 'hi' ? `📋 *आपके टास्क:*` : `📋 *Your${filterLabel ? ` ${filterLabel}` : ''} tasks:*`);
       lines.push(header);
 
       const overdue  = (tasks as any[]).filter((t) => t.deadline && new Date(t.deadline).getTime() < todayStartMs);

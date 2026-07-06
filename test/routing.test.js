@@ -18,13 +18,38 @@ test('routes self, team, person, typo, and completed task-list requests', () => 
   assert.deepEqual(routing.quickTaskListArgs('show tasks'), { assignee_name: 'mine' });
   assert.deepEqual(routing.quickTaskListArgs('list all tasks'), { scope: 'all' });
   assert.deepEqual(routing.quickTaskListArgs('list of all tasks'), { scope: 'all' });
+  assert.deepEqual(routing.quickTaskListArgs('list of all completed tasks'), { status_filter: 'done', scope: 'all' });
+  assert.deepEqual(routing.quickTaskListArgs('list of all to do tasks'), { status_filter: 'todo', scope: 'all' });
+  assert.deepEqual(routing.quickTaskListArgs('list of all in progress tasks'), { status_filter: 'in_progress', scope: 'all' });
+  assert.deepEqual(routing.quickTaskListArgs('list of all cancelled tasks'), { status_filter: 'cancelled', scope: 'all' });
   assert.deepEqual(routing.quickTaskListArgs('list of entire tasks'), { scope: 'all' });
   assert.deepEqual(routing.quickTaskListArgs('show whole task list'), { scope: 'all' });
+  assert.deepEqual(routing.quickTaskListArgs('List of all my tasks'), { assignee_name: 'mine' });
+  assert.deepEqual(routing.quickTaskListArgs('all my completed tasks'), { status_filter: 'done', assignee_name: 'mine' });
+  for (const message of [
+    'list of every task',
+    'show each task',
+    "show everyone's tasks",
+    "list everybody's tasks",
+    'list all employee tasks',
+    'show tasks for all users',
+    'show full task list',
+    'show complete task list',
+    'get total task list',
+    'list organization-wide tasks',
+    'show company wide tasks',
+    'display tasks across the team',
+    'list workforce tasks',
+  ]) {
+    assert.deepEqual(routing.quickTaskListArgs(message), { scope: 'all' }, message);
+  }
   assert.deepEqual(routing.quickTaskListArgs('show team tasks'), { scope: 'all' });
   assert.deepEqual(routing.quickTaskListArgs("List of mahima's tasks"), { assignee_name: 'mahima' });
   assert.deepEqual(routing.quickTaskListArgs('show Prnay tasks'), { assignee_name: 'Prnay' });
   assert.deepEqual(routing.quickTaskListArgs('my completed taks'), { status_filter: 'done', assignee_name: 'mine' });
   assert.deepEqual(routing.quickTaskListArgs("show Mahima's completed tasks"), { status_filter: 'done', assignee_name: 'Mahima' });
+  assert.deepEqual(routing.quickTaskListArgs("show Mahima's in progress tasks"), { status_filter: 'in_progress', assignee_name: 'Mahima' });
+  assert.deepEqual(routing.quickTaskListArgs('my pending tasks'), { status_filter: 'todo', assignee_name: 'mine' });
   assert.deepEqual(routing.quickTaskListArgs('give me my tasks'), { assignee_name: 'mine' });
   assert.deepEqual(routing.quickTaskListArgs('give me list of his task'), { assignee_name: 'his' });
   assert.deepEqual(routing.quickTaskListArgs('please send me list of her tasks'), { assignee_name: 'her' });

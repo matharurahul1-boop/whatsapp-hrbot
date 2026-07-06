@@ -23,6 +23,27 @@ export function normalizeCommandText(message: string): string {
     .trim();
 }
 
+/** True when a task-list request explicitly asks for organization-wide scope. */
+function requestsAllTasks(message: string): boolean {
+  return /\b(?:all|every|each|entire|whole)\b/i.test(message)
+    || /\b(?:everyone|everybody)(?:'s)?\b/i.test(message)
+    || /\b(?:team|staff|workforce|company|org|organisation|organization)(?:[ -]wide)?\b/i.test(message)
+    || /\b(?:all|every|each)\s+(?:users?|employees?|people|persons?|members?|assignees?)\b/i.test(message)
+    || /\b(?:full|complete|total)\s+(?:task\s+)?list\b/i.test(message)
+    || /\bacross\s+(?:the\s+)?(?:team|company|org|organisation|organization|workforce)\b/i.test(message);
+}
+
+function requestedTaskStatus(message: string): string | null {
+  // "complete task list" means the full list, not only completed tasks.
+  if (/\b(?:full|complete|total)\s+(?:task\s+)?list\b/i.test(message)) return null;
+  if (/\b(?:cancelled|canceled|dropped|abandoned)\b/i.test(message)) return 'cancelled';
+  if (/\b(?:in[\s_-]*progress|wip|ongoing|underway|started|working\s+on)\b/i.test(message)) return 'in_progress';
+  if (/\b(?:to[\s_-]*do|todo|pending|open|not\s+started|new)\b/i.test(message)) return 'todo';
+  if (/\b(?:completed|complete|done|finished|closed)\b/i.test(message)) return 'done';
+  if (/\bactive\b/i.test(message)) return 'active';
+  return null;
+}
+
 /** Parse common task-list requests without an LLM round-trip. */
 export function quickTaskListArgs(message: string): Record<string, string> | null {
   // Strip leading "give me" / "send me" / "tell me" filler — these verbs
@@ -32,17 +53,23 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
   // (e.g. "give me list of his task" was being read as "my tasks").
   const t = normalizeCommandText(message).replace(/[?.!,;]+$/, '')
     .replace(/^(?:please\s+)?(?:give|send|tell)\s+me\s+/i, '');
+  const isAllScope = requestsAllTasks(t);
+  const statusFilter = requestedTaskStatus(t);
+  // "all my tasks" / "list all of my tasks" means every one of the caller's
+  // own tasks, not every task in the org — self-reference always wins over
+  // the generic all-scope keyword.
+  const isSelfRef = /\b(my|mine|me)\b/i.test(t);
   if (!/\btasks?\b/i.test(t)) return null;
-  if (/\b(details?|info|status|deadline|priority|assignee|update|change|delete|remove|complete|finish|assign|create|add|note)\b/i.test(t) && !/\b(completed|done|finished)\s+tasks?\b/i.test(t)) {
+  if (/\b(details?|info|status|deadline|priority|assignee|update|change|delete|remove|complete|finish|assign|create|add|note)\b/i.test(t) && !/\b(completed|complete|done|finished|closed)\s+tasks?\b/i.test(t) && !/\b(?:full|complete|total)\s+(?:task\s+)?list\b/i.test(t)) {
     return null;
   }
+  if (isAllScope && !isSelfRef) return { ...(statusFilter ? { status_filter: statusFilter } : {}), scope: 'all' };
   if (!/\b(list|show|get|display|pending|open|completed|done|finished|all|my|mine)\b/i.test(t) && !/[’']s\s+tasks?$/i.test(t)) {
     return null;
   }
 
   const args: Record<string, string> = {};
-  const isAllScope = /\b(all|entire|whole|team|everyone|everybody|organisation|organization|company)\b/i.test(t);
-  if (/\b(completed|done|finished)\b/i.test(t)) args.status_filter = 'done';
+  if (statusFilter) args.status_filter = statusFilter;
   if (/\b(my|mine|me)\b/i.test(t)) {
     args.assignee_name = 'mine';
     return args;
@@ -57,8 +84,10 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
     /^(?:(?:list|show|get|display)(?:\s+me)?(?:\s+the)?(?:\s+of)?\s+)?tasks?\s+(?:of|for|assigned\s+to)\s+(.+)$/i,
   ];
   for (const pattern of personPatterns) {
-    const match = t.match(pattern);
+    const taskOwnerText = t.replace(/\b(?:completed|complete|done|finished|closed|cancelled|canceled|dropped|abandoned|in[\s_-]*progress|wip|ongoing|underway|started|working\s+on|to[\s_-]*do|todo|pending|open|not\s+started|active)\b(?=\s+tasks?\b)/ig, '').replace(/\s+/g, ' ').trim();
+    const match = taskOwnerText.match(pattern);
     const name = match?.[1]
+      ?.replace(/^(?:list|show|get|display)(?:\s+me)?(?:\s+the)?\s+/i, '')
       ?.replace(/^of\s+/i, '')
       .replace(/(?:[’']s)$/i, '')
       .trim();
@@ -68,8 +97,9 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
     }
   }
   // Phrases such as "entire tasks" and "whole task list" describe scope,
-  // never an employee called "entire" or "whole".
-  if (isAllScope) {
+  // never an employee called "entire" or "whole" — but self-reference
+  // ("my"/"mine") still wins, same as the earlier isAllScope check above.
+  if (isAllScope && !isSelfRef) {
     delete args.assignee_name;
     args.scope = 'all';
     return args;

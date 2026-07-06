@@ -297,12 +297,14 @@ function parseConfirmationMessage(lastMsg: string): ConfirmationParsed | null {
     // "for *Tushar*" — extract assignee when creating on behalf of someone.
     // Skip self-referential words ("you", "me", "yourself") — those mean self-assignment.
     const assigneeM = lastMsg.match(/\bfor\s+\*([^*]+)\*/i);
-    const priorityM = lastMsg.match(/\*(urgent|high|medium|low)\*/i);
+    const priorityM = lastMsg.match(/with\s+\*([^*]+)\*\s+priority/i);
     const deadlineM = lastMsg.match(/due\s+\*([^*]+)\*/i);
     if (assigneeM && !/^(you|me|yourself|myself|self|i)$/i.test(assigneeM[1].trim())) {
       args.assignee = assigneeM[1].trim();
     }
-    if (priorityM) args.priority = priorityM[1].toLowerCase();
+    if (priorityM) args.priority = priorityM[1].trim().toLowerCase();
+    const descriptionM = lastMsg.match(/Description:\s*["“]([^"”]*)["”]/i);
+    if (descriptionM) args.description = descriptionM[1].trim();
     if (deadlineM) {
       const raw  = deadlineM[1];
       const iso  = naturalDateToISO(raw);
@@ -408,6 +410,128 @@ function parseConfirmationMessage(lastMsg: string): ConfirmationParsed | null {
   return null;
 }
 
+const PRIORITY_CANONICAL: Record<string, string> = {
+  urgent: 'urgent', critical: 'urgent', asap: 'urgent', top: 'urgent', highest: 'urgent',
+  high: 'high', hi: 'high',
+  medium: 'medium', med: 'medium', normal: 'medium', moderate: 'medium',
+  low: 'low', lo: 'low', minor: 'low',
+};
+
+const STATUS_CANONICAL: Record<string, string> = {
+  todo: 'todo', 'to do': 'todo', pending: 'todo', open: 'todo', new: 'todo', 'not started': 'todo',
+  in_progress: 'in_progress', 'in progress': 'in_progress', wip: 'in_progress',
+  ongoing: 'in_progress', underway: 'in_progress', started: 'in_progress', doing: 'in_progress',
+  done: 'done', complete: 'done', completed: 'done', finished: 'done', closed: 'done',
+  cancelled: 'cancelled', canceled: 'cancelled', cancel: 'cancelled', dropped: 'cancelled',
+};
+
+function confirmationNameSimilarity(a: string, b: string): number {
+  const x = a.toLocaleLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+  const y = b.toLocaleLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+  if (!x || !y) return 0;
+  if (x === y) return 1;
+  if (x.includes(y) || y.includes(x)) return 0.92;
+  const row = Array.from({ length: y.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= x.length; i++) {
+    let prev = row[0];
+    row[0] = i;
+    for (let j = 1; j <= y.length; j++) {
+      const old = row[j];
+      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, prev + (x[i - 1] === y[j - 1] ? 0 : 1));
+      prev = old;
+    }
+  }
+  return 1 - row[y.length] / Math.max(x.length, y.length);
+}
+
+async function canonicalizeConfirmation(
+  tool: string,
+  inputArgs: Record<string, string>,
+  orgId: string,
+): Promise<{ args: Record<string, string>; error?: string }> {
+  const args = { ...inputArgs };
+
+  const canonicalUser = async (written: string): Promise<{ name?: string; error?: string }> => {
+    const requested = written.trim();
+    if (!requested || /^(me|myself|mine|my|i|you|yourself|self|own)$/i.test(requested)) return { name: requested };
+    const { createAdminClient } = await import('@/lib/supabase/admin');
+    const { data, error } = await createAdminClient().from('users').select('full_name')
+      .eq('organization_id', orgId).eq('is_active', true).is('deleted_at', null)
+      .order('full_name').limit(100);
+    if (error) return { error: '❌ I could not validate the team member. Please try again.' };
+    const members = (data ?? []) as Array<{ full_name: string }>;
+    const q = requested.toLocaleLowerCase();
+    const exact = members.find(u => u.full_name.toLocaleLowerCase() === q);
+    if (exact) return { name: exact.full_name };
+    const partial = members.filter(u => u.full_name.toLocaleLowerCase().includes(q));
+    if (partial.length === 1) return { name: partial[0].full_name };
+    if (partial.length > 1) {
+      return { error: `Multiple people match *${requested}*:\n${partial.map(u => `· ${u.full_name}`).join('\n')}\n\nPlease use the full name.` };
+    }
+    const ranked = members.map(u => ({
+      name: u.full_name,
+      score: Math.max(...[u.full_name, ...u.full_name.split(/\s+/)].map(n => confirmationNameSimilarity(requested, n))),
+    })).sort((a, b) => b.score - a.score);
+    const best = ranked[0];
+    if (best && best.score >= 0.65) {
+      const tied = ranked.filter(r => best.score - r.score <= 0.05 && r.score >= 0.65);
+      if (tied.length === 1) return { name: best.name };
+      return { error: `Multiple people closely match *${requested}*:\n${tied.map(u => `· ${u.name}`).join('\n')}\n\nPlease use the full name.` };
+    }
+    const available = members.map(u => u.full_name).join(', ');
+    return { error: `❌ No active team member matches *${requested}*.${available ? `\n\nAvailable: ${available}` : ''}` };
+  };
+
+  const canonicalPriority = (value: string): string | null => PRIORITY_CANONICAL[value.trim().toLowerCase()] ?? null;
+  const canonicalStatus = (value: string): string | null => STATUS_CANONICAL[value.trim().toLowerCase().replace(/[_-]+/g, ' ')] ?? null;
+
+  if (tool === 'create_task' && !args.priority) {
+    return { args, error: '❌ Please provide a valid priority: low, medium, high, or urgent.' };
+  }
+  if (tool === 'create_task' && args.priority) {
+    const value = canonicalPriority(args.priority);
+    if (!value) return { args, error: `❌ Unknown priority *${args.priority}*. Use: low, medium, high, or urgent.` };
+    args.priority = value;
+  }
+  if (tool === 'create_task' && args.assignee) {
+    const result = await canonicalUser(args.assignee);
+    if (result.error) return { args, error: result.error };
+    args.assignee = result.name!;
+  }
+  if (tool === 'assign_task' && args.assignee) {
+    const result = await canonicalUser(args.assignee);
+    if (result.error) return { args, error: result.error };
+    args.assignee = result.name!;
+  }
+  if ((tool === 'approve_leave' || tool === 'reject_leave') && args.employee_name) {
+    const result = await canonicalUser(args.employee_name);
+    if (result.error) return { args, error: result.error };
+    args.employee_name = result.name!;
+  }
+  if (tool === 'update_task') {
+    for (const suffix of ['', '_2'] as const) {
+      const fieldKey = `update_field${suffix}`;
+      const valueKey = `update_value${suffix}`;
+      const field = args[fieldKey]?.toLowerCase();
+      if (!field || !args[valueKey]) continue;
+      if (field === 'priority') {
+        const value = canonicalPriority(args[valueKey]);
+        if (!value) return { args, error: `❌ Unknown priority *${args[valueKey]}*. Use: low, medium, high, or urgent.` };
+        args[valueKey] = value;
+      } else if (field === 'status') {
+        const value = canonicalStatus(args[valueKey]);
+        if (!value) return { args, error: `❌ Unknown status *${args[valueKey]}*. Use: to do, in progress, done, or cancelled.` };
+        args[valueKey] = value;
+      } else if (field === 'assignee') {
+        const result = await canonicalUser(args[valueKey]);
+        if (result.error) return { args, error: result.error };
+        args[valueKey] = result.name!;
+      }
+    }
+  }
+  return { args };
+}
+
 // Execute from parsed confirmation — used as history-text fallback when context_state has no payload.
 async function executeFromConfirmation(
   lastMsg: string,
@@ -416,7 +540,9 @@ async function executeFromConfirmation(
 ): Promise<string | null> {
   const parsed = parseConfirmationMessage(lastMsg);
   if (!parsed) return null;
-  return dispatchTool(parsed.tool, parsed.args, user, orgId);
+  const checked = await canonicalizeConfirmation(parsed.tool, parsed.args, orgId);
+  if (checked.error) return checked.error;
+  return dispatchTool(parsed.tool, checked.args, user, orgId);
 }
 
 // ─── Tool definitions (Gemini native FunctionDeclaration format) ───────────────
@@ -436,7 +562,7 @@ const HRBOT_TOOLS: any[] = [
       properties: {
         assignee_name: { type: 'STRING', description: "'mine' = caller's own tasks. First/full name = that person's tasks. Omit for generic requests, which default to the caller's own tasks." },
         scope: { type: 'STRING', enum: ['all'], description: "Use 'all' only when the user explicitly asks for all/team/company tasks." },
-        status_filter: { type: 'STRING', description: "done | completed — show completed tasks. Omit for active/pending tasks." },
+        status_filter: { type: 'STRING', description: "todo | in_progress | done | cancelled | active. Omit for all unfinished tasks." },
       },
     },
   },
@@ -794,6 +920,11 @@ Completed-tasks listing — pass status_filter="done":
 - "completed tasks" / "done tasks" / "finished tasks" / "show completed" / "my completed tasks" → list_tasks(status_filter="done")
   [combine with assignee_name="mine" for own completed tasks]
 
+Other status filters:
+- "to do" / "todo" / "pending" / "open" tasks → status_filter="todo"
+- "in progress" / "ongoing" / "WIP" / "started" tasks → status_filter="in_progress"
+- "cancelled" / "canceled" / "dropped" tasks → status_filter="cancelled"
+
 RULE: NEVER pass assignee_name="my" or assignee_name="me". Use assignee_name="mine" for self-queries.
 RULE: NEVER return task data as text. ALWAYS call list_tasks and return the result verbatim.
 
@@ -1013,7 +1144,10 @@ function stripGroqFiller(text: string): string {
 function buildToolConfirmation(tool: string, args: Record<string, string>): string {
   if (tool === 'create_task') {
     const assignee = args.assignee && !/^(me|myself|self|you)$/i.test(args.assignee) ? args.assignee : 'you';
-    return `I'll create task *${args.title ?? '?'}* for *${assignee}* due *${args.deadline ?? '?'}* with *${args.priority ?? '?'}* priority. Go ahead? (Yes / No)`;
+    const parsedDeadline = parseDeadlineString(args.deadline ?? '');
+    const deadline = parsedDeadline ? `${formatDateTime(parsedDeadline)} IST` : (args.deadline ?? '?');
+    const description = args.description ? ` Description: "${args.description.slice(0, 80)}".` : '';
+    return `I'll create task *${args.title ?? '?'}* for *${assignee}* due *${deadline}* with *${args.priority ?? '?'}* priority.${description} Go ahead? (Yes / No)`;
   }
   if (tool === 'update_task') {
     const field = args.update_field ?? '';
@@ -1273,21 +1407,22 @@ export async function runMasterAgent(
     if (isConfirmPrompt) {
       const parsed = parseConfirmationMessage(finalReply);
       if (parsed) {
-        if (parsed.tool === 'update_task' && parsed.args.update_field === 'deadline') {
-          const raw = parsed.args.update_value ?? '';
-          const utcStr = parseDeadlineString(raw);
-          if (utcStr) {
-            const fmt = formatDateTime(utcStr) + ' IST';
-            displayReply = finalReply.replace(raw, fmt);
-          }
+        const checked = await canonicalizeConfirmation(parsed.tool, parsed.args, orgId);
+        if (checked.error) {
+          displayReply = checked.error;
+          await saveContext(conversation_id, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
+        } else {
+          // Rebuild from canonical arguments so misspellings are never echoed in
+          // the confirmation and the stored payload exactly matches the display.
+          displayReply = buildToolConfirmation(parsed.tool, checked.args);
+          await saveContext(conversation_id, {
+            ...EMPTY_CONTEXT,
+            language:        context.language,
+            flow_state:      'CONFIRMING',
+            confirm_message: displayReply,
+            confirm_payload: { tool: parsed.tool, args: checked.args },
+          }).catch(() => {});
         }
-        await saveContext(conversation_id, {
-          ...EMPTY_CONTEXT,
-          language:        context.language,
-          flow_state:      'CONFIRMING',
-          confirm_message: displayReply,
-          confirm_payload: { tool: parsed.tool, args: parsed.args },
-        }).catch(() => {});
       }
     } else if (!ctxRef.handled && context.flow_state !== 'IDLE') {
       await saveContext(conversation_id, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
@@ -1528,14 +1663,29 @@ async function runGroqLoop(
       const { data: allActive } = await db2.from('users').select('full_name')
         .eq('organization_id', orgId).eq('is_active', true).order('full_name').limit(50);
 
-      // 1. Exact substring match
-      const ilikeMatch = (allActive ?? []).find(u =>
-        (u as { full_name: string }).full_name.toLowerCase().includes(merged.assignee!.toLowerCase()) ||
-        merged.assignee!.toLowerCase().includes((u as { full_name: string }).full_name.toLowerCase())
-      ) as { full_name: string } | undefined;
+      // Prefer an exact full-name match. A partial name must resolve to exactly
+      // one person; never silently choose the first row when names overlap.
+      const requestedName = merged.assignee.trim().toLowerCase();
+      const activeMembers = (allActive ?? []) as { full_name: string }[];
+      const exactMatch = activeMembers.find(u => u.full_name.toLowerCase() === requestedName);
+      const partialMatches = activeMembers.filter(u =>
+        u.full_name.toLowerCase().includes(requestedName) ||
+        requestedName.includes(u.full_name.toLowerCase())
+      );
 
-      if (ilikeMatch) {
-        displayAssignee = ilikeMatch.full_name;
+      if (exactMatch) {
+        displayAssignee = exactMatch.full_name;
+      } else if (partialMatches.length === 1) {
+        displayAssignee = partialMatches[0].full_name;
+      } else if (partialMatches.length > 1) {
+        const options = partialMatches.map(u => `· ${u.full_name}`).join('\n');
+        await saveContext(conversationId, {
+          ...EMPTY_CONTEXT, language: context.language,
+          flow_state: 'EDITING',
+          edit_base_payload: { ...cleanBase, __pending_field: 'assignee' },
+        }).catch(() => {});
+        ctxRef.handled = true;
+        return `Multiple people match *${merged.assignee}*:\n${options}\n\nPlease use the full name.`;
       } else {
         // 2. Fuzzy fallback
         const sim = (a: string, b: string) => {
@@ -1550,12 +1700,24 @@ async function runGroqLoop(
           return c / Math.max(ac.length, bc.length);
         };
         let bestScore = 0, bestName = '';
-        for (const u of (allActive ?? []) as { full_name: string }[]) {
+        const fuzzyMatches: Array<{ name: string; score: number }> = [];
+        for (const u of activeMembers) {
           const score = Math.max(...[u.full_name, ...u.full_name.split(' ')].map(n => sim(merged.assignee!, n)));
+          if (score >= 0.65) fuzzyMatches.push({ name: u.full_name, score });
           if (score > bestScore) { bestScore = score; bestName = u.full_name; }
         }
 
-        if (bestScore >= 0.65) {
+        const nearBest = fuzzyMatches.filter(m => bestScore - m.score <= 0.05);
+        if (nearBest.length > 1) {
+          const options = nearBest.map(m => `· ${m.name}`).join('\n');
+          await saveContext(conversationId, {
+            ...EMPTY_CONTEXT, language: context.language,
+            flow_state: 'EDITING',
+            edit_base_payload: { ...cleanBase, __pending_field: 'assignee' },
+          }).catch(() => {});
+          ctxRef.handled = true;
+          return `Multiple people match *${merged.assignee}*:\n${options}\n\nPlease use the full name.`;
+        } else if (bestScore >= 0.65) {
           displayAssignee = bestName;
         } else {
           // Not found — return error immediately, keep EDITING state so user can retry
@@ -2610,7 +2772,9 @@ async function dispatchToolResult(
     });
 
     if (result.notify?.length) {
-      sendUserNotifications(result.notify, orgId).catch(err => console.warn('[Agent] Notify failed:', err));
+      // This runs inside the webhook's waitUntil chain. Await it so Vercel does
+      // not terminate the invocation before recipient delivery/logging finishes.
+      await sendUserNotifications(result.notify, orgId);
     }
 
     return result;
@@ -2630,26 +2794,40 @@ async function sendUserNotifications(
   const db = createAdminClient();
 
   for (const notif of notifications) {
+    let status: 'sent' | 'failed' = 'failed';
+    let failureReason: string | null = null;
     try {
-      const { data: u } = await db
+      const { data: u, error: userError } = await db
         .from('users')
         .select('wa_number')
         .eq('id', notif.user_id)
         .eq('organization_id', orgId)
         .single();
 
-      if (u?.wa_number) await sendText(u.wa_number, notif.message);
+      if (userError) throw userError;
+      if (!u?.wa_number) throw new Error('Recipient has no WhatsApp number configured.');
 
-      await db.from('notifications').insert({
+      // orgId is required for organization credentials and wa_logs ownership.
+      await sendText(u.wa_number, notif.message, orgId);
+      status = 'sent';
+    } catch (err) {
+      failureReason = err instanceof Error ? err.message : String(err);
+      console.warn(`[Agent] WhatsApp notification failed for user ${notif.user_id}: ${failureReason}`);
+    }
+
+    const { error: notificationError } = await db.from('notifications').insert({
         organization_id: orgId,
         user_id:         notif.user_id,
         type:            'agent_notification',
         title:           'HRBot Notification',
         body:            notif.message,
         channel:         'whatsapp',
-        status:          'sent',
-        sent_at:         new Date().toISOString(),
+        status,
+        sent_at:         status === 'sent' ? new Date().toISOString() : null,
+        metadata:        failureReason ? { failure_reason: failureReason } : {},
       });
-    } catch { /* non-critical */ }
+    if (notificationError) {
+      console.warn(`[Agent] Failed to persist notification status: ${notificationError.message}`);
+    }
   }
 }

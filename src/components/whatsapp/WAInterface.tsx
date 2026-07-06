@@ -257,7 +257,7 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
   async function refresh() {
     setRefreshing(true);
     try {
-      const res  = await fetch(`/api/wa-logs?limit=500&offset=0`);
+      const res  = await fetch(`/api/wa-logs?limit=1000&offset=0`, { cache: 'no-store' });
       const json = await res.json();
       setAllLogs(json.data ?? []);
     } finally {

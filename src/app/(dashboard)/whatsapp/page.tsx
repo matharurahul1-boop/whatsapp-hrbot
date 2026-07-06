@@ -36,9 +36,10 @@ export default async function WhatsAppLogsPage() {
 
   // Normalize the user's wa_number (remove +, spaces, dashes)
   const userWaNumber = normalizeWa(profile.wa_number);
+  const canViewOrganizationChats = ['super_admin', 'admin', 'hr'].includes(profile.role);
 
   // No wa_number linked → show empty state with Meta number prompt
-  if (!userWaNumber) {
+  if (!userWaNumber && !canViewOrganizationChats) {
     return (
       <WAInterface
         logs={[]}
@@ -55,16 +56,21 @@ export default async function WhatsAppLogsPage() {
   //  1. This user's own WA number (their personal WhatsApp conversations)
   //  2. Outgoing messages they sent to contacts via the dashboard (user_id = their id)
   // This ensures contact-initiated chats appear in the Chats tab.
-  const { data: logs } = await db
+  let logsQuery = db
     .from('wa_logs')
     .select(`
       id, wa_number, contact_name, direction, message_type,
       message_text, delivery_status, wa_timestamp, created_at,
       user:users!wa_logs_user_id_fkey(id, full_name, avatar_url)
     `)
-    .eq('organization_id', profile.organization_id)
-    .or(`wa_number.eq.${userWaNumber},and(direction.eq.outgoing,user_id.eq.${user.id})`)
-    .order('created_at', { ascending: true })
+    .eq('organization_id', profile.organization_id);
+
+  if (!canViewOrganizationChats && userWaNumber) {
+    logsQuery = logsQuery.or(`wa_number.eq.${userWaNumber},and(direction.eq.outgoing,user_id.eq.${user.id})`);
+  }
+
+  const { data: logs } = await logsQuery
+    .order('created_at', { ascending: false })
     .limit(1000);
 
   return (

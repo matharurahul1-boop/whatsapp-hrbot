@@ -120,10 +120,13 @@ export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: s
 
       {/* ── Brand ── */}
       <div className={cn(
-        'group flex items-center h-14 border-b border-surface-300/30 shrink-0',
+        'group relative flex w-full items-center h-14 border-b border-surface-300/30 shrink-0',
         visualExpanded ? 'px-3 gap-2' : 'justify-center',
       )}>
-        <div className="relative shrink-0">
+        <div className={cn(
+          'relative shrink-0',
+          !visualExpanded && 'absolute left-1/2 -translate-x-1/2',
+        )}>
           <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-brand-gradient shadow-glow">
             <Zap className="h-4 w-4 text-white" />
           </div>

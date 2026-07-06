@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
 
     // Parse query params
     const sp        = req.nextUrl.searchParams;
-    const limit     = Math.min(parseInt(sp.get('limit')  ?? '50', 10),  200);
+    const limit     = Math.min(parseInt(sp.get('limit')  ?? '50', 10), 1000);
     const offset    = Math.max(parseInt(sp.get('offset') ?? '0',  10),  0);
     const direction = sp.get('direction') ?? 'all';
     const status    = sp.get('status')    ?? 'all';

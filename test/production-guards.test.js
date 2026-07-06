@@ -56,3 +56,45 @@ test('task permissions allow organization-wide view/create/update but block empl
   assert.doesNotMatch(executor, /Employees can only update a task's status/);
   assert.match(taskApi, /profile\.role === 'employee'[\s\S]{0,120}Employees cannot delete tasks/);
 });
+
+test('WhatsApp inbox first render and refresh use the same recent organization log scope', () => {
+  const page = read('src/app/(dashboard)/whatsapp/page.tsx');
+  const api = read('src/app/api/wa-logs/route.ts');
+  const ui = read('src/components/whatsapp/WAInterface.tsx');
+  assert.match(page, /canViewOrganizationChats/);
+  assert.match(page, /ascending:\s*false/);
+  assert.match(page, /limit\(1000\)/);
+  assert.match(api, /1000/);
+  assert.match(ui, /wa-logs\?limit=1000/);
+});
+
+test('task creation and edit flows never silently select the first ambiguous assignee', () => {
+  const agent = read('src/lib/ai/agent.ts');
+  const executor = read('src/lib/ai/executor.ts');
+  assert.match(agent, /partialMatches\.length > 1/);
+  assert.match(agent, /Please use the full name/);
+  assert.match(executor, /matchingUsers\?\.length/);
+  assert.match(executor, /Multiple people match/);
+  const createTaskExecutor = executor.match(/async CREATE_TASK[\s\S]*?async LIST_TASKS/)?.[0] ?? '';
+  assert.doesNotMatch(createTaskExecutor, /ilike\('full_name',[\s\S]{0,100}limit\(1\)\.maybeSingle/);
+});
+
+test('agent recipient notifications are awaited, organization-scoped, and failure-aware', () => {
+  const agent = read('src/lib/ai/agent.ts');
+  assert.match(agent, /await sendUserNotifications\(result\.notify, orgId\)/);
+  assert.match(agent, /await sendText\(u\.wa_number, notif\.message, orgId\)/);
+  assert.match(agent, /\n\s*status,\s*\n/);
+  assert.match(agent, /failure_reason/);
+  assert.doesNotMatch(agent, /sendUserNotifications\(result\.notify, orgId\)\.catch/);
+});
+
+test('all mutation confirmations canonicalize database users, priority, and status before display', () => {
+  const agent = read('src/lib/ai/agent.ts');
+  assert.match(agent, /async function canonicalizeConfirmation/);
+  assert.match(agent, /\.from\('users'\)\.select\('full_name'\)/);
+  assert.match(agent, /PRIORITY_CANONICAL/);
+  assert.match(agent, /STATUS_CANONICAL/);
+  assert.match(agent, /const checked = await canonicalizeConfirmation\(parsed\.tool, parsed\.args, orgId\)/);
+  assert.match(agent, /displayReply = buildToolConfirmation\(parsed\.tool, checked\.args\)/);
+  assert.match(agent, /confirm_payload: \{ tool: parsed\.tool, args: checked\.args \}/);
+});

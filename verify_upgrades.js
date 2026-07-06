@@ -5,13 +5,17 @@
  */
 const https = require('https');
 
-const WEBHOOK_URL  = 'https://whatsapp-hrbot.vercel.app/api/webhooks/whatsapp';
-const N8N_BASE     = 'n8n-whatsapp-bot-ouy1.onrender.com';
-const N8N_KEY      = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyYWI0NWU4OC00OGU1LTRhZTYtYTM5My1kMTczZTdlZTg1ZmEiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwianRpIjoiN2YyODc5MGQtOTFmOC00MjVlLTliZmMtYjBhZTMyMTM2NWIwIiwiaWF0IjoxNzgyMTU3Njc1fQ.qrundBFA-MhpZQAkFlmsla5wJurBLunhhMy6s3SMp6E';
-const WEBHOOK_SECRET = '0yxnvS8z3lpb2AG4Ljjx8TynSI0edL7NKNGJnKKnyhvO3OFK';
-const WA_NUMBER      = '917058444808';
-const ORG_ID         = '582d7d0b-c5a5-4699-9191-46c4fe1ef788';
-const WF_ID          = 'NZsKomyCVzVMHqxp';
+const WEBHOOK_URL    = process.env.TEST_WEBHOOK_URL;
+const N8N_BASE       = process.env.TEST_N8N_API_HOST;
+const N8N_KEY        = process.env.TEST_N8N_API_KEY;
+const WEBHOOK_SECRET = process.env.TEST_INTERNAL_BRIDGE_SECRET;
+const WA_NUMBER      = process.env.TEST_WA_NUMBER;
+const ORG_ID         = process.env.TEST_ORG_ID;
+const WF_ID          = process.env.TEST_N8N_WORKFLOW_ID;
+
+for (const [name, value] of Object.entries({ WEBHOOK_URL, N8N_BASE, N8N_KEY, WEBHOOK_SECRET, WA_NUMBER, ORG_ID, WF_ID })) {
+  if (!value) throw new Error(`Missing required test environment variable: ${name}`);
+}
 
 let pass = 0, fail = 0;
 

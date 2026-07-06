@@ -34,6 +34,7 @@ interface MetaCreds {
 }
 
 const credsCache = new Map<string, { creds: MetaCreds; exp: number }>();
+export function invalidateMetaCreds(orgId: string): void { credsCache.delete(orgId); }
 
 async function resolveMetaCreds(orgId?: string): Promise<MetaCreds> {
   // DB token takes priority — can be updated in Supabase without redeploying Vercel.
@@ -44,16 +45,16 @@ async function resolveMetaCreds(orgId?: string): Promise<MetaCreds> {
 
     try {
       const db = createAdminClient();
-      const { data } = await db
-        .from('organizations')
-        .select('wa_phone_number_id, wa_access_token')
-        .eq('id', orgId)
-        .single();
+      const [{ data }, { data: secret }] = await Promise.all([
+        db.from('organizations').select('wa_phone_number_id, wa_access_token').eq('id', orgId).single(),
+        db.from('organization_secrets').select('wa_access_token').eq('organization_id', orgId).maybeSingle(),
+      ]);
 
-      if (data?.wa_phone_number_id && data?.wa_access_token) {
+      const accessToken = secret?.wa_access_token ?? data?.wa_access_token;
+      if (data?.wa_phone_number_id && accessToken) {
         const creds: MetaCreds = {
           phoneNumberId: data.wa_phone_number_id,
-          accessToken:   data.wa_access_token,
+          accessToken,
         };
         credsCache.set(orgId, { creds, exp: Date.now() + 10 * 60 * 1000 }); // 10 min cache
         return creds;

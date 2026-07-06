@@ -49,20 +49,40 @@ function priorityEmoji(p: string | null): string {
   return map[p.toLowerCase()] ?? '⚪';
 }
 
-// Sorted-character overlap similarity — robust to single-char typos and transpositions.
-// "Prnay" vs "Pranay" → ~0.83 (above the 0.65 threshold used below).
+// Normalized edit-distance similarity. Unlike sorted-character overlap, this
+// does not treat unrelated anagrams as the same employee.
 function nameSimilarity(a: string, b: string): number {
-  const al = a.toLowerCase().replace(/\s+/g, '');
-  const bl = b.toLowerCase().replace(/\s+/g, '');
-  if (al.length === 0 || bl.length === 0) return 0;
-  if (bl.includes(al) || al.includes(bl)) return 0.9;
-  const ac = [...al].sort(), bc = [...bl].sort();
-  let i = 0, j = 0, common = 0;
-  while (i < ac.length && j < bc.length) {
-    if (ac[i] === bc[j]) { common++; i++; j++; }
-    else if (ac[i] < bc[j]) i++; else j++;
+  const al = a.toLocaleLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+  const bl = b.toLocaleLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+  if (!al || !bl) return 0;
+  if (al === bl) return 1;
+  if (bl.includes(al) || al.includes(bl)) return 0.92;
+  const previous = Array.from({ length: bl.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= al.length; i++) {
+    const current = [i];
+    for (let j = 1; j <= bl.length; j++) {
+      current[j] = Math.min(
+        current[j - 1] + 1,
+        previous[j] + 1,
+        previous[j - 1] + (al[i - 1] === bl[j - 1] ? 0 : 1),
+      );
+    }
+    previous.splice(0, previous.length, ...current);
   }
-  return common / Math.max(ac.length, bc.length);
+  return 1 - previous[bl.length] / Math.max(al.length, bl.length);
+}
+
+async function managerTeamIds(orgId: string, managerId: string): Promise<string[]> {
+  const db = createAdminClient();
+  const { data } = await db.from('users').select('id')
+    .eq('organization_id', orgId).eq('manager_id', managerId)
+    .eq('is_active', true).is('deleted_at', null);
+  return (data ?? []).map(row => row.id);
+}
+
+function managerTaskScope(teamIds: string[], managerId: string): string {
+  const assignees = [managerId, ...teamIds].join(',');
+  return `assignee_id.in.(${assignees}),created_by.eq.${managerId}`;
 }
 
 // ─── Tool Map ─────────────────────────────────────────────────────────────────
@@ -208,28 +228,9 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
   async CREATE_TASK({ slots, org_id, user_id, user_role, user_name }): Promise<ToolResult> {
     const db   = createAdminClient();
     const lang = (slots._lang as 'en' | 'hi') ?? 'en';
-
-    // Duplicate guard — prevent the AI from re-creating an existing active task
-    const { data: dupTask } = await db
-      .from('tasks')
-      .select('id, assignee:users!tasks_assignee_id_fkey(full_name)')
-      .eq('organization_id', org_id)
-      .ilike('title', slots.title!)
-      .is('deleted_at', null)
-      .neq('status', 'done')
-      .neq('status', 'cancelled')
-      .limit(1)
-      .maybeSingle();
-
-    if (dupTask) {
-      const owner = (dupTask as any).assignee?.full_name ?? 'someone';
-      return {
-        success: false,
-        reply: lang === 'hi'
-          ? `⚠️ *"${slots.title}"* नाम का task पहले से मौजूद है (${owner} को assigned)। क्या आप उसे update करना चाहते हैं?`
-          : `⚠️ A task *"${slots.title}"* already exists (assigned to ${owner}). Did you mean to *update* it? Try: "update deadline of ${slots.title} to [date]"`,
-      };
-    }
+    const cleanTitle = slots.title?.trim().replace(/\s+/g, ' ').slice(0, 200);
+    if (!cleanTitle) return { success: false, reply: '❌ Please provide a short task title.' };
+    slots.title = cleanTitle;
 
     let assignedTo   = user_id;
     let assigneeName = user_name ?? (lang === 'hi' ? 'आप' : 'You');
@@ -249,19 +250,19 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
       // 1. Exact substring match
       const { data: ilikeRow } = await db
-        .from('users').select('id, full_name')
+        .from('users').select('id, full_name, manager_id')
         .eq('organization_id', org_id).eq('is_active', true)
         .ilike('full_name', `%${slots.assignee}%`).limit(1).maybeSingle();
 
-      let resolvedUser: { id: string; full_name: string } | null = (ilikeRow as { id: string; full_name: string } | null) ?? null;
+      let resolvedUser: { id: string; full_name: string; manager_id?: string | null } | null = (ilikeRow as { id: string; full_name: string; manager_id?: string | null } | null) ?? null;
 
       // 2. Fuzzy fallback for typos / partial names
       if (!resolvedUser) {
         const { data: allActive } = await db
-          .from('users').select('id, full_name')
+          .from('users').select('id, full_name, manager_id')
           .eq('organization_id', org_id).eq('is_active', true).limit(50);
         let bestScore = 0;
-        for (const u of (allActive ?? []) as { id: string; full_name: string }[]) {
+        for (const u of (allActive ?? []) as { id: string; full_name: string; manager_id?: string | null }[]) {
           const scores = [u.full_name, ...u.full_name.split(' ')]
             .map(n => nameSimilarity(slots.assignee!, n));
           const score = Math.max(...scores);
@@ -278,8 +279,29 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
         }
       }
 
+      if (user_role === 'manager' && resolvedUser!.id !== user_id && resolvedUser!.manager_id !== user_id) {
+        return { success: false, reply: '🚫 Managers can only create tasks for themselves or their direct reports.' };
+      }
+
       assignedTo   = resolvedUser!.id;
       assigneeName = resolvedUser!.full_name;
+    }
+
+    // Idempotency is scoped to the assignee. Different employees may validly
+    // have tasks with the same title (for example, "Submit timesheet").
+    const { data: dupTask, error: duplicateError } = await db
+      .from('tasks')
+      .select('id')
+      .eq('organization_id', org_id)
+      .eq('assignee_id', assignedTo)
+      .ilike('title', slots.title!)
+      .is('deleted_at', null)
+      .not('status', 'in', '(done,cancelled)')
+      .limit(1)
+      .maybeSingle();
+    if (duplicateError) throw duplicateError;
+    if (dupTask) {
+      return { success: false, reply: `⚠️ *${assigneeName}* already has an active task named *"${slots.title}"*. Did you mean to update it?` };
     }
 
     // Build deadline as UTC (no-tz string) so the timestamp column stores UTC.
@@ -409,6 +431,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     }
 
     query = (query as any).limit(10);
+    const teamIds = user_role === 'manager' ? await managerTeamIds(org_id, user_id) : [];
 
     if (!isPrivileged || isSelfQuery) {
       // Employees always see only their own tasks.
@@ -422,6 +445,10 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
         .eq('organization_id', org_id)
         .ilike('full_name', `%${slots.assignee_name}%`)
         .limit(5);
+      if ((targetRows?.length ?? 0) > 1) {
+        const options = targetRows!.map(u => `· ${u.full_name}`).join('\n');
+        return { success: false, reply: `Multiple people match *${slots.assignee_name}*:\n${options}\n\nPlease use the full name.` };
+      }
       let target: { id: string; full_name: string } | null = targetRows?.[0] ?? null;
 
       // Fuzzy fallback for typos — e.g. "Prnay" → "Pranay"
@@ -450,11 +477,17 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
           };
         }
       }
+      if (user_role === 'manager' && target!.id !== user_id && !teamIds.includes(target!.id)) {
+        return { success: false, reply: '🚫 Managers can only view tasks for themselves or their direct reports.' };
+      }
       query = query.eq('assignee_id', target!.id);
+    } else if (user_role === 'manager') {
+      query = query.or(managerTaskScope(teamIds, user_id));
     }
     // else: privileged user with no filter → show all org tasks
 
-    const { data: tasks } = await query;
+    const { data: tasks, error: taskListError } = await query;
+    if (taskListError) throw taskListError;
 
     if (!tasks?.length) {
       const noTasksName = slots.assignee_name && isPrivileged && !isSelfQuery ? slots.assignee_name : null;
@@ -544,10 +577,11 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       .neq('status', 'done')
       .limit(3);
 
-    // Employees can only complete their own tasks; managers+ can complete any org task
     if (!isPrivileged) query = query.eq('assignee_id', user_id);
+    else if (user_role === 'manager') query = query.or(managerTaskScope(await managerTeamIds(org_id, user_id), user_id));
 
-    const { data: tasks } = await query;
+    const { data: tasks, error: completeLookupError } = await query;
+    if (completeLookupError) throw completeLookupError;
 
     if ((tasks?.length ?? 0) > 1) {
       const titles = tasks!.map((t: any) => `· *${t.title}*`).join('\n');
@@ -568,10 +602,16 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       };
     }
 
-    await db
+    const { data: completed, error: completeError } = await db
       .from('tasks')
       .update({ status: 'done', completed_at: new Date().toISOString() })
-      .eq('id', task.id);
+      .eq('id', task.id)
+      .neq('status', 'done')
+      .is('deleted_at', null)
+      .select('id')
+      .maybeSingle();
+    if (completeError) throw completeError;
+    if (!completed) return { success: false, reply: `⚠️ *${task.title}* was already completed or changed. Please refresh your task list.` };
 
     await writeAuditLog({
       org_id, actor_id: user_id, actor_type: 'user',
@@ -601,13 +641,15 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       return { success: false, reply: REPLIES.permissionDenied('assign tasks to others', lang) };
     }
 
-    const { data: taskRows } = await db
+    let taskQuery = db
       .from('tasks')
       .select('id, title')
       .eq('organization_id', org_id)
       .ilike('title', `%${slots.title}%`)
-      .is('deleted_at', null)
-      .limit(3);
+      .is('deleted_at', null);
+    const managerTeam = user_role === 'manager' ? await managerTeamIds(org_id, user_id) : [];
+    if (user_role === 'manager') taskQuery = taskQuery.or(managerTaskScope(managerTeam, user_id));
+    const { data: taskRows } = await taskQuery.limit(3);
 
     if ((taskRows?.length ?? 0) > 1) {
       const titles = taskRows!.map(t => `· *${t.title}*`).join('\n');
@@ -621,12 +663,17 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     if (!task) return { success: false, reply: REPLIES.taskNotFound(slots.title!, lang) };
 
     const { data: foundRows } = await db
-      .from('users').select('id, full_name')
+      .from('users').select('id, full_name, manager_id')
       .eq('organization_id', org_id)
       .eq('is_active', true)
       .ilike('full_name', `%${slots.assignee}%`)
       .limit(5);
     const found = foundRows?.[0] ?? null;
+
+    if ((foundRows?.length ?? 0) > 1) {
+      const options = foundRows!.map(u => `· ${u.full_name}`).join('\n');
+      return { success: false, reply: `Multiple people match *${slots.assignee}*:\n${options}\n\nPlease use the full name.` };
+    }
 
     if (!found) {
       // Show who IS available so the user can pick
@@ -642,10 +689,17 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
           : `❌ *${slots.assignee}* not found.\n\nAvailable assignees:\n${names}`,
       };
     }
+    if (user_role === 'manager' && found.id !== user_id && found.manager_id !== user_id) {
+      return { success: false, reply: '🚫 Managers can only assign tasks to themselves or direct reports.' };
+    }
 
     // Fetch updated task details for the notification
     const { data: fullTask } = await db.from('tasks').select('priority, deadline').eq('id', task.id).single() as any;
-    await db.from('tasks').update({ assignee_id: found.id }).eq('id', task.id);
+    const { data: assigned, error: assignError } = await db.from('tasks')
+      .update({ assignee_id: found.id, updated_at: new Date().toISOString() })
+      .eq('id', task.id).is('deleted_at', null).select('id').maybeSingle();
+    if (assignError) throw assignError;
+    if (!assigned) return { success: false, reply: '⚠️ That task changed or was deleted. Please refresh your task list.' };
     n8n.notifyTaskAssigned(org_id, task.id, found.id).catch(() => {});
 
     // Fetch assigner name
@@ -680,10 +734,11 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       .is('deleted_at', null)
       .limit(3);
 
-    // Employees can only delete their own tasks; managers+ can delete any org task
-    if (!isPrivileged) query = query.eq('assignee_id', user_id);
+    if (!isPrivileged) query = query.eq('created_by', user_id);
+    else if (user_role === 'manager') query = query.or(managerTaskScope(await managerTeamIds(org_id, user_id), user_id));
 
-    const { data: tasks } = await query;
+    const { data: tasks, error: deleteLookupError } = await query;
+    if (deleteLookupError) throw deleteLookupError;
 
     if ((tasks?.length ?? 0) > 1) {
       const titles = tasks!.map((t: any) => `· *${t.title}*`).join('\n');
@@ -696,12 +751,17 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const task = tasks?.[0];
     if (!task) return { success: false, reply: REPLIES.taskNotFound(slots.title!, lang) };
 
-    await db.from('tasks').update({ deleted_at: new Date().toISOString() }).eq('id', task.id);
+    const deletedAt = new Date().toISOString();
+    const { data: deleted, error: deleteError } = await db.from('tasks')
+      .update({ deleted_at: deletedAt })
+      .eq('id', task.id).is('deleted_at', null).select('id').maybeSingle();
+    if (deleteError) throw deleteError;
+    if (!deleted) return { success: false, reply: '⚠️ That task was already deleted or changed. Please refresh your task list.' };
 
     await writeAuditLog({
       org_id, actor_id: user_id, actor_type: 'user',
       action: 'DELETE_TASK', table_name: 'tasks',
-      record_id: task.id, new_data: { deleted_at: new Date().toISOString() }, source: 'whatsapp',
+      record_id: task.id, new_data: { deleted_at: deletedAt }, source: 'whatsapp',
     });
 
     if (task.assignee_id && task.assignee_id !== user_id) {
@@ -749,8 +809,10 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       .limit(3);
 
     if (user_role === 'employee') query = query.eq('assignee_id', user_id);
+    else if (user_role === 'manager') query = query.or(managerTaskScope(await managerTeamIds(org_id, user_id), user_id));
 
-    const { data: tasks } = await query;
+    const { data: tasks, error: updateLookupError } = await query;
+    if (updateLookupError) throw updateLookupError;
 
     if ((tasks?.length ?? 0) > 1) {
       const titles = (tasks as any[]).map(t => `· *${t.title}*`).join('\n');
@@ -764,6 +826,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     if (!task) return { success: false, reply: REPLIES.taskNotFound(taskTitle, lang) };
 
     const patch: Record<string, unknown> = {};
+    let updatedAssigneeId: string | null = null;
 
     // Helper: apply one field/value pair to the patch. Returns an error reply or null on success.
     const applyField = async (field: string | undefined, value: string): Promise<string | null> => {
@@ -806,9 +869,13 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
         if (mapped === 'done') patch.completed_at = new Date().toISOString();
       } else if (f === 'assignee') {
         const { data: foundRows } = await db
-          .from('users').select('id, full_name')
-          .eq('organization_id', org_id).eq('is_active', true).ilike('full_name', `%${value}%`).limit(5);
+          .from('users').select('id, full_name, manager_id')
+          .eq('organization_id', org_id).eq('is_active', true).is('deleted_at', null).ilike('full_name', `%${value}%`).limit(5);
         const found = foundRows?.[0] ?? null;
+        if ((foundRows?.length ?? 0) > 1) {
+          const options = foundRows!.map(u => `· ${u.full_name}`).join('\n');
+          return `Multiple people match *${value}*:\n${options}\n\nPlease use the full name.`;
+        }
         if (!found) {
           const { data: avail } = await db.from('users').select('full_name')
             .eq('organization_id', org_id).eq('is_active', true).is('deleted_at', null)
@@ -818,7 +885,11 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
             ? `❌ *${value}* नहीं मिला।\n\nउपलब्ध assignees:\n${names}`
             : `❌ *${value}* not found.\n\nAvailable assignees:\n${names}`;
         }
+        if (user_role === 'manager' && found.id !== user_id && found.manager_id !== user_id) {
+          return '🚫 Managers can only assign tasks to themselves or direct reports.';
+        }
         patch.assignee_id = found.id;
+        updatedAssigneeId = found.id;
       } else {
         // Unknown field — tell the user what's supported
         return lang === 'hi'
@@ -830,7 +901,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     // RBAC: employees can only change status
     const field = slots.update_field?.toLowerCase().trim();
-    if (user_role === 'employee' && field && !['status', 'description'].includes(field)) {
+    if (user_role === 'employee' && field && field !== 'status') {
       return { success: false, reply: lang === 'hi'
         ? `❌ Employees केवल task का status बदल सकते हैं।`
         : `❌ Employees can only update a task's status. Ask your manager to change priority, deadline, or assignee.`
@@ -853,7 +924,10 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     }
 
     patch.updated_at = new Date().toISOString();
-    await db.from('tasks').update(patch).eq('id', task.id);
+    const { data: updatedTask, error: updateError } = await db.from('tasks')
+      .update(patch).eq('id', task.id).is('deleted_at', null).select('id').maybeSingle();
+    if (updateError) throw updateError;
+    if (!updatedTask) return { success: false, reply: '⚠️ That task changed or was deleted. Please refresh your task list.' };
 
     await writeAuditLog({
       org_id, actor_id: user_id, actor_type: 'user',
@@ -881,14 +955,15 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const hasField2 = !!(slots.update_field_2 && slots.update_value_2);
     const field2Label = hasField2 ? ` and *${slots.update_field_2}* to *${slots.update_value_2}*` : '';
 
-    if (task.assignee_id && task.assignee_id !== user_id) {
+    const notificationAssigneeId = updatedAssigneeId ?? task.assignee_id;
+    if (notificationAssigneeId && notificationAssigneeId !== user_id) {
       const { data: updater } = await db.from('users').select('full_name').eq('id', user_id).single();
       notifyTaskUpdated({
         orgId:       org_id,
         taskTitle:   displayTitle,
         field:       displayField,
         value:       displayValue,
-        assigneeId:  task.assignee_id,
+        assigneeId:  notificationAssigneeId,
         updaterName: updater?.full_name ?? 'your manager',
       }).catch(() => {});
     }
@@ -905,9 +980,8 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const db   = createAdminClient();
     const lang = (slots._lang as 'en' | 'hi') ?? 'en';
 
-    const message   = slots.message ?? slots.title ?? '';
+    const message   = (slots.message ?? slots.title ?? '').trim().slice(0, 1000);
     const remindAt  = slots.remind_at ?? slots.deadline ?? null;
-    const waNumber  = slots.wa_number ?? null;
 
     if (!message || !remindAt) {
       return { success: false, reply: lang === 'hi'
@@ -919,7 +993,11 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     // Parse remind_at — accept ISO or YYYY-MM-DD HH:MM
     let fireAt: Date;
     try {
-      fireAt = new Date(remindAt);
+      const parsed = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(remindAt)
+        ? remindAt
+        : parseDeadlineString(remindAt);
+      if (!parsed) throw new Error('invalid');
+      fireAt = new Date(parsed);
       if (isNaN(fireAt.getTime())) throw new Error('invalid');
     } catch {
       return { success: false, reply: lang === 'hi'
@@ -936,11 +1014,8 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     }
 
     // Look up wa_number if not in slots
-    let finalWaNumber = waNumber;
-    if (!finalWaNumber) {
-      const { data: u } = await db.from('users').select('wa_number').eq('id', user_id).single();
-      finalWaNumber = u?.wa_number ?? null;
-    }
+    const { data: u } = await db.from('users').select('wa_number').eq('id', user_id).single();
+    const finalWaNumber = u?.wa_number ?? null;
 
     if (!finalWaNumber) {
       return { success: false, reply: lang === 'hi'
@@ -1002,8 +1077,10 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       .limit(1);
 
     if (user_role === 'employee') query = query.eq('assignee_id', user_id);
+    else if (user_role === 'manager') query = query.or(managerTaskScope(await managerTeamIds(org_id, user_id), user_id));
 
-    const { data: tasks } = await query;
+    const { data: tasks, error: detailLookupError } = await query;
+    if (detailLookupError) throw detailLookupError;
     const t = (tasks as any[])?.[0];
     if (!t) return { success: false, reply: REPLIES.taskNotFound(slots.title ?? '', lang) };
 
@@ -1031,13 +1108,17 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
   async APPLY_LEAVE({ slots, org_id, user_id }): Promise<ToolResult> {
     const db   = createAdminClient();
     const lang = (slots._lang as 'en' | 'hi') ?? 'en';
+    if (!slots.leave_type?.trim() || !slots.start_date?.trim()) {
+      return { success: false, reply: '❌ Please provide the leave type and start date.' };
+    }
 
-    const { data: leaveType } = await db
+    const { data: leaveType, error: leaveTypeError } = await db
       .from('leave_types')
       .select('id, name, requires_approval, max_days_per_year')
       .eq('organization_id', org_id)
       .ilike('name', `%${slots.leave_type}%`)
       .maybeSingle();
+    if (leaveTypeError) throw leaveTypeError;
 
     if (!leaveType) {
       return { success: false, reply: lang === 'hi'
@@ -1049,9 +1130,23 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const startDate = slots.start_date!;
     let endDate = slots.end_date ?? startDate;
 
+    const isValidYmd = (value: string) => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+      const [y, m, d] = value.split('-').map(Number);
+      const parsed = new Date(Date.UTC(y, m - 1, d));
+      return parsed.getUTCFullYear() === y && parsed.getUTCMonth() === m - 1 && parsed.getUTCDate() === d;
+    };
+    if (!isValidYmd(startDate) || !isValidYmd(endDate)) {
+      return { success: false, reply: '❌ Invalid leave date. Please use a real date such as 2026-07-15.' };
+    }
+
     if (slots.duration_days && !slots.end_date) {
+      const duration = Number(slots.duration_days);
+      if (!Number.isInteger(duration) || duration < 1 || duration > 365) {
+        return { success: false, reply: '❌ Leave duration must be between 1 and 365 days.' };
+      }
       const start = new Date(startDate);
-      start.setDate(start.getDate() + parseInt(slots.duration_days) - 1);
+      start.setDate(start.getDate() + duration - 1);
       endDate = start.toISOString().split('T')[0];
     }
 
@@ -1109,14 +1204,19 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       .eq('year', year)
       .maybeSingle();
 
-    if (balance && balance.remaining_days < totalDays) {
+    if (!balance) {
+      return { success: false, reply: lang === 'hi'
+        ? `❌ ${leaveType.name} का leave balance configured नहीं है। HR से संपर्क करें।`
+        : `❌ No ${leaveType.name} leave balance is configured for you. Please contact HR.` };
+    }
+    if (balance.remaining_days < totalDays) {
       return {
         success: false,
         reply: REPLIES.leaveInsufficientBalance(balance.remaining_days, totalDays, leaveType.name, lang),
       };
     }
 
-    const reason = (slots.reason === 'SKIP' || !slots.reason) ? null : slots.reason;
+    const reason = (slots.reason === 'SKIP' || !slots.reason) ? null : slots.reason.trim().slice(0, 1000);
 
     const { data: request, error } = await db
       .from('leave_requests')
@@ -1197,6 +1297,16 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     if (!isPrivileged) {
       query = query.eq('employee_id', user_id);
+    } else if (user_role === 'manager') {
+      const allowed = [user_id, ...await managerTeamIds(org_id, user_id)];
+      if (slots.employee_name) {
+        const { data: target } = await db.from('users').select('id').eq('organization_id', org_id)
+          .ilike('full_name', `%${slots.employee_name}%`).limit(1).maybeSingle();
+        if (!target || !allowed.includes(target.id)) return { success: false, reply: '🚫 Managers can only view leave requests for direct reports.' };
+        query = query.eq('employee_id', target.id);
+      } else {
+        query = query.in('employee_id', allowed);
+      }
     } else if (slots.employee_name) {
       // Manager filtering by a specific person
       const { data: empRows } = await db.from('users').select('id, full_name')
@@ -1256,6 +1366,10 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       .eq('organization_id', org_id)
       .ilike('full_name', `%${slots.employee_name}%`)
       .limit(5);
+    if ((empRows?.length ?? 0) > 1) {
+      const options = empRows!.map(u => `· ${u.full_name}`).join('\n');
+      return { success: false, reply: `Multiple employees match *${slots.employee_name}*:\n${options}\n\nPlease use the full name.` };
+    }
 
     // Fuzzy fallback when ilike finds nothing
     type EmpRecord = { id: string; full_name: string; manager_id: string | null };
@@ -1310,9 +1424,14 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     const request = pendingLeaves[0];
 
-    await db.from('leave_requests').update({
+    const { data: approved, error: approveError } = await db.from('leave_requests').update({
       status: 'approved', reviewed_by: user_id, reviewed_at: new Date().toISOString(),
-    }).eq('id', request.id);
+    }).eq('id', request.id).eq('status', 'pending').select('id').maybeSingle();
+    if (approveError) {
+      console.error('[APPROVE_LEAVE] update failed:', approveError.message);
+      return { success: false, reply: '❌ Could not approve this leave. Please refresh the pending list and try again.' };
+    }
+    if (!approved) return { success: false, reply: '⚠️ This leave request was already reviewed. Please refresh the pending list.' };
 
     n8n.notifyLeaveDecision(org_id, request.id, 'approved').catch(() => {});
 
@@ -1357,6 +1476,10 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       .eq('organization_id', org_id)
       .ilike('full_name', `%${slots.employee_name}%`)
       .limit(5);
+    if ((empRowsR?.length ?? 0) > 1) {
+      const options = empRowsR!.map(u => `· ${u.full_name}`).join('\n');
+      return { success: false, reply: `Multiple employees match *${slots.employee_name}*:\n${options}\n\nPlease use the full name.` };
+    }
 
     // Fuzzy fallback when ilike finds nothing
     type EmpRec = { id: string; full_name: string; manager_id: string | null };
@@ -1412,10 +1535,15 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const rawReason = (slots.reason === 'SKIP' || !slots.reason) ? null : slots.reason;
     const reason = rawReason ? rawReason.slice(0, 500) : null;
 
-    await db.from('leave_requests').update({
+    const { data: rejected, error: rejectError } = await db.from('leave_requests').update({
       status: 'rejected', reviewed_by: user_id, reviewed_at: new Date().toISOString(),
       remarks: reason,
-    }).eq('id', request.id);
+    }).eq('id', request.id).eq('status', 'pending').select('id').maybeSingle();
+    if (rejectError) {
+      console.error('[REJECT_LEAVE] update failed:', rejectError.message);
+      return { success: false, reply: '❌ Could not reject this leave. Please refresh the pending list and try again.' };
+    }
+    if (!rejected) return { success: false, reply: '⚠️ This leave request was already reviewed. Please refresh the pending list.' };
 
     const { data: rejecter } = await db.from('users').select('full_name').eq('id', user_id).single();
     notifyLeaveDecision({
@@ -1473,9 +1601,13 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       };
     }
 
-    await db.from('leave_requests')
+    const { data: cancelled, error: cancelError } = await db.from('leave_requests')
       .update({ status: 'cancelled' })
-      .eq('id', request.id);
+      .eq('id', request.id)
+      .in('status', ['pending', 'approved'])
+      .select('id').maybeSingle();
+    if (cancelError) throw cancelError;
+    if (!cancelled) return { success: false, reply: '⚠️ That leave request was already changed. Please refresh your leave list.' };
 
     return {
       success: true,
@@ -1552,11 +1684,14 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
         : `You already checked out at *${cout}* today. See you tomorrow! 👋` };
     }
 
-    const { data: updated } = await db
+    const { data: updated, error: checkoutError } = await db
       .from('attendance_records')
       .update({ check_out_time: now })
       .eq('id', record.id)
+      .is('check_out_time', null)
       .select().maybeSingle();
+    if (checkoutError) throw checkoutError;
+    if (!updated) return { success: false, reply: '⚠️ Attendance was already updated. Please check your attendance status.' };
 
     // Calculate hours worked
     const hoursWorked = record.check_in_time
@@ -1572,12 +1707,13 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const firstName = (user_name ?? 'there').split(' ')[0];
 
-    const { data: records } = await db
+    const { data: records, error: attendanceError } = await db
       .from('attendance_records')
       .select('date, status, check_in_time, check_out_time, total_hours')
       .eq('employee_id', user_id).eq('organization_id', org_id)
       .gte('date', since)
       .order('date', { ascending: false });
+    if (attendanceError) throw attendanceError;
 
     if (!records?.length) {
       return {
@@ -1635,6 +1771,8 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       employeeQuery,
       db.from('attendance_records').select('employee_id').eq('organization_id', org_id).eq('date', today).eq('status', 'present'),
     ]);
+    if (empRes.error) throw empRes.error;
+    if (presentRes.error) throw presentRes.error;
 
     const presentIds = new Set((presentRes.data ?? []).map((r: any) => r.employee_id));
     const absent     = (empRes.data ?? []).filter((e: any) => !presentIds.has(e.id));
@@ -1679,15 +1817,15 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       };
     }
 
-    const { data: users, error: usersErr } = await db
+    let usersQuery = db
       .from('users')
-      .select('full_name, role, department, designation, wa_number')
+      .select('full_name, role, department, designation')
       .eq('organization_id', org_id)
       .eq('is_active', true)
-      .is('deleted_at', null)
-      .order('full_name', { ascending: true })
-      .limit(20);
-    console.log(`[LIST_USERS] org_id=${org_id} → ${users?.length ?? 0} rows`, usersErr?.message ?? '');
+      .is('deleted_at', null);
+    if (user_role === 'manager') usersQuery = usersQuery.or(`id.eq.${user_id},manager_id.eq.${user_id}`);
+    const { data: users, error: usersErr } = await usersQuery.order('full_name', { ascending: true }).limit(20);
+    if (usersErr) throw usersErr;
 
     if (!users?.length) {
       return { success: true, reply: lang === 'hi' ? 'कोई उपयोगकर्ता नहीं मिला।' : 'No users found in your organisation.' };
@@ -1723,9 +1861,20 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       return { success: false, reply: "Please provide the employee's WhatsApp number (with country code, e.g. +919876543210)." };
     }
     const waNumber = slots.wa_number.replace(/\s/g, '');
+    if (!/^\+[1-9]\d{7,14}$/.test(waNumber)) {
+      return { success: false, reply: '❌ Invalid WhatsApp number. Include the country code, for example +919876543210.' };
+    }
+
+    const bareWaNumber = waNumber.replace(/^\+/, '');
+    const { data: existingEmployee } = await db.from('users')
+      .select('id, full_name').eq('organization_id', org_id)
+      .in('wa_number', [waNumber, bareWaNumber]).limit(1).maybeSingle();
+    if (existingEmployee) {
+      return { success: false, reply: `⚠️ This WhatsApp number is already registered to *${existingEmployee.full_name}*.` };
+    }
 
     const { data: newAuthUser, error: authError } = await db.auth.admin.createUser({
-      email:         `${waNumber.replace(/\+/g, '')}@wa.placeholder`,
+      email:         `${bareWaNumber}@wa.placeholder`,
       password:      Math.random().toString(36).slice(2) + 'A1!',
       user_metadata: { full_name: empName },
     });
@@ -1735,17 +1884,21 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const userId = newAuthUser?.user?.id;
     if (!userId) return { success: false, reply: REPLIES.error(lang) };
 
-    await db.from('users').upsert({
+    const { error: profileError } = await db.from('users').upsert({
       id:               userId,
       organization_id:  org_id,
       full_name:        empName,
-      email:            `${waNumber.replace(/\+/g, '')}@wa.placeholder`,
-      wa_number:        waNumber.replace(/\+/g, ''),
+      email:            `${bareWaNumber}@wa.placeholder`,
+      wa_number:        bareWaNumber,
       role:             'employee',
       department:       slots.department !== 'SKIP' ? slots.department ?? null : null,
       designation:      slots.designation !== 'SKIP' ? slots.designation ?? null : null,
       onboarding_status: 'in_progress',
     });
+    if (profileError) {
+      await db.auth.admin.deleteUser(userId).catch(() => {});
+      throw profileError;
+    }
 
     const { data: session, error: sessError } = await db.from('onboarding_sessions')
       .insert({ organization_id: org_id, employee_id: userId, initiated_by: user_id, current_step: 1, total_steps: 8, status: 'in_progress' })
@@ -1754,7 +1907,8 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     if (sessError) throw sessError;
 
     const empId = await generateEmployeeId();
-    await db.from('users').update({ employee_id: empId }).eq('id', userId);
+    const { error: employeeIdError } = await db.from('users').update({ employee_id: empId }).eq('id', userId);
+    if (employeeIdError) throw employeeIdError;
 
     n8n.notifyOnboardingStarted(org_id, session.id).catch(() => {});
 
@@ -1793,9 +1947,11 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
                        : ['whatsapp'];
     }
 
-    await db.from('users')
+    const { data: reminderUser, error: reminderError } = await db.from('users')
       .update({ metadata: { ...existingMeta, task_reminders: updates } })
-      .eq('id', user_id);
+      .eq('id', user_id).select('id').maybeSingle();
+    if (reminderError) throw reminderError;
+    if (!reminderUser) return { success: false, reply: REPLIES.error(lang) };
 
     const OFFSET_LABEL: Record<string, string> = {
       'same_day': lang === 'hi' ? 'deadline वाले दिन सुबह 9 बजे'         : 'morning of the deadline day (9 AM)',
@@ -1963,6 +2119,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       .is('deleted_at', null);
 
     if (!isPrivileged) baseQuery = baseQuery.eq('assignee_id', user_id);
+    else if (user_role === 'manager') baseQuery = baseQuery.or(managerTaskScope(await managerTeamIds(org_id, user_id), user_id));
 
     const { data: tasks } = await baseQuery.limit(1000);
     if (!tasks) return { success: false, reply: REPLIES.error(lang) };
@@ -2028,8 +2185,10 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       .limit(3);
 
     if (user_role === 'employee') query = query.eq('assignee_id', user_id);
+    else if (user_role === 'manager') query = query.or(managerTaskScope(await managerTeamIds(org_id, user_id), user_id));
 
-    const { data: tasks } = await query;
+    const { data: tasks, error: noteLookupError } = await query;
+    if (noteLookupError) throw noteLookupError;
 
     if ((tasks?.length ?? 0) > 1) {
       const titles = (tasks as any[]).map(t => `· *${t.title}*`).join('\n');
@@ -2041,9 +2200,11 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const task = (tasks as any[])?.[0];
     if (!task) return { success: false, reply: REPLIES.taskNotFound(slots.title!, lang) };
 
-    await db.from('tasks')
+    const { data: noted, error: noteError } = await db.from('tasks')
       .update({ description: note, updated_at: new Date().toISOString() })
-      .eq('id', task.id);
+      .eq('id', task.id).is('deleted_at', null).select('id').maybeSingle();
+    if (noteError) throw noteError;
+    if (!noted) return { success: false, reply: '⚠️ That task changed or was deleted. Please refresh your task list.' };
 
     await writeAuditLog({
       org_id, actor_id: user_id, actor_type: 'user',
@@ -2069,9 +2230,16 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     if (user_role === 'employee') {
       query = query.eq('employee_id', user_id);
+    } else if (user_role === 'manager') {
+      const teamIds = await managerTeamIds(org_id, user_id);
+      if (teamIds.length === 0) {
+        return { success: true, reply: '👤 No onboarding sessions found for your direct reports.' };
+      }
+      query = query.in('employee_id', teamIds);
     }
 
-    const { data: sessions } = await query;
+    const { data: sessions, error: onboardingStatusError } = await query;
+    if (onboardingStatusError) throw onboardingStatusError;
 
     if (!sessions?.length) {
       return {

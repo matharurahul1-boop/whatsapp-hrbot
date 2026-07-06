@@ -49,8 +49,8 @@ export async function GET(req: NextRequest) {
   const employeeId = searchParams.get('employee_id');
   const from  = searchParams.get('from') ?? new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
   const to    = searchParams.get('to')   ?? todayISO();
-  const page  = parseInt(searchParams.get('page') ?? '1');
-  const limit = Math.min(parseInt(searchParams.get('limit') ?? '50'), 200);
+  const page  = Math.max(1, parseInt(searchParams.get('page') ?? '1') || 1);
+  const limit = Math.min(Math.max(1, parseInt(searchParams.get('limit') ?? '50') || 50), 200);
   const offset = (page - 1) * limit;
 
   let query = db

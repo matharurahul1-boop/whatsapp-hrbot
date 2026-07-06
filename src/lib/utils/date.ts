@@ -42,9 +42,9 @@ export function calcBusinessDays(start: string, end: string): number {
   try {
     const s = parseISO(start);
     const e = parseISO(end);
-    return Math.max(1, differenceInBusinessDays(addDays(e, 1), s));
+    return Math.max(0, differenceInBusinessDays(addDays(e, 1), s));
   } catch {
-    return 1;
+    return 0;
   }
 }
 
@@ -88,6 +88,30 @@ export function parseDeadlineToUTC(datePart: string, timePart: string): string |
   // ── Normalise date → yyyy-mm-dd ──────────────────────────────────────────
   let ymd: string | null = null;
 
+  const baseYmd = todayISO();
+  const addCalendarDays = (days: number) => {
+    const base = new Date(`${baseYmd}T00:00:00Z`);
+    base.setUTCDate(base.getUTCDate() + days);
+    return base.toISOString().slice(0, 10);
+  };
+  if (/^today$/i.test(d)) ymd = baseYmd;
+  else if (/^tomorrow$/i.test(d)) ymd = addCalendarDays(1);
+  else if (/^(?:day after tomorrow|parso|parson)$/i.test(d)) ymd = addCalendarDays(2);
+  else {
+    const inDays = d.match(/^in\s+(\d{1,3})\s+days?$/i);
+    if (inDays) ymd = addCalendarDays(Number(inDays[1]));
+  }
+  if (!ymd) {
+    const nextWeekday = d.match(/^next\s+(sun(?:day)?|mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?)$/i);
+    if (nextWeekday) {
+      const target = ['sun','mon','tue','wed','thu','fri','sat'].indexOf(nextWeekday[1].slice(0, 3).toLowerCase());
+      const base = new Date(`${baseYmd}T00:00:00Z`);
+      let delta = (target - base.getUTCDay() + 7) % 7;
+      if (delta === 0) delta = 7;
+      ymd = addCalendarDays(delta);
+    }
+  }
+
   // 1. Already ISO: yyyy-mm-dd
   if (/^\d{4}-\d{2}-\d{2}$/.test(d)) {
     ymd = d;
@@ -111,7 +135,8 @@ export function parseDeadlineToUTC(datePart: string, timePart: string): string |
     if (m) {
       const mo = MONTH_MAP[m[2].toLowerCase()];
       if (mo) {
-        const yr = m[3] ? m[3] : String(new Date().getFullYear());
+        let yr = m[3] ? m[3] : baseYmd.slice(0, 4);
+        if (!m[3] && `${yr}-${mo}-${m[1].padStart(2,'0')}` < baseYmd) yr = String(Number(yr) + 1);
         ymd = `${yr}-${mo}-${m[1].padStart(2,'0')}`;
       }
     }
@@ -123,7 +148,8 @@ export function parseDeadlineToUTC(datePart: string, timePart: string): string |
     if (m) {
       const mo = MONTH_MAP[m[1].toLowerCase()];
       if (mo) {
-        const yr = m[3] ? m[3] : String(new Date().getFullYear());
+        let yr = m[3] ? m[3] : baseYmd.slice(0, 4);
+        if (!m[3] && `${yr}-${mo}-${m[2].padStart(2,'0')}` < baseYmd) yr = String(Number(yr) + 1);
         ymd = `${yr}-${mo}-${m[2].padStart(2,'0')}`;
       }
     }
@@ -152,17 +178,26 @@ export function parseDeadlineToUTC(datePart: string, timePart: string): string |
     if (m12) {
       let h = +m12[1];
       const mn = m12[2] ? +m12[2] : 0;
+      if (h < 1 || h > 12 || mn > 59) return null;
       if (m12[3].toLowerCase() === 'pm' && h !== 12) h += 12;
       if (m12[3].toLowerCase() === 'am' && h === 12) h = 0;
       hhmm = `${String(h).padStart(2,'0')}:${String(mn).padStart(2,'0')}`;
     } else {
       // "HH:MM" or "H:MM"
       const m24 = t.match(/^(\d{1,2}):(\d{2})$/);
-      if (m24) hhmm = `${m24[1].padStart(2,'0')}:${m24[2]}`;
+      if (m24) {
+        if (+m24[1] > 23 || +m24[2] > 59) return null;
+        hhmm = `${m24[1].padStart(2,'0')}:${m24[2]}`;
+      } else if (t) {
+        return null;
+      }
     }
   }
 
   // ── Build UTC ISO ─────────────────────────────────────────────────────────
+  const [year, month, day] = ymd.split('-').map(Number);
+  const validDate = new Date(Date.UTC(year, month - 1, day));
+  if (validDate.getUTCFullYear() !== year || validDate.getUTCMonth() !== month - 1 || validDate.getUTCDate() !== day) return null;
   const dt = new Date(`${ymd}T${hhmm}:00+05:30`);
   return isNaN(dt.getTime()) ? null : dt.toISOString().slice(0, 19);
 }

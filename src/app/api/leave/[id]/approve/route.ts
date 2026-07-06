@@ -46,7 +46,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: 'You can only review your direct reports' }, { status: 403 });
   }
 
-  // ── Balance deduction on approval (decrement remaining_days) ──────────────
   if (parsed.data.action === 'approved') {
     const leaveYear = new Date(request.start_date).getFullYear();
 
@@ -58,16 +57,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       .eq('year', leaveYear)
       .single();
 
-    if (balance) {
-      const newRemaining = Math.max(0, balance.remaining_days - (request.duration_days ?? 0));
-      const { error: balanceErr } = await db
-        .from('leave_balances')
-        .update({ remaining_days: newRemaining })
-        .eq('id', balance.id);
-
-      if (balanceErr) {
-        console.error('[Leave Approve] Balance deduction failed:', balanceErr.message);
-      }
+    if (!balance) return NextResponse.json({ error: 'Leave balance is not configured' }, { status: 409 });
+    if (balance.remaining_days < (request.duration_days ?? 0)) {
+      return NextResponse.json({ error: 'Insufficient remaining leave balance' }, { status: 409 });
     }
   }
 
@@ -80,10 +72,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       remarks:     parsed.data.remarks,
     })
     .eq('id', id)
+    .eq('status', 'pending')
     .select()
-    .single();
+    .maybeSingle();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!updated) return NextResponse.json({ error: 'Request was already reviewed' }, { status: 409 });
+
 
   // In-app notification for employee
   await db.rpc('create_notification', {

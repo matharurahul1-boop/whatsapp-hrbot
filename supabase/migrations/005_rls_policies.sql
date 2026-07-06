@@ -56,25 +56,22 @@ CREATE POLICY "users_admin_manage" ON users
   FOR ALL USING (organization_id = auth_org_id() AND is_admin_or_above());
 
 -- ─── Tasks ────────────────────────────────────────────────────────────────────
-CREATE POLICY "tasks_org_isolation" ON tasks
-  FOR ALL USING (organization_id = auth_org_id() AND deleted_at IS NULL);
-
 CREATE POLICY "tasks_employee_own" ON tasks
-  FOR SELECT USING (
+  FOR ALL USING (
     organization_id = auth_org_id() AND
-    (assigned_to = auth.uid() OR assigned_by = auth.uid())
-  );
+    (assignee_id = auth.uid() OR created_by = auth.uid()) AND deleted_at IS NULL
+  ) WITH CHECK (organization_id = auth_org_id());
 
 CREATE POLICY "tasks_manager_team" ON tasks
   FOR ALL USING (
     organization_id = auth_org_id() AND
-    is_manager_or_above()
-  );
+    is_manager_or_above() AND deleted_at IS NULL
+  ) WITH CHECK (organization_id = auth_org_id());
 
 -- ─── Leave Requests ───────────────────────────────────────────────────────────
 CREATE POLICY "leave_own_read" ON leave_requests
   FOR SELECT USING (
-    organization_id = auth_org_id() AND user_id = auth.uid()
+    organization_id = auth_org_id() AND employee_id = auth.uid()
   );
 
 CREATE POLICY "leave_manager_team" ON leave_requests
@@ -84,13 +81,13 @@ CREATE POLICY "leave_manager_team" ON leave_requests
 
 CREATE POLICY "leave_employee_create" ON leave_requests
   FOR INSERT WITH CHECK (
-    organization_id = auth_org_id() AND user_id = auth.uid()
+    organization_id = auth_org_id() AND employee_id = auth.uid()
   );
 
 -- ─── Attendance ───────────────────────────────────────────────────────────────
 CREATE POLICY "attendance_own_read" ON attendance_records
   FOR SELECT USING (
-    organization_id = auth_org_id() AND user_id = auth.uid()
+    organization_id = auth_org_id() AND employee_id = auth.uid()
   );
 
 CREATE POLICY "attendance_manager_read" ON attendance_records
@@ -100,7 +97,7 @@ CREATE POLICY "attendance_manager_read" ON attendance_records
 
 CREATE POLICY "attendance_employee_checkin" ON attendance_records
   FOR INSERT WITH CHECK (
-    organization_id = auth_org_id() AND user_id = auth.uid()
+    organization_id = auth_org_id() AND employee_id = auth.uid()
   );
 
 -- ─── Notifications ────────────────────────────────────────────────────────────

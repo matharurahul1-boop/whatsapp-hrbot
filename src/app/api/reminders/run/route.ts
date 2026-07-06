@@ -16,7 +16,7 @@
  *
  * Individual ?type= values are still supported for manual testing.
  *
- * Auth: Authorization: Bearer <APP_SECRET>  OR  x-vercel-cron: 1 header
+ * Auth: Authorization: Bearer <CRON_SECRET or APP_SECRET>.
  */
 
 import { NextRequest, NextResponse }      from 'next/server';
@@ -49,10 +49,9 @@ function dayAfterTomorrowIST(): string {
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
 function authorize(req: NextRequest): boolean {
-  const isCron = req.headers.get('x-vercel-cron') === '1';
   const auth   = req.headers.get('authorization') ?? '';
-  const secret = process.env.APP_SECRET;
-  return isCron || (!!secret && auth === `Bearer ${secret}`);
+  const secrets = [process.env.CRON_SECRET, process.env.APP_SECRET].filter(Boolean);
+  return secrets.some(secret => auth === `Bearer ${secret}`);
 }
 
 // ── POST — manual trigger ─────────────────────────────────────────────────────

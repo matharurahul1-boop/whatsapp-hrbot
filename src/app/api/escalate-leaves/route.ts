@@ -60,6 +60,7 @@ export async function POST(req: NextRequest) {
   const header  = req.headers.get('x-escalation-secret');
 
   let authorized = false;
+  let allowedOrgId: string | null = null;
 
   if (secret && header === secret) {
     authorized = true;
@@ -72,11 +73,14 @@ export async function POST(req: NextRequest) {
       const db = createAdminClient();
       const { data: profile } = await db
         .from('users')
-        .select('role')
+        .select('role, organization_id')
         .eq('id', user.id)
         .single();
-      if (profile?.role === 'super_admin' || profile?.role === 'admin' || profile?.role === 'hr') {
+      if (profile?.role === 'super_admin') {
         authorized = true;
+      } else if (profile?.role === 'admin' || profile?.role === 'hr') {
+        authorized = true;
+        allowedOrgId = profile.organization_id;
       }
     }
   }
@@ -89,7 +93,7 @@ export async function POST(req: NextRequest) {
   const now = Date.now();
 
   // Fetch all pending leave requests with user + org info
-  const { data: pendingLeaves, error } = await db
+  let pendingQuery = db
     .from('leave_requests')
     .select(`
       id, organization_id, created_at,
@@ -104,8 +108,9 @@ export async function POST(req: NextRequest) {
         id, name, wa_message_template, wa_template_lang, wa_template_variables
       )
     `)
-    .eq('status', 'pending')
-    .order('created_at', { ascending: true });
+    .eq('status', 'pending');
+  if (allowedOrgId) pendingQuery = pendingQuery.eq('organization_id', allowedOrgId);
+  const { data: pendingLeaves, error } = await pendingQuery.order('created_at', { ascending: true });
 
   if (error) {
     console.error('[escalate-leaves] DB error:', error.message);

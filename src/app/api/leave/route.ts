@@ -3,7 +3,7 @@ import { createClient }         from '@/lib/supabase/server';
 import { createAdminClient }    from '@/lib/supabase/admin';
 import { writeAuditLog }        from '@/lib/utils/audit';
 import { notifyLeaveSubmitted, notifyLeaveCancelled } from '@/lib/whatsapp/notify';
-import { isHrOrAbove } from '@/lib/rbac';
+import { isHrOrAbove, isManager } from '@/lib/rbac';
 import { z } from 'zod';
 
 const ApplyLeaveSchema = z.object({
@@ -29,8 +29,8 @@ export async function GET(req: NextRequest) {
   const status    = searchParams.get('status');
   const employeeId = searchParams.get('employee_id');
   const year      = searchParams.get('year') ?? new Date().getFullYear().toString();
-  const page      = parseInt(searchParams.get('page') ?? '1');
-  const limit     = Math.min(parseInt(searchParams.get('limit') ?? '50'), 100);
+  const page      = Math.max(1, parseInt(searchParams.get('page') ?? '1') || 1);
+  const limit     = Math.min(Math.max(1, parseInt(searchParams.get('limit') ?? '50') || 50), 100);
   const offset    = (page - 1) * limit;
 
   let query = db
@@ -52,6 +52,14 @@ export async function GET(req: NextRequest) {
   // Employees see only their own requests
   if (profile.role === 'employee') {
     query = query.eq('employee_id', user.id);
+  } else if (isManager(profile.role)) {
+    const { data: reports } = await db.from('users').select('id')
+      .eq('organization_id', profile.organization_id).eq('manager_id', user.id);
+    const allowedIds = [user.id, ...(reports ?? []).map(r => r.id)];
+    if (employeeId && !allowedIds.includes(employeeId)) {
+      return NextResponse.json({ error: 'Managers can only view their direct reports' }, { status: 403 });
+    }
+    query = employeeId ? query.eq('employee_id', employeeId) : query.in('employee_id', allowedIds);
   } else if (employeeId) {
     query = query.eq('employee_id', employeeId);
   }
@@ -99,13 +107,18 @@ export async function POST(req: NextRequest) {
   const start = new Date(parsed.data.start_date);
   const end   = new Date(parsed.data.end_date);
   if (end < start) return NextResponse.json({ error: 'end_date must be >= start_date' }, { status: 422 });
+  const today = new Date(); today.setUTCHours(0, 0, 0, 0);
+  if (start < today) return NextResponse.json({ error: 'Leave cannot start in the past' }, { status: 422 });
   const durationDays = Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
+
+  const { data: leaveType } = await db.from('leave_types').select('id')
+    .eq('id', parsed.data.leave_type_id).eq('organization_id', profile.organization_id)
+    .eq('is_active', true).maybeSingle();
+  if (!leaveType) return NextResponse.json({ error: 'Leave type is not available in your organization' }, { status: 422 });
 
   // Check balance (skip for admin/hr — they manage the system)
   const year = start.getFullYear();
-  const actorIsAdmin = isHrOrAbove(profile.role);
-
-  if (!actorIsAdmin) {
+  {
     const { data: balance } = await db
       .from('leave_balances')
       .select('remaining_days')
@@ -211,10 +224,14 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: `Cannot cancel a ${request.status} leave request` }, { status: 409 });
   }
 
-  await db
+  const { data: cancelled, error: cancelError } = await db
     .from('leave_requests')
     .update({ status: 'cancelled', updated_at: new Date().toISOString() })
-    .eq('id', leaveId);
+    .eq('id', leaveId)
+    .eq('status', request.status)
+    .select('id').maybeSingle();
+  if (cancelError) return NextResponse.json({ error: cancelError.message }, { status: 500 });
+  if (!cancelled) return NextResponse.json({ error: 'Leave request changed concurrently; please retry' }, { status: 409 });
 
   await writeAuditLog({
     org_id: profile.organization_id, actor_id: user.id,

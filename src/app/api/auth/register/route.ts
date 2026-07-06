@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { rateLimit } from '@/lib/rate-limit';
+import { distributedRateLimit } from '@/lib/rate-limit';
 import { PublicRegistrationSchema, provisionAdminWorkspace } from '@/lib/auth/provision-admin';
 
 export async function POST(req: NextRequest) {
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
-  if (!rateLimit(`register:${ip}`, 5, 60 * 60 * 1000)) {
+  if (!await distributedRateLimit(`register:${ip}`, 5, 60 * 60 * 1000)) {
     return NextResponse.json({ error: 'Too many registration attempts. Try again later.' }, { status: 429 });
   }
 

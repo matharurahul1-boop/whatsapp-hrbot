@@ -34,6 +34,7 @@ export async function middleware(request: NextRequest) {
     '/api/webhooks',
     '/api/auth',
     '/api/organizations/info',
+    '/api/health',
     '/api/policy/ask',       // called server-to-server from WA webhook (no session)
     '/api/agent',            // called by n8n / services with Bearer APP_SECRET
     '/api/wa',               // called by n8n with Bearer APP_SECRET

@@ -8,8 +8,8 @@ CREATE TABLE tasks (
   organization_id     UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   title               TEXT NOT NULL,
   description         TEXT,
-  assigned_to         UUID REFERENCES users(id) ON DELETE SET NULL,
-  assigned_by         UUID REFERENCES users(id) ON DELETE SET NULL,
+  assignee_id         UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_by          UUID REFERENCES users(id) ON DELETE SET NULL,
   status              task_status NOT NULL DEFAULT 'pending',
   priority            task_priority NOT NULL DEFAULT 'medium',
   due_date            DATE,
@@ -24,7 +24,7 @@ CREATE TABLE tasks (
 );
 
 CREATE INDEX idx_tasks_org ON tasks(organization_id);
-CREATE INDEX idx_tasks_assigned_to ON tasks(assigned_to);
+CREATE INDEX idx_tasks_assignee_id ON tasks(assignee_id);
 CREATE INDEX idx_tasks_status ON tasks(organization_id, status);
 CREATE INDEX idx_tasks_due_date ON tasks(due_date) WHERE deleted_at IS NULL;
 

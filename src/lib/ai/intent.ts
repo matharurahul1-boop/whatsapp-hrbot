@@ -231,29 +231,29 @@ function fallbackClassification(message: string): ClassifiedIntent {
 
   // ── Determine intent (order matters — more specific first) ─────────────────
   let intent: AgentIntent = 'UNKNOWN';
-  let module: AgentModule = 'general';
+  let agentModule: AgentModule = 'general';
 
-  if      (isCheckIn)       { intent = 'CHECK_IN';             module = 'attendance'; }
-  else if (isCheckOut)      { intent = 'CHECK_OUT';            module = 'attendance'; }
-  else if (isMyAttendance)  { intent = 'MY_ATTENDANCE';        module = 'attendance'; }
-  else if (isTeamAttend)    { intent = 'TEAM_ATTENDANCE';      module = 'attendance'; }
-  else if (isWhoAbsent)     { intent = 'WHO_ABSENT';           module = 'attendance'; }
-  else if (isLeaveBalance)  { intent = 'CHECK_LEAVE_BALANCE';  module = 'leave';      }
-  else if (isApproveLeave)  { intent = 'APPROVE_LEAVE';        module = 'leave';      }
-  else if (isRejectLeave)   { intent = 'REJECT_LEAVE';         module = 'leave';      }
-  else if (isCancelLeave)   { intent = 'CANCEL_LEAVE';         module = 'leave';      }
-  else if (isListLeaves)    { intent = 'LIST_LEAVES';          module = 'leave';      }
-  else if (isApplyLeave)    { intent = 'APPLY_LEAVE';          module = 'leave';      }
-  else if (isCompleteTask)  { intent = 'COMPLETE_TASK';        module = 'task';       }
-  else if (isAssignTask)    { intent = 'ASSIGN_TASK';          module = 'task';       }
-  else if (isDeleteTask)    { intent = 'DELETE_TASK';          module = 'task';       }
-  else if (isUpdateTask)    { intent = 'UPDATE_TASK';          module = 'task';       }
-  else if (isTaskDetails)   { intent = 'TASK_DETAILS';         module = 'task';       }
-  else if (isCreateTask)    { intent = 'CREATE_TASK';          module = 'task';       }
-  else if (isListTasks)     { intent = 'LIST_TASKS';           module = 'task';       }
-  else if (isReminder)      { intent = 'SET_REMINDER';         module = 'task';       }
-  else if (isHelp)          { intent = 'HELP';                 module = 'general';    }
-  else if (isHello)         { intent = 'GREETING';             module = 'general';    }
+  if      (isCheckIn)       { intent = 'CHECK_IN';             agentModule = 'attendance'; }
+  else if (isCheckOut)      { intent = 'CHECK_OUT';            agentModule = 'attendance'; }
+  else if (isMyAttendance)  { intent = 'MY_ATTENDANCE';        agentModule = 'attendance'; }
+  else if (isTeamAttend)    { intent = 'TEAM_ATTENDANCE';      agentModule = 'attendance'; }
+  else if (isWhoAbsent)     { intent = 'WHO_ABSENT';           agentModule = 'attendance'; }
+  else if (isLeaveBalance)  { intent = 'CHECK_LEAVE_BALANCE';  agentModule = 'leave';      }
+  else if (isApproveLeave)  { intent = 'APPROVE_LEAVE';        agentModule = 'leave';      }
+  else if (isRejectLeave)   { intent = 'REJECT_LEAVE';         agentModule = 'leave';      }
+  else if (isCancelLeave)   { intent = 'CANCEL_LEAVE';         agentModule = 'leave';      }
+  else if (isListLeaves)    { intent = 'LIST_LEAVES';          agentModule = 'leave';      }
+  else if (isApplyLeave)    { intent = 'APPLY_LEAVE';          agentModule = 'leave';      }
+  else if (isCompleteTask)  { intent = 'COMPLETE_TASK';        agentModule = 'task';       }
+  else if (isAssignTask)    { intent = 'ASSIGN_TASK';          agentModule = 'task';       }
+  else if (isDeleteTask)    { intent = 'DELETE_TASK';          agentModule = 'task';       }
+  else if (isUpdateTask)    { intent = 'UPDATE_TASK';          agentModule = 'task';       }
+  else if (isTaskDetails)   { intent = 'TASK_DETAILS';         agentModule = 'task';       }
+  else if (isCreateTask)    { intent = 'CREATE_TASK';          agentModule = 'task';       }
+  else if (isListTasks)     { intent = 'LIST_TASKS';           agentModule = 'task';       }
+  else if (isReminder)      { intent = 'SET_REMINDER';         agentModule = 'task';       }
+  else if (isHelp)          { intent = 'HELP';                 agentModule = 'general';    }
+  else if (isHello)         { intent = 'GREETING';             agentModule = 'general';    }
 
   // ── Basic slot extraction ──────────────────────────────────────────────────
   const extracted_slots: SlotValues = {};
@@ -311,7 +311,7 @@ function fallbackClassification(message: string): ClassifiedIntent {
   else if (/\blow\b/i.test(lower))                extracted_slots.priority = 'low';
 
   return {
-    module,
+    module: agentModule,
     intent,
     confidence: 0.6,
     extracted_slots,

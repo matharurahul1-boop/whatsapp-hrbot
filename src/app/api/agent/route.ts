@@ -19,7 +19,8 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json() as { message: string; wa_number: string; org_id: string };
-  const { message, wa_number, org_id } = body;
+  const message = body.message?.replace(/\0/g, '').trim().slice(0, 4000);
+  const { wa_number, org_id } = body;
 
   if (!message || !wa_number || !org_id) {
     return NextResponse.json({ error: 'message, wa_number, and org_id are required' }, { status: 400 });

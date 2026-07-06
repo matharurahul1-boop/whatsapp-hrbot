@@ -18,6 +18,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient }              from '@/lib/supabase/server';
 import { createAdminClient }         from '@/lib/supabase/admin';
+import { distributedRateLimit }      from '@/lib/rate-limit';
 
 const LOG_SELECT = `
   id, wa_number, contact_name, direction, message_type,
@@ -39,6 +40,9 @@ export async function POST(req: NextRequest) {
     .single();
 
   if (!profile) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  if (!(await distributedRateLimit(`wa-simulate:${user.id}`, 20, 60_000))) {
+    return NextResponse.json({ error: 'Too many messages. Please wait a moment.' }, { status: 429 });
+  }
 
   const userWaNumber = profile.wa_number?.replace(/[\s+\-()]/g, '') ?? null;
   if (!userWaNumber) {
@@ -46,7 +50,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body    = await req.json();
-  const message = (body.message as string)?.trim();
+  const message = (body.message as string)?.replace(/\0/g, '').trim().slice(0, 4000);
   // Always use the authenticated user's org — never trust orgId from the request body
   const orgId   = profile.organization_id;
 

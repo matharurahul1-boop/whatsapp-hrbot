@@ -39,8 +39,8 @@ export async function GET(req: NextRequest) {
   const department = searchParams.get('department');
   const role       = searchParams.get('role');
   const isActive   = searchParams.get('is_active');
-  const page       = parseInt(searchParams.get('page') ?? '1');
-  const limit      = Math.min(parseInt(searchParams.get('limit') ?? '50'), 100);
+  const page       = Math.max(1, parseInt(searchParams.get('page') ?? '1') || 1);
+  const limit      = Math.min(Math.max(1, parseInt(searchParams.get('limit') ?? '50') || 50), 100);
   const offset     = (page - 1) * limit;
 
   // ── HR+: full directory via analytics view ─────────────────────────────────

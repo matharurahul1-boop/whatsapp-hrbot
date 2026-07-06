@@ -16,7 +16,7 @@ import { loadSession, saveContext }                       from '@/lib/ai/memory'
 import { EMPTY_CONTEXT }                                  from '@/lib/ai/types';
 import type { SupportedLanguage }                         from '@/lib/ai/types';
 import type { WAWebhookPayload, WAMessage, WAValue }      from '@/types/whatsapp.types';
-import { rateLimit }                                      from '@/lib/rate-limit';
+import { distributedRateLimit }                           from '@/lib/rate-limit';
 
 // ── GET — webhook verification challenge ─────────────────────────────────
 export async function GET(req: NextRequest) {
@@ -32,7 +32,10 @@ export async function GET(req: NextRequest) {
 
 // ── POST — inbound events ─────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
+  const contentLength = Number(req.headers.get('content-length') ?? 0);
+  if (contentLength > 1_000_000) return new NextResponse('Payload Too Large', { status: 413 });
   const rawBody      = await req.text();
+  if (rawBody.length > 1_000_000) return new NextResponse('Payload Too Large', { status: 413 });
   const signature    = req.headers.get('x-hub-signature-256');
   const bridgeSecret = req.headers.get('x-bridge-secret');   // set by Supabase edge fn
 
@@ -45,9 +48,19 @@ export async function POST(req: NextRequest) {
   try {
     const body   = JSON.parse(rawBody);
     const from   = body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.from as string | undefined;
-    if (from && !rateLimit(from, 20, 60_000)) {
-      console.warn(`[WA Webhook] ⚠️ Rate limited: ${from}`);
-      return new NextResponse('Too Many Requests', { status: 429 });
+    if (from) {
+      const localAllowed = await distributedRateLimit(`wa:${from}`, 20, 60_000);
+      const db = createAdminClient();
+      const since = new Date(Date.now() - 60_000).toISOString();
+      const { count } = await db.from('wa_logs').select('id', { count: 'exact', head: true })
+        .eq('wa_number', from.replace(/^\+/, '')).eq('direction', 'incoming').gte('created_at', since);
+      if (!localAllowed || (count ?? 0) >= 20) {
+        console.warn(`[WA Webhook] ⚠️ Rate limited: ${from}`);
+        // A non-2xx response makes Meta retry the same webhook and can amplify
+        // a flood. Acknowledge valid signed events while intentionally dropping
+        // over-limit messages.
+        return new NextResponse('OK', { status: 200 });
+      }
     }
   } catch { /* non-message events (status updates) skip rate limit */ }
 
@@ -151,7 +164,8 @@ async function handleOneMessage(
 
   // 4. AI agent — use waitUntil so Vercel keeps the function alive after
   //    returning 200 OK to Meta (background tasks are otherwise killed).
-  const text      = extractText(msg);
+  const rawText   = extractText(msg);
+  const text      = rawText?.replace(/\0/g, '').trim().slice(0, 4000) ?? null;
   const isAudio   = msg.type === 'audio';
   const flightKey = `${orgId}:${msg.from}`;
 
@@ -161,10 +175,12 @@ async function handleOneMessage(
       // Prevents a rapid second message from the same sender interleaving
       // with the first (e.g. two quick voice notes creating duplicate tasks).
       if (inFlight.has(flightKey)) {
-        await new Promise(r => setTimeout(r, 4_000));
+        const deadline = Date.now() + 12_000;
+        while (inFlight.has(flightKey) && Date.now() < deadline) {
+          await new Promise(r => setTimeout(r, 500));
+        }
         if (inFlight.has(flightKey)) {
-          await sendText(msg.from, '⏳ Still working on your previous message — just a moment!', orgId).catch(() => {});
-          return;
+          console.warn(`[WA] Sender queue wait timed out; processing without dropping message: ${flightKey}`);
         }
       }
       inFlight.add(flightKey);
@@ -307,7 +323,18 @@ const FIELD_PICKER_RE    = /What would you like to update on \*([^*]+)\*/i;
 // CREATE task "Edit details" → "Current details: ... What would you like to change?"
 const EDIT_PICKER_RE     = /^Current details:\n([\s\S]+?)\n\nWhat would you like to change\?/;
 
+function looksLikeInternalReasoning(text: string): boolean {
+  const head = text.trim().slice(0, 500);
+  return /^(?:the user (?:says|wrote|typed|asked)|according to (?:the )?rules|we need to|i need to (?:parse|analyze|check)|let me (?:analyze|reason|parse)|analysis:|reasoning:)/i.test(head)
+    || /(?:call|use)\s+[a-z_]+\s*\([^)]*\).*\btool\b/i.test(head)
+    || /"tool_calls"\s*:|"function"\s*:\s*\{\s*"name"/i.test(head);
+}
+
 async function sendAgentReply(to: string, text: string, orgId: string): Promise<void> {
+  if (looksLikeInternalReasoning(text)) {
+    console.error('[sendAgentReply] Blocked internal model reasoning from user-facing output');
+    text = '⚠️ I could not complete that request safely. Please try again in a shorter sentence.';
+  }
   // ── Field-options interactive message ─────────────────────────────────
   const sentinelMatch = SENTINEL_OPTS_RE.exec(text);
   if (sentinelMatch) {
@@ -395,7 +422,7 @@ async function sendAgentReply(to: string, text: string, orgId: string): Promise<
       });
       const allDateRows = [
         ...dateRows,
-        { id: 'custom_deadline', title: '✏️ Custom date & time', description: 'Type any date & time' },
+        { id: 'custom_date', title: '📅 Custom date', description: 'Type any date' },
       ];
       await sendList(
         to,
@@ -423,7 +450,6 @@ async function sendAgentReply(to: string, text: string, orgId: string): Promise<
         'Pick time',
         [{ title: 'Time', rows: [
           { id: '09:00', title: '9:00 AM',  description: 'Morning'      },
-          { id: '10:00', title: '10:00 AM', description: ''             },
           { id: '11:00', title: '11:00 AM', description: ''             },
           { id: '12:00', title: '12:00 PM', description: 'Noon'         },
           { id: '13:00', title: '1:00 PM',  description: ''             },
@@ -432,6 +458,7 @@ async function sendAgentReply(to: string, text: string, orgId: string): Promise<
           { id: '16:00', title: '4:00 PM',  description: ''             },
           { id: '17:00', title: '5:00 PM',  description: 'End of day'   },
           { id: '18:00', title: '6:00 PM',  description: 'Evening'      },
+          { id: 'custom_time', title: '✏️ Custom time', description: 'Type any time' },
         ]}],
         orgId,
         'Deadline time',
@@ -917,7 +944,7 @@ async function resolveOrg(phoneNumberId: string) {
   const db = createAdminClient();
   const { data, error } = await db
     .from('organizations')
-    .select('id, wa_access_token')
+    .select('id')
     .eq('wa_phone_number_id', phoneNumberId)
     .limit(1)
     .maybeSingle();                    // never throws on 0 or multiple rows

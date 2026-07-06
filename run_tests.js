@@ -9,14 +9,18 @@
 const https  = require('https');
 const fs     = require('fs');
 
-const N8N_WEBHOOK = 'https://n8n-whatsapp-bot-ouy1.onrender.com/webhook/wa-inbound';
-const N8N_API     = 'n8n-whatsapp-bot-ouy1.onrender.com';
-const N8N_KEY     = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyYWI0NWU4OC00OGU1LTRhZTYtYTM5My1kMTczZTdlZTg1ZmEiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwianRpIjoiN2YyODc5MGQtOTFmOC00MjVlLTliZmMtYjBhZTMyMTM2NWIwIiwiaWF0IjoxNzgyMTU3Njc1fQ.qrundBFA-MhpZQAkFlmsla5wJurBLunhhMy6s3SMp6E';
-const WF_ID       = 'NZsKomyCVzVMHqxp';
-const WA_NUM      = '917058444808';
-const ORG_ID      = '582d7d0b-c5a5-4699-9191-46c4fe1ef788';
+const N8N_WEBHOOK = process.env.TEST_N8N_WEBHOOK_URL;
+const N8N_API     = process.env.TEST_N8N_API_HOST;
+const N8N_KEY     = process.env.TEST_N8N_API_KEY;
+const WF_ID       = process.env.TEST_N8N_WORKFLOW_ID;
+const WA_NUM      = process.env.TEST_WA_NUMBER;
+const ORG_ID      = process.env.TEST_ORG_ID;
 
-const OUT_FILE    = 'C:/Users/hp/OneDrive/Desktop/comprehensive_test_results.txt';
+for (const [name, value] of Object.entries({ N8N_WEBHOOK, N8N_API, N8N_KEY, WF_ID, WA_NUM, ORG_ID })) {
+  if (!value) throw new Error(`Missing required test environment variable: ${name}`);
+}
+
+const OUT_FILE    = process.env.TEST_OUTPUT_FILE || './comprehensive_test_results.json';
 
 let pass = 0, fail = 0, skip = 0;
 const results = [];
@@ -578,14 +582,18 @@ async function gap(ms = 3500) { await sleep(ms); }
   console.log('\n── Cleanup: Remove AUTOTEST tasks ──');
 
   // We clean via Supabase REST directly instead of via bot (to avoid false test triggers)
-  const sbUrl = 'https://icobloqimszzcqtphxvr.supabase.co';
-  const sbKey = 'sb_secret__47INoZ_88PYmCU5XkAiVA_VRLVcR-6';
+  const sbUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const sbKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!sbUrl || !sbKey) {
+    throw new Error('NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required for cleanup');
+  }
+  const sbHost = new URL(sbUrl).hostname;
 
   function sbPatch(path) {
     return new Promise((resolve, reject) => {
       const d = JSON.stringify({ deleted_at: new Date().toISOString() });
       const r = https.request({
-        hostname: 'icobloqimszzcqtphxvr.supabase.co', port: 443, path,
+        hostname: sbHost, port: 443, path,
         method: 'PATCH',
         headers: {
           apikey: sbKey, Authorization: 'Bearer ' + sbKey,
@@ -632,7 +640,7 @@ async function gap(ms = 3500) { await sleep(ms); }
   };
   fs.writeFileSync(OUT_FILE, JSON.stringify(report, null, 2), 'utf8');
   fs.writeFileSync(
-    'C:/Users/hp/OneDrive/Desktop/comprehensive_test_results.txt',
+    process.env.TEST_TEXT_OUTPUT_FILE || './comprehensive_test_results.txt',
     `HRBot Test Results — ${startTime}\n` +
     `PASS: ${pass} | FAIL: ${fail} | SKIP: ${skip} | TOTAL: ${total}\n\n` +
     results.map(r => `[${r.status}] [${r.id}] ${r.name}${r.reason ? '\n  ↳ ' + r.reason : ''}${r.output ? '\n  ↳ ' + r.output.slice(0,120) : ''}`).join('\n'),

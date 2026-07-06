@@ -19,17 +19,17 @@ CREATE INDEX idx_leave_types_org ON leave_types(organization_id);
 -- ─── Leave Balances ───────────────────────────────────────────────────────────
 CREATE TABLE leave_balances (
   id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id             UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  employee_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   leave_type_id       UUID NOT NULL REFERENCES leave_types(id) ON DELETE CASCADE,
   year                INTEGER NOT NULL,
   total_days          DECIMAL(5,1) NOT NULL DEFAULT 0,
   used_days           DECIMAL(5,1) NOT NULL DEFAULT 0,
-  UNIQUE (user_id, leave_type_id, year),
+  UNIQUE (employee_id, leave_type_id, year),
   CONSTRAINT positive_used CHECK (used_days >= 0),
   CONSTRAINT used_lte_total CHECK (used_days <= total_days)
 );
 
-CREATE INDEX idx_leave_balances_user ON leave_balances(user_id, year);
+CREATE INDEX idx_leave_balances_employee ON leave_balances(employee_id, year);
 
 -- Computed column: remaining days
 ALTER TABLE leave_balances
@@ -40,7 +40,7 @@ ALTER TABLE leave_balances
 CREATE TABLE leave_requests (
   id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   organization_id     UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-  user_id             UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  employee_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   leave_type_id       UUID NOT NULL REFERENCES leave_types(id) ON DELETE RESTRICT,
   start_date          DATE NOT NULL,
   end_date            DATE NOT NULL,
@@ -57,7 +57,7 @@ CREATE TABLE leave_requests (
 );
 
 CREATE INDEX idx_leave_requests_org ON leave_requests(organization_id);
-CREATE INDEX idx_leave_requests_user ON leave_requests(user_id);
+CREATE INDEX idx_leave_requests_employee ON leave_requests(employee_id);
 CREATE INDEX idx_leave_requests_status ON leave_requests(organization_id, status);
 CREATE INDEX idx_leave_requests_dates ON leave_requests(start_date, end_date);
 
@@ -65,7 +65,7 @@ CREATE INDEX idx_leave_requests_dates ON leave_requests(start_date, end_date);
 CREATE TABLE attendance_records (
   id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   organization_id     UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-  user_id             UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  employee_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   date                DATE NOT NULL,
   check_in_time       TIMESTAMPTZ,
   check_out_time      TIMESTAMPTZ,
@@ -75,11 +75,11 @@ CREATE TABLE attendance_records (
   source              message_source NOT NULL DEFAULT 'whatsapp',
   notes               TEXT,
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE (user_id, date)
+  UNIQUE (employee_id, date)
 );
 
 CREATE INDEX idx_attendance_org_date ON attendance_records(organization_id, date DESC);
-CREATE INDEX idx_attendance_user_date ON attendance_records(user_id, date DESC);
+CREATE INDEX idx_attendance_employee_date ON attendance_records(employee_id, date DESC);
 
 -- Auto-calculate total_hours on check_out
 CREATE OR REPLACE FUNCTION calc_total_hours()

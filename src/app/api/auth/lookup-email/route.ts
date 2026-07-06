@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { distributedRateLimit } from '@/lib/rate-limit';
 
 // POST /api/auth/lookup-email
 // Given a WhatsApp/mobile number, returns the associated email so the client can sign in.
 export async function POST(req: NextRequest) {
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
+  if (!await distributedRateLimit(`lookup-email:${ip}`, 10, 60 * 60 * 1000)) {
+    return NextResponse.json({ error: 'Too many attempts' }, { status: 429 });
+  }
   const { identifier } = await req.json();
   if (!identifier) return NextResponse.json({ error: 'identifier required' }, { status: 400 });
 

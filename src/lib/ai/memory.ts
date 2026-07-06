@@ -235,10 +235,18 @@ async function getOrCreateConversation(
     .maybeSingle();
 
   if (any_existing) {
-    // Re-activate it
+    // Re-activate it as a fresh session. Never carry a stale confirmation or
+    // partially collected action across the idle timeout: a later "yes" must
+    // not execute yesterday's pending task/leave mutation.
     const { data: reactivated } = await db
       .from('conversations')
-      .update({ status: 'active', last_message_at: new Date().toISOString() })
+      .update({
+        status: 'active',
+        last_message_at: new Date().toISOString(),
+        context_state: EMPTY_CONTEXT,
+        current_module: null,
+        current_intent: null,
+      })
       .eq('id', any_existing.id)
       .select()
       .maybeSingle();
@@ -289,5 +297,6 @@ function hydrateContext(
     turn_count:         (raw.turn_count as number) ?? 0,
     pending_transcript: (raw.pending_transcript as string | null) ?? null,
     edit_base_payload:  (raw.edit_base_payload  as Record<string, string> | null) ?? null,
+    deadline_pick_context: (raw.deadline_pick_context as ConversationContext['deadline_pick_context']) ?? null,
   };
 }

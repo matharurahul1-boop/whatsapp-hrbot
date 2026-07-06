@@ -47,7 +47,7 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "Bearer 0yxnvS8z3lpb2AG4Ljjx8TynSI0edL7NKNGJnKKnyhvO3OFK" },
+            { "name": "Authorization", "value": "Bearer CONFIGURE_APP_SECRET" },
             { "name": "Content-Type",  "value": "application/json" }
           ]
         },

@@ -31,8 +31,8 @@ export async function GET(req: NextRequest) {
   const status   = searchParams.get('status');
   const priority = searchParams.get('priority');
   const assignee = searchParams.get('assignee_id');
-  const page     = parseInt(searchParams.get('page') ?? '1');
-  const limit    = Math.min(parseInt(searchParams.get('limit') ?? '50'), 100);
+  const page     = Math.max(1, parseInt(searchParams.get('page') ?? '1') || 1);
+  const limit    = Math.min(Math.max(1, parseInt(searchParams.get('limit') ?? '50') || 50), 100);
   const offset   = (page - 1) * limit;
 
   let query = db
@@ -85,6 +85,12 @@ export async function POST(req: NextRequest) {
   // ── RBAC: assignee restrictions ──────────────────────────────────────────────
   const requestedAssignee = parsed.data.assignee_id;
   if (requestedAssignee !== user.id) {
+    const { data: requestedUser } = await db.from('users').select('id, manager_id')
+      .eq('id', requestedAssignee).eq('organization_id', profile.organization_id)
+      .eq('is_active', true).is('deleted_at', null).maybeSingle();
+    if (!requestedUser) {
+      return NextResponse.json({ error: 'Assignee is not an active member of your organization' }, { status: 422 });
+    }
     if (isEmployee(profile.role)) {
       // Employees can only create tasks for themselves
       return NextResponse.json(
@@ -94,15 +100,7 @@ export async function POST(req: NextRequest) {
     }
     if (isManager(profile.role)) {
       // Managers can only assign to their direct reports
-      const { data: reportCheck } = await db
-        .from('users')
-        .select('id')
-        .eq('id', requestedAssignee)
-        .eq('manager_id', user.id)
-        .eq('organization_id', profile.organization_id)
-        .eq('is_active', true)
-        .maybeSingle();
-      if (!reportCheck) {
+      if (requestedUser.manager_id !== user.id) {
         return NextResponse.json(
           { error: 'Managers can only assign tasks to their direct reports' },
           { status: 403 },

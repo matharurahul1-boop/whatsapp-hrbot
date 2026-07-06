@@ -15,7 +15,8 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
 
 const Input = React.forwardRef<HTMLInputElement, InputProps>(
   ({ className, type, leftIcon, rightIcon, error, label, hint, wrapperClassName, id, ...props }, ref) => {
-    const inputId = id ?? React.useId();
+    const generatedId = React.useId();
+    const inputId = id ?? generatedId;
     return (
       <div className={cn('flex flex-col gap-1.5', wrapperClassName)}>
         {label && (
@@ -61,7 +62,8 @@ export interface TextareaProps extends React.TextareaHTMLAttributes<HTMLTextArea
 
 const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
   ({ className, error, label, hint, id, ...props }, ref) => {
-    const inputId = id ?? React.useId();
+    const generatedId = React.useId();
+    const inputId = id ?? generatedId;
     return (
       <div className="flex flex-col gap-1.5">
         {label && <label htmlFor={inputId} className="label">{label}</label>}
@@ -95,7 +97,8 @@ export interface SelectNativeProps extends React.SelectHTMLAttributes<HTMLSelect
 
 const SelectNative = React.forwardRef<HTMLSelectElement, SelectNativeProps>(
   ({ className, error, label, options, children, id, ...props }, ref) => {
-    const inputId = id ?? React.useId();
+    const generatedId = React.useId();
+    const inputId = id ?? generatedId;
     return (
       <div className="flex flex-col gap-1.5">
         {label && <label htmlFor={inputId} className="label">{label}</label>}

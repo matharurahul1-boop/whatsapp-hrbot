@@ -137,16 +137,13 @@ export default function SettingsPage() {
     }
 
     if (profile?.organization_id) {
-      const { data: org } = await supabase
-        .from('organizations')
-        .select('name, wa_phone_number_id, wa_access_token, wa_message_template, wa_template_lang, wa_template_variables, settings')
-        .eq('id', profile.organization_id)
-        .single();
+      const response = await fetch('/api/organizations/settings');
+      const org = response.ok ? (await response.json()).data : null;
 
       if (org) {
         setOrgName(org.name ?? '');
         setWaPhoneId(org.wa_phone_number_id ?? '');
-        setWaToken(org.wa_access_token ?? '');
+        setWaToken('');
         setWaMsgTemplate(org.wa_message_template ?? '');
         setWaTemplateLang(org.wa_template_lang ?? 'en');
         setWaTemplateVars(String(org.wa_template_variables ?? 2));

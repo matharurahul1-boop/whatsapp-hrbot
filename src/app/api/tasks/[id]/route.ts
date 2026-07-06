@@ -44,7 +44,17 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
   if (error || !task) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
   const { data: profile } = await db.from('users').select('organization_id, role').eq('id', user.id).single();
-  if (task.organization_id !== profile?.organization_id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  if (!profile) return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
+  if (task.organization_id !== profile.organization_id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+  if (profile.role === 'employee' && task.assignee_id !== user.id && task.created_by !== user.id) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+  if (profile.role === 'manager' && task.created_by !== user.id && task.assignee_id !== user.id) {
+    const { data: report } = await db.from('users').select('id').eq('id', task.assignee_id ?? '')
+      .eq('manager_id', user.id).eq('organization_id', profile.organization_id).maybeSingle();
+    if (!report) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
 
   return NextResponse.json({ data: task });
 }
@@ -93,6 +103,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       .select('id')
       .eq('id', task.assignee_id ?? '')
       .eq('manager_id', user.id)
+      .eq('organization_id', profile.organization_id)
       .maybeSingle();
     const isOwnCreated = task.created_by === user.id;
     if (!isTeamTask && !isOwnCreated) {
@@ -100,6 +111,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
   }
   // HR+ can update any task in the org — no extra check
+
+  const newAssignee = updateData.assignee_id;
+  if (typeof newAssignee === 'string') {
+    const { data: assignee } = await db.from('users').select('id, manager_id')
+      .eq('id', newAssignee).eq('organization_id', profile.organization_id)
+      .eq('is_active', true).is('deleted_at', null).maybeSingle();
+    if (!assignee) return NextResponse.json({ error: 'Assignee is not an active member of your organization' }, { status: 422 });
+    if (isManager(profile.role) && newAssignee !== user.id && assignee.manager_id !== user.id) {
+      return NextResponse.json({ error: 'Managers can only assign tasks to themselves or direct reports' }, { status: 403 });
+    }
+  }
 
   const { data: updated, error } = await db
     .from('tasks')
@@ -167,7 +189,12 @@ export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id:
   if (task.organization_id !== profile.organization_id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   // Only manager+ or creator can delete
-  const canDelete = ['super_admin','admin','hr','manager'].includes(profile.role) || task.created_by === user.id;
+  let canDelete = ['super_admin','admin','hr'].includes(profile.role) || task.created_by === user.id;
+  if (profile.role === 'manager' && !canDelete) {
+    const { data: report } = await db.from('users').select('id').eq('id', task.assignee_id ?? '')
+      .eq('manager_id', user.id).eq('organization_id', profile.organization_id).maybeSingle();
+    canDelete = !!report;
+  }
   if (!canDelete) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   await db.from('tasks').update({ deleted_at: new Date().toISOString() }).eq('id', id);

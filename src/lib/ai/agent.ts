@@ -7,6 +7,7 @@ import { sendText }            from '@/lib/whatsapp/client';
 import { parseDeadlineString, formatDateTime } from '@/lib/utils/date';
 import { EMPTY_CONTEXT }       from './types';
 import type { AgentTurn, AgentUser, ConversationContext } from './types';
+import { normalizeCommandText, quickTaskListArgs } from './routing';
 
 // ── AI backend ────────────────────────────────────────────────────────────────
 // Controlled at runtime via organizations.settings.ai_backend (set from /settings page).
@@ -91,7 +92,7 @@ const QUICK_ROUTES: Array<{ re: RegExp; tool: string }> = [
 ];
 
 function quickRoute(message: string): string | null {
-  const t = message.trim().replace(/[?.!,;]+$/, '');
+  const t = normalizeCommandText(message).replace(/[?.!,;]+$/, '');
   for (const { re, tool } of QUICK_ROUTES) {
     if (re.test(t)) return tool;
   }
@@ -108,7 +109,23 @@ const YES_RE = /^(yes|yeah|yep|sure|ok|okay|go\s*ahead|proceed|confirm|create\s*
 const NO_RE  = /^(no|nahi|nope|cancel|stop|don['']?t|mat\s*karo|band\s*karo|ruk\s*jao|ruko|back)\s*[!.]*$/i;
 
 // Tools that must NEVER execute directly — always require a user confirmation first.
-const CONFIRM_BEFORE_EXEC = new Set(['update_task', 'complete_task', 'delete_task', 'apply_leave', 'assign_task', 'approve_leave', 'reject_leave', 'add_task_note', 'start_onboarding']);
+const CONFIRM_BEFORE_EXEC = new Set([
+  'create_task', 'update_task', 'complete_task', 'delete_task', 'assign_task',
+  'apply_leave', 'approve_leave', 'reject_leave', 'cancel_leave',
+  'check_in', 'check_out', 'set_reminder', 'configure_reminders',
+  'add_task_note', 'start_onboarding',
+]);
+
+// Read-only tools whose DB output must reach the user untouched. Feeding these
+// results back into another model round-trip lets the model paraphrase (and
+// sometimes hallucinate, e.g. reporting "no tasks found" over a non-empty
+// result) — so we short-circuit and return the tool output directly.
+const VERBATIM_TOOLS = new Set([
+  'daily_briefing', 'list_tasks', 'get_task_details', 'check_leave_balance',
+  'list_leaves', 'my_attendance', 'team_attendance', 'list_users',
+  'pending_leaves', 'list_leave_types', 'my_profile', 'task_stats',
+  'onboarding_status',
+]);
 
 function isYes(msg: string): boolean { return YES_RE.test(msg.trim()); }
 function isNo (msg: string): boolean { return NO_RE.test(msg.trim()); }
@@ -975,6 +992,10 @@ function stripGroqFiller(text: string): string {
 // single retry with an explicit enforcement instruction injected into the thread.
 
 function buildToolConfirmation(tool: string, args: Record<string, string>): string {
+  if (tool === 'create_task') {
+    const assignee = args.assignee && !/^(me|myself|self|you)$/i.test(args.assignee) ? args.assignee : 'you';
+    return `I'll create task *${args.title ?? '?'}* for *${assignee}* due *${args.deadline ?? '?'}* with *${args.priority ?? '?'}* priority. Go ahead? (Yes / No)`;
+  }
   if (tool === 'update_task') {
     const field = args.update_field ?? '';
     let value = args.update_value ?? '';
@@ -1023,11 +1044,16 @@ function buildToolConfirmation(tool: string, args: Record<string, string>): stri
     const desig  = (args.designation  && args.designation  !== 'SKIP') ? ` (${args.designation})` : '';
     return `I'll start onboarding for *${args.employee_name ?? '?'}* — ${args.wa_number ?? '?'}${dept}${desig}. Go ahead? (Yes / No)`;
   }
+  if (tool === 'cancel_leave') return `I'll cancel your leave request for *${args.start_date ?? args.date ?? '?'}*. Go ahead? (Yes / No)`;
+  if (tool === 'check_in') return 'Mark your attendance as *checked in* for today? (Yes / No)';
+  if (tool === 'check_out') return 'Mark your attendance as *checked out* for today? (Yes / No)';
+  if (tool === 'set_reminder') return `I'll set a reminder for *${args.message ?? '?'}* at *${args.remind_at ?? '?'}*. Go ahead? (Yes / No)`;
+  if (tool === 'configure_reminders') return 'I’ll update your reminder preferences. Go ahead? (Yes / No)';
   return `Confirm this action? (Yes / No)`;
 }
 
 function shouldHaveCalledTool(msg: string): boolean {
-  const m = msg.toLowerCase().trim();
+  const m = normalizeCommandText(msg).toLowerCase();
   return (
     // ── Read-only tool queries ──────────────────────────────────────────────
     // Task listing
@@ -1071,7 +1097,7 @@ function isGroqGenericFiller(reply: string): boolean {
     /^i('?m| am) not sure (what|how)/i.test(r) ||
     (r.length < 80 && /^(sorry|i (didn'?t|couldn'?t|can'?t)|i don'?t (understand|recognize))/i.test(r)) ||
     // Leaked chain-of-thought: model outputs reasoning instead of a reply
-    /^(?:we need to|i need to (?:parse|analyze|check|look)|according to (?:the )?rules|the user (?:has provided|said|gave|asked for)|to handle this|let me (?:analyze|think|check|parse|fetch|get|list|look up)|the (?:previous|last) (?:message|response|bot))/i.test(head) ||
+    /^(?:we need to|i need to (?:parse|analyze|check|look)|according to (?:the )?rules|the user (?:says|wrote|typed|has provided|said|gave|asked for)|to handle this|let me (?:analyze|think|check|parse|fetch|get|list|look up)|the (?:previous|last) (?:message|response|bot))/i.test(head) ||
     // Bot narrates a future action instead of calling the tool ("I'll list all tasks... Let me fetch...")
     /^i'?ll (?:list|fetch|get|show|retrieve|look up|check|find|pull)/i.test(head) ||
     /^let me (?:fetch|get|list|look|check|retrieve|find|pull)/i.test(head)
@@ -1107,6 +1133,7 @@ export async function runMasterAgent(
   await saveMessage(conversation_id, orgId, 'user', 'inbound', message).catch(() => {});
 
   try {
+    const normalizedMessage = normalizeCommandText(message);
     const history: ChatMessage[] = (recent_messages ?? [])
       .filter((m: any) => m.role !== 'system' && m.content?.trim())
       .map((m: any) => ({
@@ -1117,7 +1144,7 @@ export async function runMasterAgent(
     // ── Guard: reject check-in/out requests that specify a custom time ────────
     const CHECK_ACTION_RE   = /\b(?:check\s*[-\s]?in|check\s*[-\s]?out|checkin|checkout|mark\s+(?:my\s+)?attend|attendance)\b/i;
     const CUSTOM_TIME_RE    = /\bat\s+\d{1,2}(?:[:.]\d{2})?\s*(?:am|pm|baje)?\b|\b\d{1,2}[:.]\d{2}\s*(?:am|pm)\b|\b\d{1,2}\s*(?:am|pm)\b/i;
-    if (context.flow_state === 'IDLE' && CHECK_ACTION_RE.test(message) && CUSTOM_TIME_RE.test(message)) {
+    if (context.flow_state === 'IDLE' && CHECK_ACTION_RE.test(normalizedMessage) && CUSTOM_TIME_RE.test(normalizedMessage)) {
       const lang = context.language ?? 'en';
       const timeReply = lang === 'hi'
         ? `⏰ हाजिरी हमेशा *अभी के समय* पर ही दर्ज होती है। कस्टम समय की अनुमति नहीं है।\n\nकिसी पुरानी एंट्री को ठीक करवाने के लिए HR या Admin से संपर्क करें।`
@@ -1131,8 +1158,8 @@ export async function runMasterAgent(
     // send a stale/wrong state to Groq or prompt a confirmation unnecessarily.
     const CHECK_IN_INTENT_RE  = /\b(?:check\s*[-\s]?in|(?:mark|log|please\s+mark)\s+(?:my\s+)?at+end|at+endan)/i;
     const CHECK_OUT_INTENT_RE = /\b(check\s*[-\s]?out|checkout|leaving|sign\s*out|nikal|ja\s+raha)\b/i;
-    const isCheckInIntent  = CHECK_IN_INTENT_RE.test(message) && !CHECK_OUT_INTENT_RE.test(message);
-    const isCheckOutIntent = CHECK_OUT_INTENT_RE.test(message) && !CHECK_IN_INTENT_RE.test(message);
+    const isCheckInIntent  = CHECK_IN_INTENT_RE.test(normalizedMessage) && !CHECK_OUT_INTENT_RE.test(normalizedMessage);
+    const isCheckOutIntent = CHECK_OUT_INTENT_RE.test(normalizedMessage) && !CHECK_IN_INTENT_RE.test(normalizedMessage);
     if (context.flow_state === 'IDLE' && (isCheckInIntent || isCheckOutIntent)) {
       const { createAdminClient: makeDb } = await import('@/lib/supabase/admin');
       const todayIST = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
@@ -1218,7 +1245,7 @@ export async function runMasterAgent(
             displayReply = finalReply.replace(raw, fmt);
           }
         }
-        saveContext(conversation_id, {
+        await saveContext(conversation_id, {
           ...EMPTY_CONTEXT,
           language:        context.language,
           flow_state:      'CONFIRMING',
@@ -1227,7 +1254,7 @@ export async function runMasterAgent(
         }).catch(() => {});
       }
     } else if (!ctxRef.handled && context.flow_state !== 'IDLE') {
-      saveContext(conversation_id, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
+      await saveContext(conversation_id, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
     }
 
     await saveMessage(conversation_id, orgId, 'assistant', 'outbound', displayReply, {
@@ -1262,6 +1289,29 @@ async function runGroqLoop(
   conversationId: string,
   ctxRef:         { handled: boolean } = { handled: false },
 ): Promise<string> {
+  const normalizedMessage = normalizeCommandText(message);
+
+  // Never let the interactive row ID become a literal deadline. If a previous
+  // deployment failed to persist picker state, recover the task title from the
+  // human-readable history entry and resume the custom deadline prompt.
+  if (/^(custom_date|custom_deadline)$/.test(message.trim()) && context.flow_state !== 'PICKING_DEADLINE') {
+    const pickerMessage = [...history].reverse().find(m =>
+      m.role === 'assistant' && /Picking deadline date for \*[^*]+\*/i.test(m.content)
+    );
+    const taskTitle = pickerMessage?.content.match(/Picking deadline date for \*([^*]+)\*/i)?.[1]?.trim();
+    if (taskTitle) {
+      await saveContext(conversationId, {
+        ...EMPTY_CONTEXT,
+        language: context.language,
+        flow_state: 'PICKING_DEADLINE',
+        deadline_pick_context: { step: 'date', task_title: taskTitle, origin: 'UPDATE' },
+      });
+      ctxRef.handled = true;
+      return `📅 Type the date for *${taskTitle}*:\n\nExamples:\n• _"15 Jul 2026"_\n• _"next Monday"_\n• _"tomorrow"_`;
+    }
+    ctxRef.handled = true;
+    return '📅 Please type the custom date, for example: *15 Jul 2026*.';
+  }
 
   // ── 0. EDITING state — merge user correction with base create_task payload ──
   //
@@ -1291,7 +1341,7 @@ async function runGroqLoop(
       if (isAssignee) {
         ctxRef.handled = true;
         console.log(`[Agent] EDITING assignee shortcut: task="${taskTitle}"`);
-        saveContext(conversationId, {
+        await saveContext(conversationId, {
           ...EMPTY_CONTEXT, language: context.language,
           flow_state: 'EDITING', edit_base_payload: { ...base, __pending_field: 'assignee' },
         }).catch(() => {});
@@ -1300,7 +1350,7 @@ async function runGroqLoop(
       if (isDeadline) {
         ctxRef.handled = true;
         console.log(`[Agent] EDITING deadline shortcut: task="${taskTitle}"`);
-        saveContext(conversationId, {
+        await saveContext(conversationId, {
           ...EMPTY_CONTEXT, language: context.language,
           flow_state: 'PICKING_DEADLINE',
           deadline_pick_context: { step: 'date', task_title: taskTitle, origin: 'EDITING', edit_base: { ...base } },
@@ -1310,7 +1360,7 @@ async function runGroqLoop(
       if (isTitle) {
         ctxRef.handled = true;
         console.log(`[Agent] EDITING title shortcut: task="${taskTitle}"`);
-        saveContext(conversationId, {
+        await saveContext(conversationId, {
           ...EMPTY_CONTEXT, language: context.language,
           flow_state: 'EDITING', edit_base_payload: { ...base, __pending_field: 'title' },
         }).catch(() => {});
@@ -1427,7 +1477,7 @@ async function runGroqLoop(
           // Not found — return error immediately, keep EDITING state so user can retry
           const names = ((allActive ?? []) as { full_name: string }[])
             .map(u => `· ${u.full_name}`).join('\n') || '(none)';
-          saveContext(conversationId, {
+          await saveContext(conversationId, {
             ...EMPTY_CONTEXT, language: context.language,
             flow_state: 'EDITING', edit_base_payload: base,
           }).catch(() => {});
@@ -1452,7 +1502,7 @@ async function runGroqLoop(
 
     // Store new CONFIRMING state with merged payload.
     // Signal runMasterAgent to skip its own context-reset (we already handled it here).
-    saveContext(conversationId, {
+    await saveContext(conversationId, {
       ...EMPTY_CONTEXT,
       language: context.language,
       flow_state: 'CONFIRMING',
@@ -1463,13 +1513,23 @@ async function runGroqLoop(
   }
 
   // Helper: format deadline and build confirmation reply for PICKING_DEADLINE origin
-  function buildDeadlineConfirm(
+  async function buildDeadlineConfirm(
     dpCtx: NonNullable<ConversationContext['deadline_pick_context']>,
     deadline: string,
     ctx: ConversationContext,
     convId: string,
     ref: { handled: boolean },
-  ): string {
+  ): Promise<string> {
+    if (!parseDeadlineString(deadline)) {
+      await saveContext(convId, {
+        ...EMPTY_CONTEXT,
+        language: ctx.language,
+        flow_state: 'PICKING_DEADLINE',
+        deadline_pick_context: dpCtx,
+      });
+      ref.handled = true;
+      return '❌ That date or time is invalid. Please enter a real date and time, for example *15 Jul 2026 2:30pm*.';
+    }
     const [dp = '', tp = '17:00'] = deadline.split(' ');
     const [y, mo, d] = dp.split('-');
     const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -1482,7 +1542,7 @@ async function runGroqLoop(
       const who    = displayAssignee ? `*${displayAssignee}*` : '*you*';
       const priLow = (merged.priority ?? '').toLowerCase();
       const confReply = `I'll create task *${merged.title ?? '(no title)'}* for ${who} due *${dlFmt}* with *${priLow}* priority${merged.description ? `. Description: "${merged.description.slice(0, 80)}"` : ''}. Go ahead? (Yes / No)`;
-      saveContext(convId, {
+      await saveContext(convId, {
         ...EMPTY_CONTEXT, language: ctx.language,
         flow_state: 'CONFIRMING',
         confirm_payload: { tool: 'create_task', args: { ...merged } },
@@ -1492,7 +1552,7 @@ async function runGroqLoop(
     }
 
     const confReply = `Update *${dpCtx.task_title}* — set *deadline* to *${dlFmt}*. Go ahead? (Yes / No)`;
-    saveContext(convId, {
+    await saveContext(convId, {
       ...EMPTY_CONTEXT, language: ctx.language,
       flow_state: 'CONFIRMING',
       confirm_payload: { tool: 'update_task', args: { task_title: dpCtx.task_title, update_field: 'deadline', update_value: deadline } },
@@ -1509,13 +1569,13 @@ async function runGroqLoop(
 
     if (dpCtx.step === 'date') {
       // User tapped the "Custom date & time" row → prompt for free text
-      if (msg === 'custom_deadline') {
-        saveContext(conversationId, {
+      if (msg === 'custom_date' || msg === 'custom_deadline') {
+        await saveContext(conversationId, {
           ...EMPTY_CONTEXT, language: context.language,
           flow_state: 'PICKING_DEADLINE',
           deadline_pick_context: dpCtx,
         }).catch(() => {});
-        return `📅 Type the date & time for *${dpCtx.task_title}*:\n\nExamples:\n• _"15 Jul 2026 3pm"_\n• _"next Monday 9am"_\n• _"tomorrow 2:30pm"_`;
+        return `📅 Type the date for *${dpCtx.task_title}*:\n\nExamples:\n• _"15 Jul 2026"_\n• _"next Monday"_\n• _"tomorrow"_`;
       }
 
       const isoDate  = /^\d{4}-\d{2}-\d{2}$/.test(msg) ? msg : naturalDateToISO(msg);
@@ -1523,11 +1583,11 @@ async function runGroqLoop(
 
       if (isoDate && timeInMsg) {
         // Full date+time typed at once — skip time picker, go straight to confirm
-        return buildDeadlineConfirm(dpCtx, `${isoDate} ${timeInMsg}`, context, conversationId, ctxRef);
+        return await buildDeadlineConfirm(dpCtx, `${isoDate} ${timeInMsg}`, context, conversationId, ctxRef);
       }
       if (isoDate) {
         // Date only — advance to time picker
-        saveContext(conversationId, {
+        await saveContext(conversationId, {
           ...EMPTY_CONTEXT, language: context.language,
           flow_state: 'PICKING_DEADLINE',
           deadline_pick_context: { ...dpCtx, step: 'time', selected_date: isoDate },
@@ -1535,7 +1595,7 @@ async function runGroqLoop(
         return `[[SHOW_OPTIONS:deadline_time:${dpCtx.task_title}]]`;
       }
       // Bad input — re-show date picker
-      saveContext(conversationId, {
+      await saveContext(conversationId, {
         ...EMPTY_CONTEXT, language: context.language,
         flow_state: 'PICKING_DEADLINE',
         deadline_pick_context: dpCtx,
@@ -1544,6 +1604,14 @@ async function runGroqLoop(
     }
 
     if (dpCtx.step === 'time' && dpCtx.selected_date) {
+      if (msg === 'custom_time') {
+        await saveContext(conversationId, {
+          ...EMPTY_CONTEXT, language: context.language,
+          flow_state: 'PICKING_DEADLINE',
+          deadline_pick_context: dpCtx,
+        }).catch(() => {});
+        return `⏰ Type the time for *${dpCtx.task_title}* on the selected date:\n\nExamples:\n• _"2:30pm"_\n• _"14:30"_\n• _"9am"_`;
+      }
       // Accept HH:MM row-ID, typed time ("3pm"), or typed full datetime override ("15 Jul 3pm")
       const overrideIso  = naturalDateToISO(msg);
       const overrideTime = extractTimeFromText(msg);
@@ -1559,10 +1627,10 @@ async function runGroqLoop(
         timeStr = overrideTime;
       }
       if (timeStr) {
-        return buildDeadlineConfirm(dpCtx, `${dateStr} ${timeStr}`, context, conversationId, ctxRef);
+        return await buildDeadlineConfirm(dpCtx, `${dateStr} ${timeStr}`, context, conversationId, ctxRef);
       }
       // Unrecognised — re-show time picker
-      saveContext(conversationId, {
+      await saveContext(conversationId, {
         ...EMPTY_CONTEXT, language: context.language,
         flow_state: 'PICKING_DEADLINE',
         deadline_pick_context: dpCtx,
@@ -1571,7 +1639,7 @@ async function runGroqLoop(
     }
 
     // Unexpected state — reset
-    saveContext(conversationId, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
+    await saveContext(conversationId, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
     return 'Something went wrong with the deadline picker. What else can I help with?';
   }
 
@@ -1583,16 +1651,42 @@ async function runGroqLoop(
   if (context.flow_state === 'CONFIRMING' && context.confirm_payload) {
     const payload = context.confirm_payload as { tool: string; args: Record<string, string> };
 
+    // Recover stale/broken deadline confirmations from older deployments.
+    // A date without a time must continue to the time picker rather than silently
+    // accepting the generic 5:00 PM fallback.
+    if (payload.tool === 'update_task' && payload.args.update_field === 'deadline') {
+      const taskTitle = payload.args.task_title ?? 'the task';
+      const pendingValue = payload.args.update_value ?? '';
+      const typedDate = /^\d{4}-\d{2}-\d{2}$/.test(message.trim()) ? message.trim() : null;
+      const confirmedDateOnly = isYes(message) && /^\d{4}-\d{2}-\d{2}$/.test(pendingValue);
+      if (typedDate || confirmedDateOnly) {
+        const selectedDate = typedDate ?? pendingValue;
+        await saveContext(conversationId, {
+          ...EMPTY_CONTEXT,
+          language: context.language,
+          flow_state: 'PICKING_DEADLINE',
+          deadline_pick_context: {
+            step: 'time',
+            task_title: taskTitle,
+            origin: 'UPDATE',
+            selected_date: selectedDate,
+          },
+        });
+        ctxRef.handled = true;
+        return `[[SHOW_OPTIONS:deadline_time:${taskTitle}]]`;
+      }
+    }
+
     if (isYes(message)) {
       console.log(`[Agent] Context shortcircuit: YES → ${payload.tool}`);
       const result = await dispatchTool(payload.tool, payload.args, user, orgId);
-      saveContext(conversationId, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
+      await saveContext(conversationId, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
       return result;
     }
 
     if (isNo(message)) {
       console.log('[Agent] Context shortcircuit: NO → cancel');
-      saveContext(conversationId, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
+      await saveContext(conversationId, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
       return 'Got it, cancelled. What else can I help with? 😊';
     }
 
@@ -1602,7 +1696,7 @@ async function runGroqLoop(
         const a = payload.args;
         // Save EDITING state so the next message merges corrections with this base.
         // Set ctxRef.handled so runMasterAgent skips its own context-reset logic.
-        saveContext(conversationId, {
+        await saveContext(conversationId, {
           ...EMPTY_CONTEXT,
           language: context.language,
           flow_state: 'EDITING',
@@ -1629,7 +1723,7 @@ async function runGroqLoop(
       }
       // Non-create-task confirmation edit — give context-aware prompt
       console.log('[Agent] Context shortcircuit: EDIT on non-create → clear + rephrase prompt');
-      saveContext(conversationId, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
+      await saveContext(conversationId, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
       if (payload.tool === 'update_task') {
         const taskName = (payload.args.task_title ?? payload.args.title ?? 'the task') as string;
         return `What would you like to update on *${taskName}*?\n\nYou can change:\n• *Deadline* — e.g. "set deadline to 10 Jul 5pm"\n• *Priority* — low / medium / high / urgent\n• *Assignee* — e.g. "assign to Tushar"\n• *Status* — todo / in_progress / done\n• *Title* — e.g. "rename to New Title"\n\nJust describe the change and I'll confirm before applying.`;
@@ -1639,7 +1733,7 @@ async function runGroqLoop(
 
     // User sent something else (correction/clarification) — clear stored confirmation
     // so Groq can re-evaluate and generate a new one if needed.
-    saveContext(conversationId, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
+    await saveContext(conversationId, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
   }
 
   // ── 0c. Field-value interactive options shortcut ──────────────────────────────
@@ -1679,7 +1773,7 @@ async function runGroqLoop(
           }
           if (normMsg === 'deadline') {
             console.log(`[Agent] Deadline calendar picker: task="${taskTitle}"`);
-            saveContext(conversationId, {
+            await saveContext(conversationId, {
               ...EMPTY_CONTEXT, language: context.language,
               flow_state: 'PICKING_DEADLINE',
               deadline_pick_context: { step: 'date', task_title: taskTitle, origin: 'UPDATE' },
@@ -1714,6 +1808,12 @@ async function runGroqLoop(
   }
 
   // ── 1. Quick-route deterministic patterns — bypass AI for unambiguous commands ─
+  const taskListArgs = quickTaskListArgs(message);
+  if (taskListArgs) {
+    console.log(`[Agent] Quick task-list route: "${message}"`, taskListArgs);
+    return dispatchTool('list_tasks', taskListArgs, user, orgId);
+  }
+
   const directTool = quickRoute(message);
   if (directTool) {
     console.log(`[Agent] Quick-route: "${message}" → ${directTool}`);
@@ -1725,13 +1825,13 @@ async function runGroqLoop(
   // the confirmation text directly instead of asking Groq (which often misses them).
   // parseConfirmationMessage + context_state handle the "Yes" execution path.
   const CHECK_IN_PHRASES = /^(?:please\s+)?(?:check\s*[-\s]?in|i.?m\s+(?:in|here|back)|aaya|i.?ve?\s+(?:reached|arrived)|mark\s+(?:my\s+)?attendance|log\s+(?:my\s+)?attendance|office\s+(?:aa\s+gaya|mein\s+hoon|pohonch\s+gaya))\s*[!.?]*$/i;
-  if (CHECK_IN_PHRASES.test(message.trim())) {
+    if (CHECK_IN_PHRASES.test(normalizedMessage)) {
     console.log(`[Agent] Check-in quick-confirm: "${message}"`);
     return 'Mark your attendance as *checked in* for today? (Yes / No)';
   }
 
   const CHECK_OUT_PHRASES = /^(?:please\s+)?(?:check\s*[-\s]?out|i.?m\s+(?:leaving|done|going|out)|leaving\s+now|going\s+home|done\s+for\s+(?:the\s+)?today?|signing\s+off|bye\s*bye?|ja\s+raha|nikal\s+raha)\s*[!.?]*$/i;
-  if (CHECK_OUT_PHRASES.test(message.trim())) {
+    if (CHECK_OUT_PHRASES.test(normalizedMessage)) {
     console.log(`[Agent] Check-out quick-confirm: "${message}"`);
     return 'Mark your attendance as *checked out* for today? (Yes / No)';
   }
@@ -1739,7 +1839,7 @@ async function runGroqLoop(
   // ── 1b. "Create a task" with no inline details — return fields form directly ─
   // Bypasses Groq entirely to prevent reasoning-text leaks from complex history.
   const CREATE_TASK_BARE = /^(?:please\s+)?(?:create|add|make|new)\s+(?:a\s+)?(?:task|todo|work\s*item|reminder)\s*[!.?]*$/i;
-  if (CREATE_TASK_BARE.test(message.trim())) {
+    if (CREATE_TASK_BARE.test(normalizedMessage)) {
     console.log(`[Agent] Create-task quick-form: "${message}"`);
     return 'Sure! Please provide the following:\n📝 *Title* (Required)\n📅 *Deadline* (Required) — e.g. tomorrow 5pm (defaults to 5:00 PM IST if no time given)\n🔴 *Priority* (Required) — High / Medium / Low / Urgent\n👤 *Assign To* (Optional — defaults to you if not provided)\n💬 *Description* (Optional)';
   }
@@ -1867,7 +1967,7 @@ async function runGroqLoop(
             }
             return 'I had trouble processing that — please try again.';
           }
-          return text;
+          return isGroqGenericFiller(text) ? 'I had trouble processing that — please try again.' : text;
         }
         messages.push(choice.message);
         for (const call of toolCalls) {
@@ -1875,6 +1975,7 @@ async function runGroqLoop(
           let args: Record<string, string> = {};
           try { args = JSON.parse(call.function.arguments); } catch { /* empty args */ }
           const output = await dispatchTool(call.function.name, args, user, orgId);
+          if (VERBATIM_TOOLS.has(call.function.name)) return output;
           messages.push({ role: 'tool', tool_call_id: call.id, content: output });
         }
         response = await openai.chat.completions.create({
@@ -1998,7 +2099,7 @@ async function runGroqLoop(
             if (CONFIRM_BEFORE_EXEC.has(tc.function.name)) {
               console.log(`[Agent] Groq tried to execute ${tc.function.name} directly — intercepting for confirmation`);
               const confirmText = buildToolConfirmation(tc.function.name, args);
-              saveContext(conversationId, {
+              await saveContext(conversationId, {
                 ...EMPTY_CONTEXT,
                 language:        context.language,
                 flow_state:      'CONFIRMING',
@@ -2009,6 +2110,7 @@ async function runGroqLoop(
             }
 
             const output = await dispatchTool(tc.function.name, args, user, orgId);
+            if (VERBATIM_TOOLS.has(tc.function.name)) return output;
             groqMessages.push({ role: 'tool', tool_call_id: tc.id, content: output });
           }
 
@@ -2074,7 +2176,7 @@ async function runGroqLoop(
             }
             return 'I had trouble processing that — please try again.';
           }
-          return text;
+          return isGroqGenericFiller(text) ? 'I had trouble processing that — please try again.' : text;
         }
 
         // Push assistant turn with tool_use blocks
@@ -2085,7 +2187,7 @@ async function runGroqLoop(
           if (CONFIRM_BEFORE_EXEC.has(block.name)) {
             const args = (block.input ?? {}) as Record<string, string>;
             const confirmText = buildToolConfirmation(block.name, args);
-            saveContext(conversationId, {
+            await saveContext(conversationId, {
               ...EMPTY_CONTEXT,
               language:        context.language,
               flow_state:      'CONFIRMING',
@@ -2106,6 +2208,7 @@ async function runGroqLoop(
             user,
             orgId,
           );
+          if (VERBATIM_TOOLS.has(block.name)) return output;
           toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: output });
         }
 
@@ -2156,7 +2259,7 @@ async function runGroqLoop(
             }
             return 'I had trouble processing that — please try again.';
           }
-          return text;
+          return isGroqGenericFiller(text) ? 'I had trouble processing that — please try again.' : text;
         }
 
         const functionResponses = [];
@@ -2206,7 +2309,10 @@ async function runGroqLoop(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const toolCalls = (choice.message.tool_calls ?? []) as any[];
 
-        if (toolCalls.length === 0) return choice.message.content?.trim() || '';
+        if (toolCalls.length === 0) {
+          const text = choice.message.content?.trim() || '';
+          return isGroqGenericFiller(text) ? 'I had trouble processing that — please try again.' : text;
+        }
 
         orMessages.push({ role: 'assistant', content: choice.message.content ?? null, tool_calls: toolCalls });
 
@@ -2218,7 +2324,7 @@ async function runGroqLoop(
           if (CONFIRM_BEFORE_EXEC.has(tc.function.name)) {
             console.log(`[Agent] OR tried to execute ${tc.function.name} directly — intercepting for confirmation`);
             const confirmText = buildToolConfirmation(tc.function.name, args);
-            saveContext(conversationId, {
+            await saveContext(conversationId, {
               ...EMPTY_CONTEXT,
               language:        context.language,
               flow_state:      'CONFIRMING',
@@ -2229,6 +2335,7 @@ async function runGroqLoop(
           }
 
           const output = await dispatchTool(tc.function.name, args, user, orgId);
+          if (VERBATIM_TOOLS.has(tc.function.name)) return output;
           orMessages.push({ role: 'tool', tool_call_id: tc.id, content: output });
         }
 
@@ -2295,7 +2402,10 @@ async function dispatchTool(
   orgId:    string,
 ): Promise<string> {
   const intent = INTENT_MAP[toolName];
-  if (!intent) return `Unknown tool: ${toolName}`;
+  if (!intent) {
+    console.error(`[Tool] Unknown tool requested: ${toolName}`);
+    return '❌ I could not match that request to a supported action. Please try again.';
+  }
 
   try {
     const { executeTool } = await import('./executor');
@@ -2316,7 +2426,7 @@ async function dispatchTool(
       duration_days: input.duration_days                       ?? null,
       reason:        input.reason                              ?? null,
       employee_name: input.employee_name                       ?? null,
-      wa_number:     input.wa_number    ?? user.whatsapp_number ?? null,
+      wa_number:     input.wa_number                            ?? null,
       department:    input.department                          ?? null,
       designation:   input.designation                         ?? null,
       message:       input.message                             ?? null,
@@ -2347,7 +2457,7 @@ async function dispatchTool(
     // WhatsApp hard limit: 4096 chars. Truncate gracefully.
     const reply = result.reply;
     if (reply.length > 4000) {
-      return reply.slice(0, 3940) + '\n\n_...list is long. Send "more tasks" to see the next page._';
+      return reply.slice(0, 3940) + '\n\n_…response shortened. Please narrow the request for more detail._';
     }
     return reply;
   } catch (err) {

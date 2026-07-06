@@ -1123,6 +1123,23 @@ function isGroqGenericFiller(reply: string): boolean {
   );
 }
 
+// Detects free text that CLAIMS a mutation already happened (task updated,
+// created, completed, deleted; leave approved; checked in/out; etc.) even
+// though no tool was actually called this turn. By the time any of the
+// "toolCalls.length === 0" branches below run, that is guaranteed to be true
+// for a mutating request: every tool is in exactly one of VERBATIM_TOOLS
+// (short-circuits and returns the real output directly) or
+// CONFIRM_BEFORE_EXEC (short-circuits and returns a confirmation prompt),
+// so a genuine mutation can never reach here as plain narrated text. If the
+// reply still sounds like a completed action, Groq fabricated it (observed:
+// "The deadline is updated to 8-07-2026 at 1PM." with no tool call and no
+// confirmation step, while the real deadline in the database never changed).
+const UNCONFIRMED_SUCCESS_CLAIM_RE = /\b(?:is|has been|have been|was|were)\s+(?:now\s+)?(?:updated|created|deleted|removed|completed|marked|assigned|reassigned|approved|rejected|cancelled|added|set)\b|\bupdated\s+to\b|\bmarked\s+(?:as\s+)?(?:done|complete|completed)\b|\bsuccessfully\s+(?:updated|created|deleted|completed|assigned|checked|cancelled)\b|\btask\s+(?:has\s+been\s+)?(?:created|deleted|completed)\b|\bchecked\s*(?:in|out)\s*(?:successfully|!|\.|$)/i;
+
+function looksLikeUnconfirmedSuccessClaim(reply: string): boolean {
+  return UNCONFIRMED_SUCCESS_CLAIM_RE.test(reply);
+}
+
 // ─── Master agent entry point ─────────────────────────────────────────────────
 
 export async function runMasterAgent(
@@ -2057,7 +2074,7 @@ async function runGroqLoop(
         const toolCalls = choice.message.tool_calls ?? [];
         if (toolCalls.length === 0) {
           const text = choice.message.content?.trim() || '';
-          if (isGroqGenericFiller(text)) {
+          if (isGroqGenericFiller(text) || looksLikeUnconfirmedSuccessClaim(text)) {
             if (round < 2) {
               messages.push(choice.message as OpenAI.Chat.ChatCompletionMessageParam);
               messages.push({ role: 'user', content: '[SYSTEM ENFORCEMENT] Do NOT output your reasoning. Call the correct tool immediately, or give a direct one-sentence answer.' });
@@ -2066,7 +2083,7 @@ async function runGroqLoop(
             }
             return 'I had trouble processing that — please try again.';
           }
-          return isGroqGenericFiller(text) ? 'I had trouble processing that — please try again.' : text;
+          return (isGroqGenericFiller(text) || looksLikeUnconfirmedSuccessClaim(text)) ? 'I had trouble processing that — please try again.' : text;
         }
         messages.push(choice.message);
         for (const call of toolCalls) {
@@ -2154,6 +2171,30 @@ async function runGroqLoop(
               }
               // Still filler after 2 retries — OpenRouter is more reliable here
               console.error(`[Agent] Groq filler persisted after 2 retries — falling back to OpenRouter`);
+              return runOpenRouterFallback();
+            }
+
+            // Hard block: Groq claiming a mutation succeeded without ever calling the
+            // tool (no confirmation shown, nothing actually written to the database).
+            // Every mutating/read tool short-circuits via CONFIRM_BEFORE_EXEC or
+            // VERBATIM_TOOLS above, so reaching this point with success-claim text
+            // means it was fabricated — never let it reach the user as-is.
+            if (looksLikeUnconfirmedSuccessClaim(textReply)) {
+              if (round < 2) {
+                console.warn(`[Agent] Groq claimed success without a tool call on round ${round} ("${textReply.slice(0,80)}") — enforcing retry`);
+                groqMessages.push({ role: 'assistant', content: textReply });
+                groqMessages.push({
+                  role: 'user',
+                  content: '[SYSTEM ENFORCEMENT] You just claimed an action was completed, but you did not call a tool — nothing was actually changed. ' +
+                    'Do NOT claim something was updated/created/completed/deleted/approved/checked in unless you call the matching tool. ' +
+                    'Call the correct tool now, or if it is a mutating action, reply with a confirmation ending "Go ahead? (Yes / No)".',
+                });
+                resp = await client.chat.completions.create({
+                  model: AI_MODEL_GROQ, messages: groqMessages, tools: groqTools, max_tokens: 512,
+                });
+                continue;
+              }
+              console.error(`[Agent] Groq kept fabricating a success claim after 2 retries — falling back to OpenRouter`);
               return runOpenRouterFallback();
             }
 
@@ -2267,7 +2308,7 @@ async function runGroqLoop(
 
         if (toolBlocks.length === 0) {
           const text = textBlocks.map(b => b.text).join('').trim();
-          if (isGroqGenericFiller(text)) {
+          if (isGroqGenericFiller(text) || looksLikeUnconfirmedSuccessClaim(text)) {
             if (round < 2) {
               claudeMessages.push({ role: 'assistant', content: response.content });
               claudeMessages.push({ role: 'user', content: '[SYSTEM ENFORCEMENT] Do NOT output your reasoning. Call the correct tool immediately, or give a direct one-sentence answer.' });
@@ -2275,7 +2316,7 @@ async function runGroqLoop(
             }
             return 'I had trouble processing that — please try again.';
           }
-          return isGroqGenericFiller(text) ? 'I had trouble processing that — please try again.' : text;
+          return (isGroqGenericFiller(text) || looksLikeUnconfirmedSuccessClaim(text)) ? 'I had trouble processing that — please try again.' : text;
         }
 
         // Push assistant turn with tool_use blocks
@@ -2351,14 +2392,14 @@ async function runGroqLoop(
         const calls = result.response.functionCalls() ?? [];
         if (calls.length === 0) {
           const text = result.response.text().trim() || '';
-          if (isGroqGenericFiller(text)) {
+          if (isGroqGenericFiller(text) || looksLikeUnconfirmedSuccessClaim(text)) {
             if (round < 2) {
               result = await chat.sendMessage('[SYSTEM ENFORCEMENT] Do NOT output your reasoning. Call the correct tool immediately, or give a direct one-sentence answer.');
               continue;
             }
             return 'I had trouble processing that — please try again.';
           }
-          return isGroqGenericFiller(text) ? 'I had trouble processing that — please try again.' : text;
+          return (isGroqGenericFiller(text) || looksLikeUnconfirmedSuccessClaim(text)) ? 'I had trouble processing that — please try again.' : text;
         }
 
         const functionResponses = [];
@@ -2410,7 +2451,7 @@ async function runGroqLoop(
 
         if (toolCalls.length === 0) {
           const text = choice.message.content?.trim() || '';
-          return isGroqGenericFiller(text) ? 'I had trouble processing that — please try again.' : text;
+          return (isGroqGenericFiller(text) || looksLikeUnconfirmedSuccessClaim(text)) ? 'I had trouble processing that — please try again.' : text;
         }
 
         orMessages.push({ role: 'assistant', content: choice.message.content ?? null, tool_calls: toolCalls });

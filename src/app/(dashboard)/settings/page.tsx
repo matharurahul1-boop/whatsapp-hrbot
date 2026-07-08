@@ -91,7 +91,7 @@ export default function SettingsPage() {
   // comma-separated string when saved (that's the format the API stores)
   const [groqKeys,        setGroqKeys]        = useState<string[]>(['']);
   const [groqKeysCount,   setGroqKeysCount]   = useState(0);
-  const [showGroqKeys,    setShowGroqKeys]    = useState(false);
+  const [visibleGroqKeys, setVisibleGroqKeys] = useState<Set<number>>(new Set());
   const [savingGroq,      setSavingGroq]      = useState(false);
   const [groqSaved,       setGroqSaved]       = useState(false);
   const [groqError,       setGroqError]       = useState('');
@@ -193,6 +193,7 @@ export default function SettingsPage() {
         setWaTemplateVars(snapshot.waTemplateVars);
         setAiBackend((org as any).settings?.ai_backend === 'claude' ? 'claude' : 'groq');
         setGroqKeysCount(org.groq_api_keys_count ?? 0);
+        setGroqKeys(Array.isArray(org.groq_api_keys) && org.groq_api_keys.length > 0 ? org.groq_api_keys : ['']);
       }
     }
 
@@ -269,6 +270,23 @@ export default function SettingsPage() {
 
   function removeGroqKeyField(index: number) {
     setGroqKeys(keys => keys.filter((_, i) => i !== index));
+    setVisibleGroqKeys(visible => {
+      const next = new Set<number>();
+      visible.forEach(i => {
+        if (i < index) next.add(i);
+        else if (i > index) next.add(i - 1);
+      });
+      return next;
+    });
+  }
+
+  function toggleGroqKeyVisibility(index: number) {
+    setVisibleGroqKeys(visible => {
+      const next = new Set(visible);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
   }
 
   async function saveGroqKeys() {
@@ -287,7 +305,7 @@ export default function SettingsPage() {
         return;
       }
       setGroqKeysCount(filled.length);
-      setGroqKeys(['']);
+      setGroqKeys(filled.length > 0 ? filled : ['']);
       setGroqSaved(true);
       setTimeout(() => setGroqSaved(false), 2500);
     } finally {
@@ -631,7 +649,7 @@ export default function SettingsPage() {
                   <div key={i} className="relative flex items-center gap-2">
                     <div className="relative flex-1">
                       <input
-                        type={showGroqKeys ? 'text' : 'password'}
+                        type={visibleGroqKeys.has(i) ? 'text' : 'password'}
                         autoComplete="off"
                         data-lpignore="true"
                         value={key}
@@ -639,12 +657,10 @@ export default function SettingsPage() {
                         placeholder={`key-${i + 1}...`}
                         className="w-full rounded-lg border border-surface-300 bg-surface-0 pl-3 pr-10 py-2.5 text-sm text-surface-950 placeholder:text-surface-500 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500 font-mono"
                       />
-                      {i === 0 && (
-                        <button type="button" onClick={() => setShowGroqKeys(s => !s)}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded text-surface-500 hover:text-surface-800 transition-colors">
-                          {showGroqKeys ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                        </button>
-                      )}
+                      <button type="button" onClick={() => toggleGroqKeyVisibility(i)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded text-surface-500 hover:text-surface-800 transition-colors">
+                        {visibleGroqKeys.has(i) ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                      </button>
                     </div>
                     {groqKeys.length > 1 && (
                       <button type="button" onClick={() => removeGroqKeyField(i)}

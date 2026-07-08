@@ -38,12 +38,15 @@ export async function GET() {
   ]);
   const legacyConfigured = !!data?.wa_access_token;
   if (data) delete (data as { wa_access_token?: string | null }).wa_access_token;
-  const groqKeyCount = secret?.groq_api_keys ? secret.groq_api_keys.split(',').map((k: string) => k.trim()).filter(Boolean).length : 0;
+  // Only the org's own keys are ever returned to the browser — never the
+  // shared server-default env keys, which would leak a cross-tenant secret.
+  const groqKeys = secret?.groq_api_keys ? secret.groq_api_keys.split(',').map((k: string) => k.trim()).filter(Boolean) : [];
   return NextResponse.json({
     data: {
       ...data,
       wa_access_token_configured: !!secret?.wa_access_token || legacyConfigured,
-      groq_api_keys_count: groqKeyCount,
+      groq_api_keys_count: groqKeys.length,
+      groq_api_keys:       groqKeys,
     },
   });
 }

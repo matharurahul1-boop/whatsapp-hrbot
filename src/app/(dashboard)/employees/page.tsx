@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { redirect } from 'next/navigation';
 import EmployeeGrid from '@/components/employees/EmployeeGrid';
 import InvitePanel from '@/components/employees/InvitePanel';
+import CreateAccountModal from '@/components/employees/CreateAccountModal';
 import RefreshButton from '@/components/ui/RefreshButton';
 
 export const metadata = { title: 'Team — HRBot' };
@@ -42,6 +43,7 @@ export default async function EmployeesPage() {
         <div className="flex items-center gap-2">
           <RefreshButton />
           {canInvite && <InvitePanel orgId={profile.organization_id} />}
+          {canInvite && <CreateAccountModal actorRole={profile.role} />}
         </div>
       </div>
 

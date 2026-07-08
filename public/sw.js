@@ -57,3 +57,40 @@ self.addEventListener('fetch', e => {
     );
   }
 });
+
+// ── Push: show a notification from the server's payload ────────────────────
+self.addEventListener('push', e => {
+  let data = {};
+  try { data = e.data ? e.data.json() : {}; } catch { data = { body: e.data?.text() }; }
+
+  const title = data.title || 'HRBot';
+  const options = {
+    body: data.body || '',
+    icon: '/icon-192.svg',
+    badge: '/icon-192.svg',
+    tag: data.tag || 'hrbot-notification',
+    data: { url: data.url || '/dashboard' },
+    renotify: !!data.tag,
+  };
+
+  e.waitUntil(self.registration.showNotification(title, options));
+});
+
+// ── Notification click: focus an existing tab or open a new one ────────────
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const targetUrl = e.notification.data?.url || '/dashboard';
+
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
+      for (const client of clientList) {
+        const clientUrl = new URL(client.url);
+        if (clientUrl.origin === self.location.origin && 'focus' in client) {
+          client.navigate(targetUrl);
+          return client.focus();
+        }
+      }
+      return self.clients.openWindow(targetUrl);
+    })
+  );
+});

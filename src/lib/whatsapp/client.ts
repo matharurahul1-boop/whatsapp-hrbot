@@ -247,6 +247,44 @@ export async function sendText(
   );
 }
 
+/**
+ * Same as sendText, but the wa_logs row records `logText` instead of the
+ * real message body. Use this for messages containing secrets (e.g. a
+ * temporary password) that must reach the recipient on WhatsApp but should
+ * never be visible to anyone browsing the WA Logs dashboard.
+ */
+export async function sendTextRedacted(
+  to:      string,
+  body:    string,
+  logText: string,
+  orgId:   string = ''
+): Promise<WAApiResponse> {
+  const safeBody = body.length > WA_TEXT_MAX
+    ? body.slice(0, WA_TEXT_MAX - 3) + '…'
+    : body;
+
+  if (isAISensyConfigured()) {
+    return sendViaAISensy({
+      orgId, to,
+      messageType:    'text',
+      messageText:    logText,
+      campaignName:   process.env.AISENSY_TEXT_CAMPAIGN!,
+      templateParams: [safeBody],
+    });
+  }
+
+  return sendViaMeta(
+    {
+      messaging_product: 'whatsapp',
+      recipient_type:    'individual',
+      to,
+      type:              'text',
+      text:              { body: safeBody },
+    },
+    { orgId, to, messageType: 'text', messageText: logText }
+  );
+}
+
 export async function sendButtons(
   to:          string,
   bodyText:    string,

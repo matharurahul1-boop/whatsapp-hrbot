@@ -31,6 +31,8 @@ export async function middleware(request: NextRequest) {
     '/login',
     '/join',
     '/setup',
+    '/forgot-password',
+    '/reset-password',
     '/api/webhooks',
     '/api/auth',
     '/api/organizations/info',

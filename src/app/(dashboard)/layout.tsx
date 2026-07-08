@@ -8,6 +8,7 @@ import { SidebarProvider } from '@/components/layout/SidebarProvider';
 import { SidebarShell } from '@/components/layout/SidebarShell';
 import { ContentShell } from '@/components/layout/ContentShell';
 import BottomNav from '@/components/layout/BottomNav';
+import PushNotificationManager from '@/components/layout/PushNotificationManager';
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
@@ -55,6 +56,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
         {/* Mobile bottom navigation — hidden on desktop (lg+) */}
         <BottomNav role={profile.role} />
+
+        <PushNotificationManager />
       </SidebarProvider>
     </ThemeProvider>
   );

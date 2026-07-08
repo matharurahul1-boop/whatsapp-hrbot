@@ -150,7 +150,10 @@ export default function LoginPage() {
                 </div>
               </div>
               <div className="space-y-1.5">
-                <label className="label">Password</label>
+                <div className="flex items-center justify-between">
+                  <label className="label">Password</label>
+                  <a href="/forgot-password" className="text-2xs text-brand-400 hover:text-brand-300 font-medium">Forgot password?</a>
+                </div>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-surface-500 pointer-events-none" />
                   <input type={showPw ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" required autoComplete="current-password" className="input pl-9 pr-10" />

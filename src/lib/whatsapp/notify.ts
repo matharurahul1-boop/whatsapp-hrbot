@@ -13,7 +13,8 @@
  */
 
 import { createAdminClient } from '@/lib/supabase/admin';
-import { sendText }          from '@/lib/whatsapp/client';
+import { sendText, sendTextRedacted } from '@/lib/whatsapp/client';
+import { sendPush } from '@/lib/push/send';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -64,18 +65,29 @@ export async function notifyTaskAssigned(opts: {
     const { data: assignee } = await db
       .from('users').select('full_name, wa_number')
       .eq('id', opts.assigneeId).single();
-    if (!assignee?.wa_number) return;
 
-    const msg =
-      `📋 *Hi ${firstName(assignee.full_name)}, you have a new task!*\n\n` +
-      `*${opts.taskTitle}*\n\n` +
-      `${PRIORITY_EMOJI[opts.priority] ?? '⚪'} Priority: *${opts.priority}*\n` +
-      `🗓 Deadline: *${fmtDate(opts.deadline)}*\n` +
-      `👤 Assigned by: *${opts.creatorName}*\n\n` +
-      `Reply *my tasks* to view all your pending tasks.`;
+    const sends: Promise<unknown>[] = [
+      sendPush(opts.assigneeId, {
+        title: '📋 New task assigned',
+        body:  `${opts.taskTitle} — assigned by ${opts.creatorName}`,
+        url:   '/tasks',
+        tag:   'task-assigned',
+      }),
+    ];
 
-    await sendText(assignee.wa_number, msg, opts.orgId);
-    console.log(`[Notify:TaskAssigned] ✅ ${assignee.wa_number}`);
+    if (assignee?.wa_number) {
+      const msg =
+        `📋 *Hi ${firstName(assignee.full_name)}, you have a new task!*\n\n` +
+        `*${opts.taskTitle}*\n\n` +
+        `${PRIORITY_EMOJI[opts.priority] ?? '⚪'} Priority: *${opts.priority}*\n` +
+        `🗓 Deadline: *${fmtDate(opts.deadline)}*\n` +
+        `👤 Assigned by: *${opts.creatorName}*\n\n` +
+        `Reply *my tasks* to view all your pending tasks.`;
+      sends.push(sendText(assignee.wa_number, msg, opts.orgId));
+    }
+
+    await Promise.all(sends);
+    console.log(`[Notify:TaskAssigned] ✅ push${assignee?.wa_number ? ' + wa:' + assignee.wa_number : ' only'}`);
   });
 }
 
@@ -87,16 +99,27 @@ export async function notifyTaskCompleted(opts: {
 }): Promise<void> {
   return fire('TaskCompleted', async () => {
     const waNum = await getWaNumber(opts.creatorId);
-    if (!waNum) return;
 
-    const msg =
-      `✅ *Task completed!*\n\n` +
-      `*${opts.taskTitle}*\n` +
-      `Marked done by: *${opts.completedByName}*\n\n` +
-      `Reply *my tasks* to view remaining tasks.`;
+    const sends: Promise<unknown>[] = [
+      sendPush(opts.creatorId, {
+        title: '✅ Task completed',
+        body:  `${opts.taskTitle} — marked done by ${opts.completedByName}`,
+        url:   '/tasks',
+        tag:   'task-completed',
+      }),
+    ];
 
-    await sendText(waNum, msg, opts.orgId);
-    console.log(`[Notify:TaskCompleted] ✅ ${waNum}`);
+    if (waNum) {
+      const msg =
+        `✅ *Task completed!*\n\n` +
+        `*${opts.taskTitle}*\n` +
+        `Marked done by: *${opts.completedByName}*\n\n` +
+        `Reply *my tasks* to view remaining tasks.`;
+      sends.push(sendText(waNum, msg, opts.orgId));
+    }
+
+    await Promise.all(sends);
+    console.log(`[Notify:TaskCompleted] ✅ push${waNum ? ' + wa:' + waNum : ' only'}`);
   });
 }
 
@@ -113,17 +136,28 @@ export async function notifyTaskUpdated(opts: {
     const { data: assignee } = await db
       .from('users').select('full_name, wa_number')
       .eq('id', opts.assigneeId).single();
-    if (!assignee?.wa_number) return;
 
-    const msg =
-      `📝 *Task updated, ${firstName(assignee.full_name)}!*\n\n` +
-      `*${opts.taskTitle}*\n\n` +
-      `${opts.field} changed to: *${opts.value}*\n` +
-      `Updated by: *${opts.updaterName}*\n\n` +
-      `Reply *my tasks* to view your tasks.`;
+    const sends: Promise<unknown>[] = [
+      sendPush(opts.assigneeId, {
+        title: '📝 Task updated',
+        body:  `${opts.taskTitle} — ${opts.field} changed to ${opts.value}`,
+        url:   '/tasks',
+        tag:   'task-updated',
+      }),
+    ];
 
-    await sendText(assignee.wa_number, msg, opts.orgId);
-    console.log(`[Notify:TaskUpdated] ✅ ${assignee.wa_number}`);
+    if (assignee?.wa_number) {
+      const msg =
+        `📝 *Task updated, ${firstName(assignee.full_name)}!*\n\n` +
+        `*${opts.taskTitle}*\n\n` +
+        `${opts.field} changed to: *${opts.value}*\n` +
+        `Updated by: *${opts.updaterName}*\n\n` +
+        `Reply *my tasks* to view your tasks.`;
+      sends.push(sendText(assignee.wa_number, msg, opts.orgId));
+    }
+
+    await Promise.all(sends);
+    console.log(`[Notify:TaskUpdated] ✅ push${assignee?.wa_number ? ' + wa:' + assignee.wa_number : ' only'}`);
   });
 }
 
@@ -138,15 +172,26 @@ export async function notifyTaskDeleted(opts: {
     const { data: assignee } = await db
       .from('users').select('full_name, wa_number')
       .eq('id', opts.assigneeId).single();
-    if (!assignee?.wa_number) return;
 
-    const msg =
-      `🗑️ *Task removed, ${firstName(assignee.full_name)}!*\n\n` +
-      `*${opts.taskTitle}* has been deleted by *${opts.deleterName}*.\n\n` +
-      `Reply *my tasks* to view your remaining tasks.`;
+    const sends: Promise<unknown>[] = [
+      sendPush(opts.assigneeId, {
+        title: '🗑️ Task removed',
+        body:  `${opts.taskTitle} was deleted by ${opts.deleterName}`,
+        url:   '/tasks',
+        tag:   'task-deleted',
+      }),
+    ];
 
-    await sendText(assignee.wa_number, msg, opts.orgId);
-    console.log(`[Notify:TaskDeleted] ✅ ${assignee.wa_number}`);
+    if (assignee?.wa_number) {
+      const msg =
+        `🗑️ *Task removed, ${firstName(assignee.full_name)}!*\n\n` +
+        `*${opts.taskTitle}* has been deleted by *${opts.deleterName}*.\n\n` +
+        `Reply *my tasks* to view your remaining tasks.`;
+      sends.push(sendText(assignee.wa_number, msg, opts.orgId));
+    }
+
+    await Promise.all(sends);
+    console.log(`[Notify:TaskDeleted] ✅ push${assignee?.wa_number ? ' + wa:' + assignee.wa_number : ' only'}`);
   });
 }
 
@@ -221,24 +266,35 @@ export async function notifyLeaveSubmitted(opts: {
 
     if (!targetId) return;
     const waNum = await getWaNumber(targetId);
-    if (!waNum) return;
 
     const isSingle = opts.startDate === opts.endDate;
     const dateStr  = isSingle
       ? fmtDate(opts.startDate)
       : `${fmtDate(opts.startDate)} → ${fmtDate(opts.endDate)}`;
 
-    const msg =
-      `📩 *New leave request*\n\n` +
-      `👤 *${opts.employeeName}*\n` +
-      `📋 Type: *${opts.leaveTypeName}*\n` +
-      `🗓 ${dateStr} _(${opts.durationDays} day${opts.durationDays > 1 ? 's' : ''})_\n` +
-      (opts.reason ? `💬 "${opts.reason}"\n` : '') +
-      `\nReply *approve leave for ${opts.employeeName.split(' ')[0]}* or ` +
-      `*reject leave for ${opts.employeeName.split(' ')[0]}* to action.`;
+    const sends: Promise<unknown>[] = [
+      sendPush(targetId, {
+        title: '📩 New leave request',
+        body:  `${opts.employeeName} — ${opts.leaveTypeName}, ${dateStr}`,
+        url:   '/leave',
+        tag:   'leave-submitted',
+      }),
+    ];
 
-    await sendText(waNum, msg, opts.orgId);
-    console.log(`[Notify:LeaveSubmitted] ✅ ${waNum}`);
+    if (waNum) {
+      const msg =
+        `📩 *New leave request*\n\n` +
+        `👤 *${opts.employeeName}*\n` +
+        `📋 Type: *${opts.leaveTypeName}*\n` +
+        `🗓 ${dateStr} _(${opts.durationDays} day${opts.durationDays > 1 ? 's' : ''})_\n` +
+        (opts.reason ? `💬 "${opts.reason}"\n` : '') +
+        `\nReply *approve leave for ${opts.employeeName.split(' ')[0]}* or ` +
+        `*reject leave for ${opts.employeeName.split(' ')[0]}* to action.`;
+      sends.push(sendText(waNum, msg, opts.orgId));
+    }
+
+    await Promise.all(sends);
+    console.log(`[Notify:LeaveSubmitted] ✅ push${waNum ? ' + wa:' + waNum : ' only'}`);
   });
 }
 
@@ -254,7 +310,6 @@ export async function notifyLeaveDecision(opts: {
 }): Promise<void> {
   return fire('LeaveDecision', async () => {
     const waNum = await getWaNumber(opts.employeeId);
-    if (!waNum) return;
 
     const isSingle = opts.startDate === opts.endDate;
     const dateStr  = isSingle
@@ -263,18 +318,30 @@ export async function notifyLeaveDecision(opts: {
 
     const approved = opts.action === 'approved';
 
-    const msg =
-      `${approved ? '✅' : '❌'} *Your leave request has been ${opts.action}!*\n\n` +
-      `📋 Type: *${opts.leaveTypeName}*\n` +
-      `🗓 *${dateStr}*\n` +
-      `👤 Reviewed by: *${opts.reviewerName}*\n` +
-      (opts.remarks && !approved ? `\n💬 Reason: ${opts.remarks}\n` : '') +
-      (approved
-        ? `\nEnjoy your time off! 🎉`
-        : `\nPlease contact HR if you have questions.`);
+    const sends: Promise<unknown>[] = [
+      sendPush(opts.employeeId, {
+        title: approved ? '✅ Leave approved' : '❌ Leave rejected',
+        body:  `${opts.leaveTypeName} — ${dateStr}`,
+        url:   '/leave',
+        tag:   'leave-decision',
+      }),
+    ];
 
-    await sendText(waNum, msg, opts.orgId);
-    console.log(`[Notify:LeaveDecision] ✅ ${waNum}`);
+    if (waNum) {
+      const msg =
+        `${approved ? '✅' : '❌'} *Your leave request has been ${opts.action}!*\n\n` +
+        `📋 Type: *${opts.leaveTypeName}*\n` +
+        `🗓 *${dateStr}*\n` +
+        `👤 Reviewed by: *${opts.reviewerName}*\n` +
+        (opts.remarks && !approved ? `\n💬 Reason: ${opts.remarks}\n` : '') +
+        (approved
+          ? `\nEnjoy your time off! 🎉`
+          : `\nPlease contact HR if you have questions.`);
+      sends.push(sendText(waNum, msg, opts.orgId));
+    }
+
+    await Promise.all(sends);
+    console.log(`[Notify:LeaveDecision] ✅ push${waNum ? ' + wa:' + waNum : ' only'}`);
   });
 }
 
@@ -370,6 +437,38 @@ export async function notifyWelcome(opts: {
 
     await sendText(opts.waNumber, msg, opts.orgId);
     console.log(`[Notify:Welcome] ✅ ${opts.waNumber}`);
+  });
+}
+
+/** Sent when an admin/HR user creates an account directly (not self-signup).
+ *  Includes login credentials, so the WA Logs record is redacted — only
+ *  this fire-and-forget send sees the real password. */
+export async function notifyAccountCreated(opts: {
+  orgId: string;
+  waNumber: string;
+  employeeName: string;
+  companyName: string;
+  email: string;
+  password: string;
+  loginUrl: string;
+}): Promise<void> {
+  return fire('AccountCreated', async () => {
+    const msg =
+      `👋 *Welcome to ${opts.companyName}, ${firstName(opts.employeeName)}!*\n\n` +
+      `An account has been created for you. Here are your login details:\n\n` +
+      `📧 Email: ${opts.email}\n` +
+      `🔑 Password: ${opts.password}\n\n` +
+      `Sign in at: ${opts.loginUrl}\n` +
+      `_Please change your password after your first login._\n\n` +
+      `I'm also your AI HR assistant right here on WhatsApp — type "help" anytime to see what I can do.`;
+
+    await sendTextRedacted(
+      opts.waNumber,
+      msg,
+      `👋 Welcome message with login credentials sent to ${firstName(opts.employeeName)}.`,
+      opts.orgId,
+    );
+    console.log(`[Notify:AccountCreated] ✅ ${opts.waNumber}`);
   });
 }
 

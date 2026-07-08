@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient }    from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { writeAuditLog }   from '@/lib/utils/audit';
+import { notifyAccountCreated } from '@/lib/whatsapp/notify';
 import {
-  isEmployee, isManager, isManagerOrAbove, isHrOrAbove, isAdminOrAbove,
+  isEmployee, isManager, isManagerOrAbove, isHrOrAbove, isAdminOrAbove, isSuperAdmin,
   EMPLOYEE_PROFILE_WRITABLE, HR_PROFILE_WRITABLE, ADMIN_PROFILE_WRITABLE,
 } from '@/lib/rbac';
 import { z } from 'zod';
@@ -18,6 +19,16 @@ const UpdateProfileSchema = z.object({
   joined_at:   z.string().datetime().optional(),
   is_active:   z.boolean().optional(),
   role:        z.enum(['super_admin','admin','hr','manager','employee']).optional(),
+});
+
+const CreateAccountSchema = z.object({
+  full_name:   z.string().min(1).max(100),
+  email:       z.string().email(),
+  wa_number:   z.string().min(6).max(20),
+  password:    z.string().min(6).max(72),
+  role:        z.enum(['super_admin','admin','hr','manager','employee']).default('employee'),
+  department:  z.string().max(100).optional(),
+  designation: z.string().max(100).optional(),
 });
 
 // ── GET /api/employees ────────────────────────────────────────────────────────
@@ -189,4 +200,132 @@ export async function PATCH(req: NextRequest) {
   });
 
   return NextResponse.json({ data: updated });
+}
+
+// ── POST /api/employees ───────────────────────────────────────────────────────
+// Admin/HR creates an account directly on behalf of someone else (as opposed
+// to the self-signup /join flow). Creates the Supabase auth user with the
+// given password, seeds their profile + leave balances, and sends the new
+// user their login credentials over WhatsApp.
+export async function POST(req: NextRequest) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const body = await req.json().catch(() => ({}));
+  const parsed = CreateAccountSchema.safeParse(body);
+  if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 422 });
+
+  const db = createAdminClient();
+  const { data: profile } = await db
+    .from('users').select('organization_id, role').eq('id', user.id).single();
+  if (!profile) return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
+
+  if (!isHrOrAbove(profile.role)) {
+    return NextResponse.json({ error: 'Only HR and above can create accounts for others' }, { status: 403 });
+  }
+
+  const { full_name, email, wa_number, password, role, department, designation } = parsed.data;
+
+  // Prevent privilege escalation — creating a higher-privileged account than
+  // your own requires being at that level yourself.
+  if (role === 'super_admin' && !isSuperAdmin(profile.role)) {
+    return NextResponse.json({ error: 'Only a super admin can create another super admin' }, { status: 403 });
+  }
+  if (role === 'admin' && !isAdminOrAbove(profile.role)) {
+    return NextResponse.json({ error: 'Only an admin or above can create an admin account' }, { status: 403 });
+  }
+
+  const cleanWaNumber = wa_number.replace(/\D/g, '');
+  if (cleanWaNumber.length < 6) {
+    return NextResponse.json({ error: 'Enter a valid WhatsApp number' }, { status: 422 });
+  }
+
+  // Reject duplicates up front with a clear message rather than surfacing a
+  // raw Postgres/Auth error to the admin.
+  const { data: existingWa } = await db
+    .from('users').select('id')
+    .eq('organization_id', profile.organization_id).eq('wa_number', cleanWaNumber)
+    .maybeSingle();
+  if (existingWa) {
+    return NextResponse.json({ error: 'That WhatsApp number is already linked to a team member' }, { status: 409 });
+  }
+
+  const { data: created, error: createErr } = await db.auth.admin.createUser({
+    email:         email.trim(),
+    password,
+    email_confirm: true, // admin is vouching for this account — skip email verification
+    user_metadata: { full_name: full_name.trim() },
+  });
+  if (createErr || !created?.user) {
+    const message = createErr?.message?.includes('already been registered')
+      ? 'That email address already has an account'
+      : (createErr?.message ?? 'Failed to create the account');
+    return NextResponse.json({ error: message }, { status: 422 });
+  }
+
+  const newUserId = created.user.id;
+
+  const { data: newProfile, error: profileErr } = await db.from('users').insert({
+    id:              newUserId,
+    organization_id: profile.organization_id,
+    full_name:       full_name.trim(),
+    email:           email.trim(),
+    wa_number:       cleanWaNumber,
+    role,
+    department:      department?.trim() || null,
+    designation:     designation?.trim() || null,
+    is_active:       true,
+    joined_at:       new Date().toISOString(),
+  }).select().single();
+
+  if (profileErr) {
+    // Roll back the orphaned auth user so a failed creation doesn't leave a
+    // login-able account with no organization profile behind.
+    await db.auth.admin.deleteUser(newUserId).catch(() => {});
+    return NextResponse.json({ error: `Failed to create profile: ${profileErr.message}` }, { status: 500 });
+  }
+
+  // Seed leave balances, same defaults as the self-signup /join flow.
+  const currentYear = new Date().getFullYear();
+  const { data: leaveTypes } = await db
+    .from('leave_types')
+    .select('id, default_days')
+    .eq('organization_id', profile.organization_id)
+    .eq('is_active', true);
+
+  if (leaveTypes && leaveTypes.length > 0) {
+    try {
+      await db.from('leave_balances').insert(
+        leaveTypes.map(lt => ({
+          employee_id:     newUserId,
+          organization_id: profile.organization_id,
+          leave_type_id:   lt.id,
+          entitled_days:   lt.default_days,
+          used_days:       0,
+          carried_over:    0,
+          year:            currentYear,
+        }))
+      );
+    } catch { /* non-critical — account already exists */ }
+  }
+
+  await writeAuditLog({
+    org_id: profile.organization_id, actor_id: user.id,
+    action: 'CREATE', table_name: 'users', record_id: newUserId,
+    new_data: { full_name, email, role, department, designation },
+  });
+
+  const { data: org } = await db.from('organizations').select('name').eq('id', profile.organization_id).single();
+  notifyAccountCreated({
+    orgId:        profile.organization_id,
+    waNumber:     cleanWaNumber,
+    employeeName: full_name.trim(),
+    companyName:  org?.name ?? 'your company',
+    email:        email.trim(),
+    password,
+    loginUrl:     `${req.nextUrl.origin}/login`,
+  }).catch(() => {});
+
+  return NextResponse.json({ data: newProfile }, { status: 201 });
 }

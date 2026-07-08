@@ -211,6 +211,20 @@ async function sendViaAISensy(opts: AISensySendOpts): Promise<WAApiResponse> {
   return apiResponse!;
 }
 
+// Meta template parameters may not contain newlines and are meant to be
+// short — flatten multi-line free-form bodies down to one line so they
+// survive being dropped into a pre-approved template's {{n}} placeholder.
+function flattenForTemplate(text: string): string {
+  return text.replace(/\s*\n+\s*/g, ' ').trim();
+}
+
+function buildTemplateVars(varsCount: number | null | undefined, name: string, body: string, orgName: string): string[] {
+  const flatBody = flattenForTemplate(body);
+  if (varsCount === 3) return [name, flatBody, orgName];
+  if (varsCount === 2) return [name, flatBody];
+  return [flatBody];
+}
+
 // ── Template fallback for automated sends ─────────────────────────────────
 //
 // A brand-new recipient (e.g. a just-created employee's welcome message)
@@ -221,9 +235,10 @@ async function sendViaAISensy(opts: AISensySendOpts): Promise<WAApiResponse> {
 // pre-approved template on a 131047/131021 failure; this brings the same
 // behavior to every automated sendText/sendTextRedacted call.
 async function sendMetaWithTemplateFallback(
-  payload: WAOutboundPayload,
-  opts:    SendOpts,
-  body:    string,
+  payload:       WAOutboundPayload,
+  opts:          SendOpts,
+  body:          string,
+  recipientName: string = '',
 ): Promise<WAApiResponse> {
   try {
     return await sendViaMeta(payload, opts);
@@ -239,9 +254,7 @@ async function sendMetaWithTemplateFallback(
       .maybeSingle();
     if (!org?.wa_message_template) throw err;
 
-    const vars = org.wa_template_variables === 3 ? ['', body, org.name ?? '']
-      : org.wa_template_variables === 2 ? ['', body]
-      : [body];
+    const vars = buildTemplateVars(org.wa_template_variables, recipientName, body, org.name ?? '');
 
     console.log(`[WA] Free-form failed (24h window) — retrying via template "${org.wa_message_template}"`);
     return sendTemplate(opts.to, org.wa_message_template, vars, org.wa_template_lang || 'en', opts.orgId);
@@ -322,6 +335,39 @@ export async function sendTextRedacted(
     { orgId, to, messageType: 'text', messageText: logText },
     safeBody,
   );
+}
+
+/**
+ * For messages where the recipient is *guaranteed* to be outside the 24h
+ * window — onboarding a brand-new employee who has, by definition, never
+ * messaged the business number before. Meta sometimes accepts a free-form
+ * send to such a recipient (200 + message id) and only reports the delivery
+ * failure later via the async status webhook, so sendMetaWithTemplateFallback's
+ * synchronous catch never fires and the message silently never arrives.
+ * Here we go straight to the org's pre-approved template when one is
+ * configured, and only attempt free-form as a best-effort fallback when it
+ * isn't (matching the previous, less reliable behavior).
+ */
+export async function sendFirstContactText(
+  to:            string,
+  body:          string,
+  orgId:         string,
+  recipientName: string,
+  logText?:      string,
+): Promise<WAApiResponse> {
+  const db = createAdminClient();
+  const { data: org } = await db
+    .from('organizations')
+    .select('wa_message_template, wa_template_lang, wa_template_variables, name')
+    .eq('id', orgId)
+    .maybeSingle();
+
+  if (org?.wa_message_template) {
+    const vars = buildTemplateVars(org.wa_template_variables, recipientName, body, org.name ?? '');
+    return sendTemplate(to, org.wa_message_template, vars, org.wa_template_lang || 'en', orgId, logText);
+  }
+
+  return logText ? sendTextRedacted(to, body, logText, orgId) : sendText(to, body, orgId);
 }
 
 export async function sendButtons(
@@ -452,13 +498,16 @@ export async function sendTemplate(
   templateName: string,
   variables:    string[],
   langCode:     string = 'en',
-  orgId:        string = ''
+  orgId:        string = '',
+  logText?:     string,
 ): Promise<WAApiResponse> {
+  const messageText = logText ?? variables[0] ?? `[Template: ${templateName}]`;
+
   if (isAISensyConfigured()) {
     return sendViaAISensy({
       orgId, to,
       messageType:    'text',
-      messageText:    variables[0] ?? `[Template: ${templateName}]`,
+      messageText,
       campaignName:   templateName,
       templateParams: variables,
     });
@@ -480,7 +529,7 @@ export async function sendTemplate(
         components,
       },
     } as unknown as WAOutboundPayload,
-    { orgId, to, messageType: 'text', messageText: variables[0] ?? `[Template: ${templateName}]` }
+    { orgId, to, messageType: 'text', messageText }
   );
 }
 

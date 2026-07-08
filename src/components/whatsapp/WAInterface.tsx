@@ -22,6 +22,7 @@ interface WaLog {
   message_type:    string;
   message_text:    string | null;
   delivery_status: string;
+  failure_reason:  string | null;
   wa_timestamp:    string | null;
   created_at:      string;
   user: { id: string; full_name: string; avatar_url: string | null } | null;
@@ -309,6 +310,7 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
         message_type:    'text',
         message_text:    text,
         delivery_status: 'received',
+        failure_reason:  null,
         wa_timestamp:    new Date().toISOString(),
         created_at:      new Date().toISOString(),
         user:            null,
@@ -362,6 +364,7 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
         message_type:    'text',
         message_text:    text,
         delivery_status: 'pending',
+        failure_reason:  null,
         wa_timestamp:    new Date().toISOString(),
         created_at:      new Date().toISOString(),
         user:            null,
@@ -1576,6 +1579,17 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
                               ? highlightText(text, chatSearchQuery)
                               : text}
                           </p>
+
+                          {/* Failed-delivery notice */}
+                          {isOut && msg.delivery_status === 'failed' && (
+                            <p
+                              className="text-[11px] mt-1"
+                              style={{ color: '#F87171' }}
+                              title={msg.failure_reason ?? undefined}
+                            >
+                              ⚠ Not delivered{msg.failure_reason ? ` — ${msg.failure_reason}` : ''}
+                            </p>
+                          )}
 
                           {/* Time + tick */}
                           <div

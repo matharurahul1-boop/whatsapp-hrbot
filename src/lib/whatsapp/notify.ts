@@ -13,7 +13,7 @@
  */
 
 import { createAdminClient } from '@/lib/supabase/admin';
-import { sendText, sendTextRedacted } from '@/lib/whatsapp/client';
+import { sendText, sendFirstContactText } from '@/lib/whatsapp/client';
 import { sendPush } from '@/lib/push/send';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -435,7 +435,7 @@ export async function notifyWelcome(opts: {
       `❓ *Help* — just type "help" anytime\n\n` +
       `_Reply in English or Hindi — I understand both!_ 🤖`;
 
-    await sendText(opts.waNumber, msg, opts.orgId);
+    await sendFirstContactText(opts.waNumber, msg, opts.orgId, firstName(opts.employeeName));
     console.log(`[Notify:Welcome] ✅ ${opts.waNumber}`);
   });
 }
@@ -462,11 +462,12 @@ export async function notifyAccountCreated(opts: {
       `_Please change your password after your first login._\n\n` +
       `I'm also your AI HR assistant right here on WhatsApp — type "help" anytime to see what I can do.`;
 
-    await sendTextRedacted(
+    await sendFirstContactText(
       opts.waNumber,
       msg,
-      `👋 Welcome message with login credentials sent to ${firstName(opts.employeeName)}.`,
       opts.orgId,
+      firstName(opts.employeeName),
+      `👋 Welcome message with login credentials sent to ${firstName(opts.employeeName)}.`,
     );
     console.log(`[Notify:AccountCreated] ✅ ${opts.waNumber}`);
   });

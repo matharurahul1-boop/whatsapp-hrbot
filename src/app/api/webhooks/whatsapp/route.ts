@@ -107,7 +107,7 @@ async function processWebhook(rawBody: string): Promise<void> {
 
       // Handle delivery status updates
       for (const status of value.statuses ?? []) {
-        await updateDeliveryStatus(status.id, status.status, status.timestamp, org.id);
+        await updateDeliveryStatus(status.id, status.status, status.timestamp, org.id, status.errors?.[0]);
       }
 
       // Handle incoming messages
@@ -287,7 +287,8 @@ async function updateDeliveryStatus(
   messageId:  string,
   status:     string,
   timestamp:  string,
-  orgId:      string
+  orgId:      string,
+  error?:     { code: number; title: string; message?: string; error_data?: { details: string } },
 ): Promise<void> {
   const db = createAdminClient();
   const ts = new Date(parseInt(timestamp) * 1000).toISOString();
@@ -296,16 +297,22 @@ async function updateDeliveryStatus(
   if (status === 'delivered') patch.delivered_at = ts;
   if (status === 'read')      patch.read_at      = ts;
   if (status === 'sent')      patch.sent_at      = ts;
-  if (status === 'failed')    patch.failed_at    = ts;
+  if (status === 'failed') {
+    patch.failed_at = ts;
+    if (error) {
+      patch.failure_code   = error.code;
+      patch.failure_reason = error.error_data?.details ?? error.message ?? error.title;
+    }
+  }
 
-  const { error } = await db
+  const { error: dbError } = await db
     .from('wa_logs')
     .update(patch)
     .eq('meta_message_id', messageId)
     .eq('organization_id', orgId);
 
-  if (error) console.error('[WA Webhook] Status update error:', error.message);
-  else console.log(`[WA Webhook] ✅ Status updated: ${messageId} → ${status}`);
+  if (dbError) console.error('[WA Webhook] Status update error:', dbError.message);
+  else console.log(`[WA Webhook] ✅ Status updated: ${messageId} → ${status}${error ? ` (${error.code}: ${error.title})` : ''}`);
 }
 
 // ── Confirmation-aware reply sender ──────────────────────────────────────

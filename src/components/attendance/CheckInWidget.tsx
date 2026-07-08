@@ -22,7 +22,7 @@ interface CheckInWidgetProps {
 
 function formatTime(iso: string | null) {
   if (!iso) return '—';
-  return new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+  return new Date(iso).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
 }
 
 function useNow() {
@@ -91,12 +91,12 @@ export default function CheckInWidget({ todayRecord, firstName }: CheckInWidgetP
         <div>
           <p className="text-xs font-semibold text-surface-600 uppercase tracking-wider">Today&apos;s Attendance</p>
           <p className="text-sm text-surface-950 mt-1">
-            {now.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}
+            {now.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', day: 'numeric', month: 'long' })}
           </p>
 
           <div className="flex items-baseline gap-3 mt-3">
             <span className="text-3xl font-bold tabular text-surface-950">
-              {now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              {now.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
             </span>
           </div>
 

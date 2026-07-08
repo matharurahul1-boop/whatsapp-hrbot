@@ -71,7 +71,7 @@ export default async function AttendanceSummary({ orgId, userId, role }: { orgId
           {records.slice(0, 6).map(r => {
             const emp     = r.employee as { id?: string; full_name?: string; avatar_url?: string } | null;
             const fmt     = (t: string | null) => t
-              ? new Date(t).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+              ? new Date(t).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })
               : null;
             const inTime  = fmt(r.check_in_time);
             const outTime = fmt(r.check_out_time);

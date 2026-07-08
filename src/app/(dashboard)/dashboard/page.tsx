@@ -78,7 +78,7 @@ export default async function DashboardPage() {
             {greeting}, {firstName} 👋
           </h2>
           <p className="text-sm text-surface-700 mt-1">
-            {new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+            {new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
           </p>
         </div>
         <RefreshButton />

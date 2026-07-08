@@ -32,17 +32,6 @@ const NAV: NavItem[] = [
   { href: '/escalation', label: 'Escalation',  icon: <AlertTriangle   className="h-[18px] w-[18px]" />, roles: ['super_admin','admin','hr'],                     color: 'text-orange-400' },
 ];
 
-const ROLE_LABEL: Record<UserRole, string> = {
-  super_admin: 'Super Admin', admin: 'Admin', hr: 'HR', manager: 'Manager', employee: 'Employee',
-};
-const ROLE_COLOR: Record<UserRole, string> = {
-  super_admin: 'text-brand-400  bg-brand-500/10',
-  admin:       'text-brand-400  bg-brand-500/10',
-  hr:          'text-violet-400 bg-violet-500/10',
-  manager:     'text-amber-400  bg-amber-500/10',
-  employee:    'text-cyan-400   bg-cyan-500/10',
-};
-
 const MODE_OPTIONS: { key: SidebarMode; label: string }[] = [
   { key: 'expanded',  label: 'Expanded' },
   { key: 'collapsed', label: 'Collapsed' },
@@ -272,15 +261,6 @@ export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: s
               }
               <span className="flex-1">Settings</span>
             </Link>
-            <div className="px-3 pt-1 pb-1">
-              <span className={cn(
-                'inline-flex items-center gap-1.5 text-2xs font-semibold px-2.5 py-1 rounded-lg',
-                ROLE_COLOR[role],
-              )}>
-                <span className="h-1.5 w-1.5 rounded-full bg-current opacity-80" />
-                {ROLE_LABEL[role]}
-              </span>
-            </div>
           </>
         )}
       </div>

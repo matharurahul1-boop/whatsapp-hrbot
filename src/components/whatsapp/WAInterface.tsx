@@ -265,6 +265,24 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
     }
   }
 
+  // ── Poll for new messages so incoming/outgoing WA activity shows up
+  //    without a manual refresh. Silent (no spinner) — skipped mid-send so
+  //    an in-flight poll can't clobber an optimistic bubble before the
+  //    real message write lands.
+  const sendingRef = useRef(sending);
+  sendingRef.current = sending;
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      if (sendingRef.current) return;
+      try {
+        const res  = await fetch(`/api/wa-logs?limit=1000&offset=0`, { cache: 'no-store' });
+        const json = await res.json();
+        if (json.data) setAllLogs(json.data);
+      } catch { /* ignore transient poll failures */ }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
   // ── Is this the user's OWN conversation? ─────────────────────────────
   // When true: sending simulates a message FROM the user's phone to the bot
   // When false: sending sends FROM the business TO the selected contact

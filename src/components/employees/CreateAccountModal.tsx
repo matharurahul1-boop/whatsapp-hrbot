@@ -5,7 +5,9 @@ import { useRouter } from 'next/navigation';
 import { UserPlus, X, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { Input, SelectNative } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
+import { SelectOrCustom } from '@/components/ui/SelectOrCustom';
 import { ROLE_LABEL, isAdminOrAbove, isSuperAdmin, type UserRole } from '@/lib/rbac';
+import { DEPARTMENT_OPTIONS, JOB_TITLE_OPTIONS } from '@/lib/constants/org-fields';
 
 const ALL_ROLES: UserRole[] = ['employee', 'manager', 'hr', 'admin', 'super_admin'];
 
@@ -72,8 +74,8 @@ export default function CreateAccountModal({ actorRole }: { actorRole: string })
           wa_number:   form.wa_number.trim(),
           email:       form.email.trim(),
           role:        form.role,
-          department:  form.department.trim() || undefined,
-          designation: form.designation.trim() || undefined,
+          department:  form.department.trim(),
+          designation: form.designation.trim(),
           password:    form.password,
         }),
       });
@@ -154,11 +156,19 @@ export default function CreateAccountModal({ actorRole }: { actorRole: string })
                 </div>
                 <div className="space-y-1.5">
                   <label className="label">Department</label>
-                  <Input value={form.department} onChange={e => set('department', e.target.value)} placeholder="Engineering" />
+                  <SelectOrCustom
+                    value={form.department} onChange={v => set('department', v)}
+                    options={DEPARTMENT_OPTIONS} placeholder="Select department" required
+                    className="input"
+                  />
                 </div>
                 <div className="space-y-1.5">
                   <label className="label">Job title</label>
-                  <Input value={form.designation} onChange={e => set('designation', e.target.value)} placeholder="Developer" />
+                  <SelectOrCustom
+                    value={form.designation} onChange={v => set('designation', v)}
+                    options={JOB_TITLE_OPTIONS} placeholder="Select job title" required
+                    className="input"
+                  />
                 </div>
                 <div className="space-y-1.5">
                   <label className="label">Initial password</label>

@@ -9,7 +9,9 @@ const JoinSchema = z.object({
   orgId:       z.string().uuid().optional(),   // used only for the org-picker (no-invite) path
   inviteToken: z.string().optional(),           // signed token from /api/organizations/invite
   fullName:    z.string().min(2).max(100),
-  waNumber:    z.string().optional(),  // optional: notify via WA if provided
+  waNumber:    z.string().min(6).max(20),
+  department:  z.string().min(1).max(100),
+  designation: z.string().min(1).max(100),
 }).refine(d => d.orgId || d.inviteToken, { message: 'orgId or inviteToken required' });
 
 // POST /api/auth/join — join an existing org (called after signUp)
@@ -23,7 +25,7 @@ export async function POST(req: NextRequest) {
     const parsed = JoinSchema.safeParse(body);
     if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 422 });
 
-    const { fullName, waNumber } = parsed.data;
+    const { fullName, waNumber, department, designation } = parsed.data;
 
     // The role — and, when an invite token is present, the org itself — is
     // never trusted from the client. A bare org-picker join (no token) always
@@ -70,9 +72,11 @@ export async function POST(req: NextRequest) {
       full_name:       fullName.trim(),
       email:           user.email ?? '',
       role:            role,
+      department:      department.trim(),
+      designation:     designation.trim(),
       is_active:       true,
       joined_at:       new Date().toISOString(),
-      ...(waNumber ? { wa_number: waNumber.replace(/\D/g, '') } : {}),
+      wa_number:       waNumber.replace(/\D/g, ''),
     });
 
     if (userErr) throw new Error(`Failed to create profile: ${userErr.message}`);

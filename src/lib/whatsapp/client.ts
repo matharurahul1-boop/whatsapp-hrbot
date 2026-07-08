@@ -211,6 +211,43 @@ async function sendViaAISensy(opts: AISensySendOpts): Promise<WAApiResponse> {
   return apiResponse!;
 }
 
+// ── Template fallback for automated sends ─────────────────────────────────
+//
+// A brand-new recipient (e.g. a just-created employee's welcome message)
+// has by definition never messaged the business number, so they're always
+// outside Meta's 24-hour free-form window — the very first automated
+// message to anyone always failed silently before this existed. The manual
+// "send from WA Logs" admin action already retried via the org's configured
+// pre-approved template on a 131047/131021 failure; this brings the same
+// behavior to every automated sendText/sendTextRedacted call.
+async function sendMetaWithTemplateFallback(
+  payload: WAOutboundPayload,
+  opts:    SendOpts,
+  body:    string,
+): Promise<WAApiResponse> {
+  try {
+    return await sendViaMeta(payload, opts);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!msg.includes('131047') && !msg.includes('131021')) throw err;
+
+    const db = createAdminClient();
+    const { data: org } = await db
+      .from('organizations')
+      .select('wa_message_template, wa_template_lang, wa_template_variables, name')
+      .eq('id', opts.orgId)
+      .maybeSingle();
+    if (!org?.wa_message_template) throw err;
+
+    const vars = org.wa_template_variables === 3 ? ['', body, org.name ?? '']
+      : org.wa_template_variables === 2 ? ['', body]
+      : [body];
+
+    console.log(`[WA] Free-form failed (24h window) — retrying via template "${org.wa_message_template}"`);
+    return sendTemplate(opts.to, org.wa_message_template, vars, org.wa_template_lang || 'en', opts.orgId);
+  }
+}
+
 // ── Public API ────────────────────────────────────────────────────────────
 
 const WA_TEXT_MAX = 4096;
@@ -235,7 +272,7 @@ export async function sendText(
     });
   }
 
-  return sendViaMeta(
+  return sendMetaWithTemplateFallback(
     {
       messaging_product: 'whatsapp',
       recipient_type:    'individual',
@@ -243,7 +280,8 @@ export async function sendText(
       type:              'text',
       text:              { body: safeBody },
     },
-    { orgId, to, messageType: 'text', messageText: safeBody }
+    { orgId, to, messageType: 'text', messageText: safeBody },
+    safeBody,
   );
 }
 
@@ -273,7 +311,7 @@ export async function sendTextRedacted(
     });
   }
 
-  return sendViaMeta(
+  return sendMetaWithTemplateFallback(
     {
       messaging_product: 'whatsapp',
       recipient_type:    'individual',
@@ -281,7 +319,8 @@ export async function sendTextRedacted(
       type:              'text',
       text:              { body: safeBody },
     },
-    { orgId, to, messageType: 'text', messageText: logText }
+    { orgId, to, messageType: 'text', messageText: logText },
+    safeBody,
   );
 }
 

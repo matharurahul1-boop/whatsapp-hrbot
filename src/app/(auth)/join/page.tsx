@@ -2,8 +2,10 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Zap, User, Mail, Lock, Eye, EyeOff, ArrowRight, Loader2, AlertCircle, Building2, CheckCircle2, Phone } from 'lucide-react';
+import { Zap, User, Mail, Lock, Eye, EyeOff, ArrowRight, Loader2, AlertCircle, Building2, CheckCircle2, Phone, Briefcase, Users } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import { SelectOrCustom } from '@/components/ui/SelectOrCustom';
+import { DEPARTMENT_OPTIONS, JOB_TITLE_OPTIONS } from '@/lib/constants/org-fields';
 
 interface OrgOption { id: string; name: string }
 
@@ -31,11 +33,13 @@ function JoinForm() {
   const [loading,    setLoading]    = useState(false);
   const [error,      setError]      = useState('');
   const [success,    setSuccess]    = useState(false);
-  const [name,       setName]       = useState('');
-  const [email,      setEmail]      = useState('');
-  const [waNumber,   setWaNumber]   = useState('');
-  const [password,   setPassword]   = useState('');
-  const [showPw,     setShowPw]     = useState(false);
+  const [name,        setName]        = useState('');
+  const [email,       setEmail]       = useState('');
+  const [waNumber,    setWaNumber]    = useState('');
+  const [department,  setDepartment]  = useState('');
+  const [designation, setDesignation] = useState('');
+  const [password,    setPassword]    = useState('');
+  const [showPw,      setShowPw]      = useState(false);
 
   const ROLE_LABEL: Record<string, string> = { employee: 'Team Member', manager: 'Manager', hr: 'HR Staff' };
 
@@ -94,8 +98,8 @@ function JoinForm() {
     const res  = await fetch('/api/auth/join', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(hasInviteLink
-        ? { inviteToken, fullName: name, waNumber }
-        : { orgId, fullName: name, waNumber }),
+        ? { inviteToken, fullName: name, waNumber, department, designation }
+        : { orgId, fullName: name, waNumber, department, designation }),
     });
     const json = await res.json();
     if (!res.ok) { setError(json.error ?? 'Failed to join'); setLoading(false); return; }
@@ -199,6 +203,30 @@ function JoinForm() {
                 <div className="relative">
                   <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-surface-500 pointer-events-none" />
                   <input type="tel" value={waNumber} onChange={e => setWaNumber(e.target.value)} placeholder="+91 98765 43210" required className="input pl-9" />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="label">Department</label>
+                <div className="relative">
+                  <Users className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-surface-500 pointer-events-none z-10" />
+                  <SelectOrCustom
+                    value={department} onChange={setDepartment}
+                    options={DEPARTMENT_OPTIONS} placeholder="Select department" required
+                    className="input pl-9"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="label">Job title</label>
+                <div className="relative">
+                  <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-surface-500 pointer-events-none z-10" />
+                  <SelectOrCustom
+                    value={designation} onChange={setDesignation}
+                    options={JOB_TITLE_OPTIONS} placeholder="Select job title" required
+                    className="input pl-9"
+                  />
                 </div>
               </div>
 

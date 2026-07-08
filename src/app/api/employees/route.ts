@@ -27,8 +27,8 @@ const CreateAccountSchema = z.object({
   wa_number:   z.string().min(6).max(20),
   password:    z.string().min(6).max(72),
   role:        z.enum(['super_admin','admin','hr','manager','employee']).default('employee'),
-  department:  z.string().max(100).optional(),
-  designation: z.string().max(100).optional(),
+  department:  z.string().min(1).max(100),
+  designation: z.string().min(1).max(100),
 });
 
 // ── GET /api/employees ────────────────────────────────────────────────────────

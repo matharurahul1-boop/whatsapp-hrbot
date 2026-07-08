@@ -13,20 +13,34 @@ export async function POST(req: NextRequest) {
   if (!identifier) return NextResponse.json({ error: 'identifier required' }, { status: 400 });
 
   const digits = String(identifier).replace(/\D/g, '');
-  if (!digits) return NextResponse.json({ error: 'No digits found in identifier' }, { status: 400 });
+  // A short digit string (e.g. someone fat-fingering a partial number) can
+  // suffix-match a completely unrelated person's number in a different
+  // organization — require enough digits that a suffix match is meaningful.
+  if (digits.length < 8) return NextResponse.json({ error: 'Enter a valid WhatsApp number' }, { status: 400 });
 
   const db = createAdminClient();
 
-  // Try exact match first, then suffix match (e.g. 10-digit vs 12-digit with country code)
-  const { data } = await db
+  // Prefer an exact match. Only fall back to a suffix match (for 10-digit
+  // vs. 12-digit-with-country-code variants of the same number) when no
+  // exact match exists, and never blindly trust whichever row Postgres
+  // happens to return first when multiple accounts could match.
+  const { data: exact } = await db
     .from('users')
-    .select('email, wa_number')
-    .or(`wa_number.eq.${digits},wa_number.like.%${digits}`)
+    .select('email')
+    .eq('wa_number', digits)
     .eq('is_active', true)
     .limit(1)
-    .single();
+    .maybeSingle();
 
-  if (!data?.email) return NextResponse.json({ error: 'No account found for this number' }, { status: 404 });
+  const match = exact ?? (await db
+    .from('users')
+    .select('email')
+    .like('wa_number', `%${digits}`)
+    .eq('is_active', true)
+    .limit(1)
+    .maybeSingle()).data;
 
-  return NextResponse.json({ email: data.email });
+  if (!match?.email) return NextResponse.json({ error: 'No account found for this number' }, { status: 404 });
+
+  return NextResponse.json({ email: match.email });
 }

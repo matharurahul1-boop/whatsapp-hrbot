@@ -57,9 +57,8 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     if (userId) await admin.auth.admin.deleteUser(userId);
     console.error('[register]', error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Registration failed' },
-      { status: 500 },
-    );
+    const message = error instanceof Error ? error.message : 'Registration failed';
+    const isDuplicateOrg = /workspace named .* already exists/i.test(message);
+    return NextResponse.json({ error: message }, { status: isDuplicateOrg ? 409 : 500 });
   }
 }

@@ -49,6 +49,19 @@ export async function provisionAdminWorkspace(
   if (existingError) throw new Error(`Could not verify profile: ${existingError.message}`);
   if (existing) return { orgId: existing.organization_id, alreadyExists: true };
 
+  // Refuse to silently spin up a duplicate workspace for a company that's
+  // already here — this is how a single org name ends up with a dozen
+  // empty, indistinguishable copies over time.
+  const { data: dupOrg } = await db
+    .from('organizations')
+    .select('id')
+    .ilike('name', input.orgName)
+    .limit(1)
+    .maybeSingle();
+  if (dupOrg) {
+    throw new Error(`A workspace named "${input.orgName}" already exists. Ask an admin there for an invite link instead of creating a new one.`);
+  }
+
   const baseSlug = input.orgName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'company';
   let orgId: string | null = null;
 

@@ -26,6 +26,20 @@ export default function ForgotPasswordPage() {
     setLoading(true);
     setError('');
 
+    const checkRes = await fetch('/api/auth/check-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email.trim() }),
+    });
+    if (!checkRes.ok) {
+      const json = await checkRes.json().catch(() => ({}));
+      setLoading(false);
+      setError(json.error === 'No account found for this email'
+        ? 'No account found with this email address.'
+        : (json.error ?? 'Something went wrong. Please try again.'));
+      return;
+    }
+
     const { error: err } = await supabase.auth.resetPasswordForEmail(email.trim());
 
     setLoading(false);

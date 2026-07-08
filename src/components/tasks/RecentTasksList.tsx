@@ -100,7 +100,7 @@ export default function RecentTasksList({ tasks }: { tasks: Task[] }) {
                   </span>
                 </DetailRow>
                 <DetailRow label="Deadline">
-                  {selected.deadline ? `${formatDateTime(selected.deadline)} IST` : '—'}
+                  {selected.deadline ? formatDateTime(selected.deadline) : '—'}
                 </DetailRow>
                 <DetailRow label="Assigned To">
                   {selected.assignee ? (

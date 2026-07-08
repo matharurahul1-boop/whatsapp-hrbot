@@ -150,7 +150,7 @@ function formatValue(v: unknown): string {
   if (typeof v === 'string' && ISO_DATETIME_RE.test(v)) {
     const d = new Date(v);
     if (!isNaN(d.getTime())) {
-      return `${d.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kolkata' })} IST`;
+      return d.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kolkata' });
     }
   }
   return String(v);
@@ -217,7 +217,7 @@ export default function ActivityFeedList({ logs }: { logs: ActivityLog[] }) {
                   <p className="text-2xs text-surface-500">
                     {new Date(selected.created_at).toLocaleString('en-IN', {
                       dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kolkata',
-                    })} IST
+                    })}
                   </p>
                 </div>
               </div>

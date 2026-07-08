@@ -409,7 +409,7 @@ export default function TaskCard({ task, canEdit, canDelete = false, employees, 
               <span className="text-surface-400 text-2xs">·</span>
               <span className={cn('flex items-center gap-1 text-2xs font-medium', overdue ? 'text-danger' : 'text-surface-600')}>
                 <Clock className="h-3 w-3" />
-                {overdue ? '⚠ ' : ''}{formatDateTime(task.deadline)} IST
+                {overdue ? '⚠ ' : ''}{formatDateTime(task.deadline)}
               </span>
             </>
           )}

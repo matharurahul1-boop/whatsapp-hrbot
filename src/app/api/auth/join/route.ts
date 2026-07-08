@@ -2,14 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient }    from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { notifyWelcome }   from '@/lib/whatsapp/notify';
+import { verifyInvite, type InviteRole } from '@/lib/utils/invite-token';
 import { z } from 'zod';
 
 const JoinSchema = z.object({
-  orgId:    z.string().uuid(),
-  role:     z.enum(['employee', 'manager', 'hr']).default('employee'),
-  fullName: z.string().min(2).max(100),
-  waNumber: z.string().optional(),  // optional: notify via WA if provided
-});
+  orgId:       z.string().uuid().optional(),   // used only for the org-picker (no-invite) path
+  inviteToken: z.string().optional(),           // signed token from /api/organizations/invite
+  fullName:    z.string().min(2).max(100),
+  waNumber:    z.string().optional(),  // optional: notify via WA if provided
+}).refine(d => d.orgId || d.inviteToken, { message: 'orgId or inviteToken required' });
 
 // POST /api/auth/join — join an existing org (called after signUp)
 export async function POST(req: NextRequest) {
@@ -22,7 +23,23 @@ export async function POST(req: NextRequest) {
     const parsed = JoinSchema.safeParse(body);
     if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 422 });
 
-    const { orgId, role, fullName, waNumber } = parsed.data;
+    const { fullName, waNumber } = parsed.data;
+
+    // The role — and, when an invite token is present, the org itself — is
+    // never trusted from the client. A bare org-picker join (no token) always
+    // lands as 'employee'; only a signed token minted by an existing
+    // HR/admin user (via /api/organizations/invite) can grant more.
+    let orgId: string;
+    let role: InviteRole = 'employee';
+
+    if (parsed.data.inviteToken) {
+      const payload = verifyInvite(parsed.data.inviteToken);
+      if (!payload) return NextResponse.json({ error: 'Invite link is invalid or has expired' }, { status: 400 });
+      orgId = payload.orgId;
+      role  = payload.role;
+    } else {
+      orgId = parsed.data.orgId!;
+    }
 
     const db = createAdminClient();
 

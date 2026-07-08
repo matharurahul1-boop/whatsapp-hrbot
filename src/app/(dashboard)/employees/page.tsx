@@ -42,7 +42,7 @@ export default async function EmployeesPage() {
         </div>
         <div className="flex items-center gap-2">
           <RefreshButton />
-          {canInvite && <InvitePanel orgId={profile.organization_id} />}
+          {canInvite && <InvitePanel />}
           {canInvite && <CreateAccountModal actorRole={profile.role} />}
         </div>
       </div>

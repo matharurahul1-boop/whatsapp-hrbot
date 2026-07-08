@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { UserPlus, Copy, Check, X, Link2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { UserPlus, Copy, Check, X, Link2, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 
 type InviteRole = 'employee' | 'manager' | 'hr';
@@ -12,16 +12,31 @@ const ROLE_OPTIONS: { value: InviteRole; label: string; desc: string; color: str
   { value: 'hr',       label: 'HR Staff',    desc: 'Full HR + onboarding access',   color: 'text-violet-400 border-violet-500/30 bg-violet-500/[0.06]' },
 ];
 
-export default function InvitePanel({ orgId }: { orgId: string }) {
-  const [open,   setOpen]   = useState(false);
-  const [role,   setRole]   = useState<InviteRole>('employee');
-  const [copied, setCopied] = useState(false);
+export default function InvitePanel() {
+  const [open,    setOpen]    = useState(false);
+  const [role,    setRole]    = useState<InviteRole>('employee');
+  const [copied,  setCopied]  = useState(false);
+  const [token,   setToken]   = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const token     = typeof window !== 'undefined' ? btoa(orgId) : '';
   const origin    = typeof window !== 'undefined' ? window.location.origin : '';
-  const inviteUrl = `${origin}/join?org=${token}&role=${role}`;
+  const inviteUrl = token ? `${origin}/join?token=${token}` : '';
+
+  useEffect(() => {
+    if (!open) return;
+    setToken(''); setLoading(true);
+    fetch('/api/organizations/invite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role }),
+    })
+      .then(r => r.json())
+      .then(d => { if (d.token) setToken(d.token); })
+      .finally(() => setLoading(false));
+  }, [open, role]);
 
   async function copy() {
+    if (!inviteUrl) return;
     await navigator.clipboard.writeText(inviteUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
@@ -100,12 +115,15 @@ export default function InvitePanel({ orgId }: { orgId: string }) {
               <div>
                 <p className="label">Invite link</p>
                 <div className="flex items-center gap-2 rounded-xl bg-surface-200 border border-surface-300 p-2.5">
-                  <Link2 className="h-4 w-4 text-surface-500 shrink-0" />
-                  <p className="flex-1 text-xs text-surface-700 font-mono truncate min-w-0">{inviteUrl}</p>
+                  {loading ? <Loader2 className="h-4 w-4 text-surface-500 shrink-0 animate-spin" /> : <Link2 className="h-4 w-4 text-surface-500 shrink-0" />}
+                  <p className="flex-1 text-xs text-surface-700 font-mono truncate min-w-0">
+                    {loading ? 'Generating link…' : inviteUrl}
+                  </p>
                   <button
                     onClick={copy}
+                    disabled={!inviteUrl}
                     className={cn(
-                      'shrink-0 flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all',
+                      'shrink-0 flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all disabled:opacity-40',
                       copied ? 'bg-success/10 text-success' : 'bg-brand-500/10 text-brand-400 hover:bg-brand-500/20'
                     )}
                   >
@@ -145,7 +163,8 @@ export default function InvitePanel({ orgId }: { orgId: string }) {
               </button>
               <button
                 onClick={copy}
-                className="flex items-center gap-2 px-4 h-9 rounded-lg bg-brand-gradient text-white text-sm font-semibold shadow-glow-sm transition-all hover:opacity-90 active:scale-[0.98]"
+                disabled={!inviteUrl}
+                className="flex items-center gap-2 px-4 h-9 rounded-lg bg-brand-gradient text-white text-sm font-semibold shadow-glow-sm transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-40"
               >
                 {copied ? <><Check className="h-4 w-4" />Copied!</> : <><Copy className="h-4 w-4" />Copy Link</>}
               </button>

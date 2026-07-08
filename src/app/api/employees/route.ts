@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient }    from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { writeAuditLog }   from '@/lib/utils/audit';
+import { normalizeWaNumber } from '@/lib/utils/phone';
 import { notifyAccountCreated } from '@/lib/whatsapp/notify';
 import {
   isEmployee, isManager, isManagerOrAbove, isHrOrAbove, isAdminOrAbove, isSuperAdmin,
@@ -185,9 +186,14 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'Employee not found' }, { status: 404 });
   }
 
+  const updateData = { ...parsed.data };
+  if (updateData.wa_number !== undefined) {
+    updateData.wa_number = normalizeWaNumber(updateData.wa_number);
+  }
+
   const { data: updated, error } = await db
     .from('users')
-    .update({ ...parsed.data, updated_at: new Date().toISOString() })
+    .update({ ...updateData, updated_at: new Date().toISOString() })
     .eq('id', targetId)
     .select()
     .single();
@@ -236,7 +242,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Only an admin or above can create an admin account' }, { status: 403 });
   }
 
-  const cleanWaNumber = wa_number.replace(/\D/g, '');
+  const cleanWaNumber = normalizeWaNumber(wa_number);
   if (cleanWaNumber.length < 6) {
     return NextResponse.json({ error: 'Enter a valid WhatsApp number' }, { status: 422 });
   }

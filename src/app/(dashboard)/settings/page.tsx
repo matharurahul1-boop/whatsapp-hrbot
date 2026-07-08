@@ -6,9 +6,10 @@ import { createClient } from '@/lib/supabase/client';
 import {
   User, Building2, Bell, Shield, Phone,
   Save, Loader2, CheckCircle2, AlertCircle,
-  Eye, EyeOff, Copy, Check, Bot, KeyRound,
+  Eye, EyeOff, Copy, Check, Bot, KeyRound, Plus, X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
+import { normalizeWaNumber } from '@/lib/utils/phone';
 
 // ── tiny helpers ─────────────────────────────────────────────────────────────
 function Section({ title, description, icon, children }: {
@@ -86,8 +87,9 @@ export default function SettingsPage() {
   const [waTemplateLang,  setWaTemplateLang]  = useState('en');
   const [waTemplateVars,  setWaTemplateVars]  = useState('3');
 
-  // Groq API keys (admin only) — comma-separated, stored server-side only
-  const [groqKeys,        setGroqKeys]        = useState('');
+  // Groq API keys (admin only) — one input box per key, joined into a
+  // comma-separated string when saved (that's the format the API stores)
+  const [groqKeys,        setGroqKeys]        = useState<string[]>(['']);
   const [groqKeysCount,   setGroqKeysCount]   = useState(0);
   const [showGroqKeys,    setShowGroqKeys]    = useState(false);
   const [savingGroq,      setSavingGroq]      = useState(false);
@@ -205,8 +207,9 @@ export default function SettingsPage() {
     setSaving(true);
     setError('');
 
-    // Normalize wa_number: strip +, spaces, dashes → "919876543210"
-    const cleanWaNumber = waNumber.replace(/[\s+\-()]/g, '');
+    // Normalize wa_number: strip non-digits, and add the 91 country code if
+    // the user only typed the bare 10-digit number.
+    const cleanWaNumber = normalizeWaNumber(waNumber);
 
     const { error: err } = await supabase
       .from('users')
@@ -256,23 +259,35 @@ export default function SettingsPage() {
     setTimeout(() => setSaved(false), 3000);
   }
 
+  function addGroqKeyField() {
+    setGroqKeys(keys => [...keys, '']);
+  }
+
+  function updateGroqKeyField(index: number, value: string) {
+    setGroqKeys(keys => keys.map((k, i) => (i === index ? value : k)));
+  }
+
+  function removeGroqKeyField(index: number) {
+    setGroqKeys(keys => keys.filter((_, i) => i !== index));
+  }
+
   async function saveGroqKeys() {
+    const filled = groqKeys.map(k => k.trim()).filter(Boolean);
     setSavingGroq(true);
     setGroqError('');
     try {
       const res = await fetch('/api/organizations/settings', {
         method:  'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ groq_api_keys: groqKeys.trim() }),
+        body:    JSON.stringify({ groq_api_keys: filled.join(',') }),
       });
       if (!res.ok) {
         const json = await res.json().catch(() => ({}));
         setGroqError(typeof json.error === 'string' ? json.error : 'Failed to save Groq keys');
         return;
       }
-      const savedCount = groqKeys.split(',').map(k => k.trim()).filter(Boolean).length;
-      setGroqKeysCount(savedCount);
-      setGroqKeys('');
+      setGroqKeysCount(filled.length);
+      setGroqKeys(['']);
       setGroqSaved(true);
       setTimeout(() => setGroqSaved(false), 2500);
     } finally {
@@ -610,21 +625,41 @@ export default function SettingsPage() {
                 <AlertCircle className="h-4 w-4 shrink-0" /> {groqError}
               </div>
             )}
-            <Field label="Groq API keys" hint="Comma-separated. Replaces the entire list — paste all keys you want active, not just the new one.">
-              <div className="relative">
-                <textarea
-                  rows={3}
-                  autoComplete="off"
-                  data-lpignore="true"
-                  value={groqKeys}
-                  onChange={e => setGroqKeys(e.target.value)}
-                  placeholder="key-one..., key-two..., key-three..."
-                  style={showGroqKeys ? undefined : { WebkitTextSecurity: 'disc' } as React.CSSProperties}
-                  className="w-full rounded-lg border border-surface-300 bg-surface-0 pl-3 pr-10 py-2.5 text-sm text-surface-950 placeholder:text-surface-500 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500 font-mono resize-y"
-                />
-                <button type="button" onClick={() => setShowGroqKeys(s => !s)}
-                  className="absolute right-2 top-2.5 p-1.5 rounded text-surface-500 hover:text-surface-800 transition-colors">
-                  {showGroqKeys ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+            <Field label="Groq API keys" hint="Replaces the entire list — include every key you want active, not just the new one.">
+              <div className="space-y-2">
+                {groqKeys.map((key, i) => (
+                  <div key={i} className="relative flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <input
+                        type={showGroqKeys ? 'text' : 'password'}
+                        autoComplete="off"
+                        data-lpignore="true"
+                        value={key}
+                        onChange={e => updateGroqKeyField(i, e.target.value)}
+                        placeholder={`key-${i + 1}...`}
+                        className="w-full rounded-lg border border-surface-300 bg-surface-0 pl-3 pr-10 py-2.5 text-sm text-surface-950 placeholder:text-surface-500 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500 font-mono"
+                      />
+                      {i === 0 && (
+                        <button type="button" onClick={() => setShowGroqKeys(s => !s)}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded text-surface-500 hover:text-surface-800 transition-colors">
+                          {showGroqKeys ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                        </button>
+                      )}
+                    </div>
+                    {groqKeys.length > 1 && (
+                      <button type="button" onClick={() => removeGroqKeyField(i)}
+                        className="p-2 rounded-lg text-surface-500 hover:text-danger hover:bg-danger/10 transition-colors shrink-0">
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={addGroqKeyField}
+                  className="flex items-center gap-1.5 text-sm font-medium text-brand-500 hover:text-brand-400 transition-colors"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Add Groq API key
                 </button>
               </div>
             </Field>
@@ -632,7 +667,7 @@ export default function SettingsPage() {
               <button
                 type="button"
                 onClick={saveGroqKeys}
-                disabled={savingGroq || !groqKeys.trim()}
+                disabled={savingGroq || groqKeys.every(k => !k.trim())}
                 className="flex items-center gap-2 rounded-lg border border-surface-300 bg-surface-0 hover:bg-surface-200 disabled:opacity-50 text-surface-800 text-sm font-medium px-4 py-2 transition-colors"
               >
                 {savingGroq

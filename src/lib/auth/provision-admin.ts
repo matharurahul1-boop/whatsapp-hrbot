@@ -1,10 +1,11 @@
 import { z } from 'zod';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { normalizeWaNumber } from '@/lib/utils/phone';
 
 const AdminWorkspaceBaseSchema = z.object({
   fullName: z.string().trim().min(2, 'Full name must be at least 2 characters').max(100),
   orgName: z.string().trim().min(2, 'Company name must be at least 2 characters').max(120),
-  waNumber: z.string().transform(value => value.replace(/\D/g, '')).pipe(
+  waNumber: z.string().transform(value => normalizeWaNumber(value)).pipe(
     z.string().min(10, 'Enter a valid WhatsApp number with country code').max(15),
   ),
   department: z.string().trim().min(2).max(80),

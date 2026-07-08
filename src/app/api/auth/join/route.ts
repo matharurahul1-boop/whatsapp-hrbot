@@ -3,6 +3,7 @@ import { createClient }    from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { notifyWelcome }   from '@/lib/whatsapp/notify';
 import { verifyInvite, type InviteRole } from '@/lib/utils/invite-token';
+import { normalizeWaNumber } from '@/lib/utils/phone';
 import { z } from 'zod';
 
 const JoinSchema = z.object({
@@ -76,7 +77,7 @@ export async function POST(req: NextRequest) {
       designation:     designation.trim(),
       is_active:       true,
       joined_at:       new Date().toISOString(),
-      wa_number:       waNumber.replace(/\D/g, ''),
+      wa_number:       normalizeWaNumber(waNumber),
     });
 
     if (userErr) throw new Error(`Failed to create profile: ${userErr.message}`);

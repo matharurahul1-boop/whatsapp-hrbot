@@ -130,7 +130,7 @@ export default function ForgotPasswordPage() {
                   <input
                     type="text" inputMode="numeric" value={code}
                     onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                    placeholder="Enter the code from your email" required autoFocus
+                    placeholder="Enter verification code" required autoFocus
                     className="input pl-9 tracking-[0.2em] font-mono"
                   />
                 </div>

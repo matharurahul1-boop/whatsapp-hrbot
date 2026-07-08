@@ -70,6 +70,20 @@ function JoinForm() {
     if (!hasInviteLink && !orgId) { setError('Please select an organization'); return; }
     setLoading(true); setError('');
 
+    // Belt-and-suspenders: Supabase's own signUp() is supposed to reject an
+    // already-registered email, but don't rely on that alone — check the
+    // users table directly first so a quirky edge case can't silently
+    // orphan or replace an existing employee's account.
+    const checkRes = await fetch('/api/auth/check-email', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email.trim() }),
+    });
+    if (checkRes.ok) {
+      setError('This email already has an account. Please sign in instead.');
+      setLoading(false);
+      return;
+    }
+
     const { data, error: err } = await supabase.auth.signUp({ email, password, options: { data: { full_name: name } } });
     if (err) { setError(err.message); setLoading(false); return; }
     if (data?.user?.identities?.length === 0) {

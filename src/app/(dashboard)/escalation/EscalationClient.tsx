@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   AlertTriangle, Clock, CheckCircle2, Loader2,
   MessageSquare, User, Calendar, Zap, RefreshCw,
@@ -30,6 +30,9 @@ interface EscalationResult {
 
 export default function EscalationClient({ initialLeaves }: { initialLeaves: LeaveRequest[] }) {
   const [leaves,   setLeaves]   = useState(initialLeaves);
+  // Same stale-state fix as EmployeeGrid — router.refresh() only helps if
+  // we actually pick up the new prop value on re-render.
+  useEffect(() => { setLeaves(initialLeaves); }, [initialLeaves]);
   const [running,  setRunning]  = useState(false);
   const [result,   setResult]   = useState<EscalationResult | null>(null);
   const [error,    setError]    = useState('');

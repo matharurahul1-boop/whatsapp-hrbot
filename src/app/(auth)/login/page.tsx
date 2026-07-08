@@ -288,12 +288,8 @@ export default function LoginPage() {
         </div>
 
         {/* Footer links */}
-        <div className="mt-5 space-y-2 text-center">
+        <div className="mt-5 text-center">
           <p className="text-xs text-surface-500">WhatsApp AI HR Management</p>
-          <p className="text-xs text-surface-600">
-            Got an invite?{' '}
-            <a href="/join" className="text-brand-400 hover:text-brand-300 font-medium">Join your team →</a>
-          </p>
         </div>
       </div>
     </div>

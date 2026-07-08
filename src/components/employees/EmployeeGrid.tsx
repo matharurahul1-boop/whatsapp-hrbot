@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Search, Users } from 'lucide-react';
 import { Input } from '@/components/ui/Input';
 import { Avatar } from '@/components/ui/Avatar';
@@ -42,6 +42,14 @@ export default function EmployeeGrid({ employees: initialEmployees, canEdit }: E
   const [dept,       setDept]       = useState('');
   const [employees,  setEmployees]  = useState(initialEmployees);
   const [selected,   setSelected]   = useState<Employee | null>(null);
+
+  // router.refresh() re-fetches the server component and passes a new
+  // initialEmployees array, but useState only reads its argument on first
+  // mount — without this, newly created/edited employees never show up
+  // even after a refresh.
+  useEffect(() => {
+    setEmployees(initialEmployees);
+  }, [initialEmployees]);
 
   function handleUpdated(id: string, patch: Partial<Employee>) {
     setEmployees(prev => prev.map(e => e.id === id ? { ...e, ...patch } : e));

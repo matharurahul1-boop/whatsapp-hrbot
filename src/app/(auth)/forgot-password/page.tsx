@@ -1,11 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Zap, Mail, Lock, Eye, EyeOff, KeyRound, ArrowRight, Loader2, AlertCircle, ArrowLeft } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
 type Step = 'email' | 'code';
+
+const RESEND_COOLDOWN_SECONDS = 45;
 
 export default function ForgotPasswordPage() {
   const router   = useRouter();
@@ -20,6 +22,16 @@ export default function ForgotPasswordPage() {
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState('');
   const [info,     setInfo]     = useState('');
+  const [resendCooldown, setResendCooldown] = useState(0);
+  // True only while redirecting after a successful reset — keeps the button
+  // disabled through the redirect instead of flashing back to enabled.
+  const [redirecting, setRedirecting] = useState(false);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const t = setTimeout(() => setResendCooldown(c => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [resendCooldown]);
 
   async function requestCode(e: React.FormEvent) {
     e.preventDefault();
@@ -45,6 +57,7 @@ export default function ForgotPasswordPage() {
     setLoading(false);
     if (err) { setError(err.message); return; }
     setStep('code');
+    setResendCooldown(RESEND_COOLDOWN_SECONDS);
   }
 
   async function resendCode() {
@@ -54,6 +67,7 @@ export default function ForgotPasswordPage() {
     setLoading(false);
     if (err) { setError(err.message); return; }
     setInfo('A new code has been sent.');
+    setResendCooldown(RESEND_COOLDOWN_SECONDS);
   }
 
   async function verifyAndReset(e: React.FormEvent) {
@@ -81,9 +95,15 @@ export default function ForgotPasswordPage() {
     }
 
     const { error: updateErr } = await supabase.auth.updateUser({ password });
-    setLoading(false);
-    if (updateErr) { setError(updateErr.message); return; }
+    if (updateErr) {
+      setLoading(false);
+      setError(updateErr.message);
+      return;
+    }
 
+    // Stay disabled straight through the redirect — no gap where the button
+    // flashes back to enabled between the update succeeding and navigation.
+    setRedirecting(true);
     router.push('/dashboard');
     router.refresh();
   }
@@ -166,11 +186,11 @@ export default function ForgotPasswordPage() {
                   <input type={showPw ? 'text' : 'password'} value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="Repeat password" required autoComplete="new-password" className="input pl-9" />
                 </div>
               </div>
-              <button type="submit" disabled={loading} className="w-full flex items-center justify-center gap-2 h-10 rounded-lg bg-brand-gradient text-white text-sm font-semibold mt-1 transition-all shadow-glow-sm hover:opacity-90 disabled:opacity-50">
-                {loading ? <><Loader2 className="h-4 w-4 animate-spin" />Updating…</> : <>Reset password <ArrowRight className="h-4 w-4" /></>}
+              <button type="submit" disabled={loading || redirecting} className="w-full flex items-center justify-center gap-2 h-10 rounded-lg bg-brand-gradient text-white text-sm font-semibold mt-1 transition-all shadow-glow-sm hover:opacity-90 disabled:opacity-50">
+                {loading || redirecting ? <><Loader2 className="h-4 w-4 animate-spin" />Updating…</> : <>Reset password <ArrowRight className="h-4 w-4" /></>}
               </button>
-              <button type="button" onClick={resendCode} disabled={loading} className="w-full text-center text-xs text-surface-600 hover:text-surface-900">
-                Didn't get it? Resend code
+              <button type="button" onClick={resendCode} disabled={loading || redirecting || resendCooldown > 0} className="w-full text-center text-xs text-surface-600 hover:text-surface-900 disabled:opacity-50">
+                {resendCooldown > 0 ? `Resend code in ${resendCooldown}s` : "Didn't get it? Resend code"}
               </button>
             </form>
           )}

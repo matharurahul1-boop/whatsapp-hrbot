@@ -25,6 +25,19 @@ export async function POST(req: NextRequest) {
   let userId: string | null = null;
 
   try {
+    // Check the users table directly rather than relying solely on
+    // Supabase's identities-length-0 signal for "already registered" —
+    // that check has an edge case that let a real employee's account get
+    // silently replaced instead of rejected.
+    const { data: existingProfile } = await admin
+      .from('users').select('id').ilike('email', email).maybeSingle();
+    if (existingProfile) {
+      return NextResponse.json(
+        { error: 'An account with this email already exists. Please sign in.' },
+        { status: 409 },
+      );
+    }
+
     const { data, error } = await publicAuth.auth.signUp({
       email,
       password,

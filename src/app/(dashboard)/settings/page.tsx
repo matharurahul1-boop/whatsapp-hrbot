@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import {
   User, Building2, Bell, Shield, Phone,
   Save, Loader2, CheckCircle2, AlertCircle,
-  Eye, EyeOff, Copy, Check, Bot,
+  Eye, EyeOff, Copy, Check, Bot, KeyRound,
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 
@@ -59,6 +60,7 @@ function TextInput({ value, onChange, placeholder, disabled, type = 'text' }: {
 // ── main page ─────────────────────────────────────────────────────────────────
 export default function SettingsPage() {
   const supabase = createClient();
+  const router   = useRouter();
 
   const [loading, setLoading]   = useState(true);
   const [saving,  setSaving]    = useState(false);
@@ -77,11 +79,25 @@ export default function SettingsPage() {
   const [orgName,       setOrgName]       = useState('');
   const [waPhoneId,     setWaPhoneId]     = useState('');
   const [waToken,       setWaToken]       = useState('');
+  const [waTokenConfigured, setWaTokenConfigured] = useState(false);
   const [showToken,     setShowToken]     = useState(false);
   const [copiedToken,   setCopiedToken]   = useState(false);
   const [waMsgTemplate,   setWaMsgTemplate]   = useState('hrbot_message');
   const [waTemplateLang,  setWaTemplateLang]  = useState('en');
   const [waTemplateVars,  setWaTemplateVars]  = useState('3');
+
+  // Groq API keys (admin only) — comma-separated, stored server-side only
+  const [groqKeys,        setGroqKeys]        = useState('');
+  const [groqKeysCount,   setGroqKeysCount]   = useState(0);
+  const [showGroqKeys,    setShowGroqKeys]    = useState(false);
+  const [savingGroq,      setSavingGroq]      = useState(false);
+  const [groqSaved,       setGroqSaved]       = useState(false);
+  const [groqError,       setGroqError]       = useState('');
+
+  // Snapshot of the main form's loaded values, used to enable "Save changes"
+  // only once something has actually been edited.
+  const snapshotRef = useRef('');
+  const [isDirty, setIsDirty] = useState(false);
 
   // Password
   const [newPw,        setNewPw]        = useState('');
@@ -108,6 +124,17 @@ export default function SettingsPage() {
 
   useEffect(() => { loadData(); }, []);
 
+  // Recompute dirty state whenever a tracked field changes, comparing
+  // against the snapshot taken right after load.
+  useEffect(() => {
+    if (loading) return;
+    const current = JSON.stringify({
+      fullName, waNumber, department, designation, avatarUrl,
+      orgName, waPhoneId, waMsgTemplate, waTemplateLang, waTemplateVars,
+    });
+    setIsDirty(current !== snapshotRef.current);
+  }, [loading, fullName, waNumber, department, designation, avatarUrl, orgName, waPhoneId, waMsgTemplate, waTemplateLang, waTemplateVars]);
+
   async function loadData() {
     setLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
@@ -121,12 +148,20 @@ export default function SettingsPage() {
       .eq('id', user.id)
       .single();
 
+    const snapshot: Record<string, string> = {};
+
     if (profile) {
-      setFullName(profile.full_name ?? '');
-      setWaNumber(profile.wa_number ?? '');
-      setDepartment(profile.department ?? '');
-      setDesignation(profile.designation ?? '');
-      setAvatarUrl(profile.avatar_url ?? '');
+      snapshot.fullName    = profile.full_name ?? '';
+      snapshot.waNumber    = profile.wa_number ?? '';
+      snapshot.department  = profile.department ?? '';
+      snapshot.designation = profile.designation ?? '';
+      snapshot.avatarUrl   = profile.avatar_url ?? '';
+
+      setFullName(snapshot.fullName);
+      setWaNumber(snapshot.waNumber);
+      setDepartment(snapshot.department);
+      setDesignation(snapshot.designation);
+      setAvatarUrl(snapshot.avatarUrl);
       setRole(profile.role ?? '');
       setOrgId(profile.organization_id ?? '');
 
@@ -141,15 +176,26 @@ export default function SettingsPage() {
       const org = response.ok ? (await response.json()).data : null;
 
       if (org) {
-        setOrgName(org.name ?? '');
-        setWaPhoneId(org.wa_phone_number_id ?? '');
+        snapshot.orgName        = org.name ?? '';
+        snapshot.waPhoneId      = org.wa_phone_number_id ?? '';
+        snapshot.waMsgTemplate  = org.wa_message_template ?? '';
+        snapshot.waTemplateLang = org.wa_template_lang ?? 'en';
+        snapshot.waTemplateVars = String(org.wa_template_variables ?? 2);
+
+        setOrgName(snapshot.orgName);
+        setWaPhoneId(snapshot.waPhoneId);
         setWaToken('');
-        setWaMsgTemplate(org.wa_message_template ?? '');
-        setWaTemplateLang(org.wa_template_lang ?? 'en');
-        setWaTemplateVars(String(org.wa_template_variables ?? 2));
+        setWaTokenConfigured(!!org.wa_access_token_configured);
+        setWaMsgTemplate(snapshot.waMsgTemplate);
+        setWaTemplateLang(snapshot.waTemplateLang);
+        setWaTemplateVars(snapshot.waTemplateVars);
         setAiBackend((org as any).settings?.ai_backend === 'claude' ? 'claude' : 'groq');
+        setGroqKeysCount(org.groq_api_keys_count ?? 0);
       }
     }
+
+    snapshotRef.current = JSON.stringify(snapshot);
+    setIsDirty(false);
 
     setLoading(false);
   }
@@ -193,9 +239,45 @@ export default function SettingsPage() {
       }
     }
 
+    // Re-snapshot so the Save button disables again, and refresh server data
+    // (header avatar, sidebar name, etc.) so the change is visible immediately
+    // instead of only after a manual reload.
+    snapshotRef.current = JSON.stringify({
+      fullName, waNumber, department, designation, avatarUrl,
+      orgName, waPhoneId, waMsgTemplate, waTemplateLang, waTemplateVars,
+    });
+    setIsDirty(false);
+    setWaToken('');
+    if (isAdmin && orgId) setWaTokenConfigured(prev => prev || !!waToken);
+    router.refresh();
+
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
+  }
+
+  async function saveGroqKeys() {
+    setSavingGroq(true);
+    setGroqError('');
+    try {
+      const res = await fetch('/api/organizations/settings', {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ groq_api_keys: groqKeys.trim() }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        setGroqError(typeof json.error === 'string' ? json.error : 'Failed to save Groq keys');
+        return;
+      }
+      const savedCount = groqKeys.split(',').map(k => k.trim()).filter(Boolean).length;
+      setGroqKeysCount(savedCount);
+      setGroqKeys('');
+      setGroqSaved(true);
+      setTimeout(() => setGroqSaved(false), 2500);
+    } finally {
+      setSavingGroq(false);
+    }
   }
 
   async function handleChangePassword(e: React.FormEvent) {
@@ -262,10 +344,21 @@ export default function SettingsPage() {
 
   return (
     <div className="max-w-2xl mx-auto space-y-6 animate-fade-up">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-surface-950">Settings</h1>
-        <p className="text-sm text-surface-600 mt-1">Manage your profile, organization and integrations</p>
+      {/* Header — Save Changes stays pinned top-right while scrolling */}
+      <div className="sticky top-0 z-10 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-3 bg-surface-50/95 backdrop-blur-sm border-b border-surface-300/60 flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-surface-950">Settings</h1>
+          <p className="text-sm text-surface-600 mt-1">Manage your profile, organization and integrations</p>
+        </div>
+        <button
+          type="submit"
+          form="settings-main-form"
+          disabled={saving || !isDirty}
+          className="flex items-center gap-2 rounded-lg bg-brand-500 hover:bg-brand-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold px-5 py-2.5 transition-colors shadow-glow shrink-0"
+        >
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+          {saving ? 'Saving…' : 'Save changes'}
+        </button>
       </div>
 
       {/* Success / Error banners */}
@@ -282,7 +375,7 @@ export default function SettingsPage() {
         </div>
       )}
 
-      <form onSubmit={handleSaveProfile} className="space-y-6">
+      <form id="settings-main-form" onSubmit={handleSaveProfile} className="space-y-6">
         {/* ── Profile ── */}
         <Section
           title="Profile"
@@ -334,7 +427,10 @@ export default function SettingsPage() {
             <Field label="WhatsApp Phone Number ID" hint="From Meta Business → WhatsApp → Getting Started">
               <TextInput value={waPhoneId} onChange={setWaPhoneId} placeholder="1069159539605344" />
             </Field>
-            <Field label="WhatsApp Access Token">
+            <Field
+              label="WhatsApp Access Token"
+              hint={waTokenConfigured ? 'A token is already configured — leave blank to keep it, or enter a new one to replace it.' : undefined}
+            >
               <div className="relative">
                 <input
                   type="text"
@@ -343,7 +439,7 @@ export default function SettingsPage() {
                   data-1p-ignore
                   value={waToken}
                   onChange={e => setWaToken(e.target.value)}
-                  placeholder="EAAHBaq2..."
+                  placeholder={waTokenConfigured ? '•••••••••••••••• (configured)' : 'EAAHBaq2...'}
                   style={showToken ? undefined : { WebkitTextSecurity: 'disc' } as React.CSSProperties}
                   className="w-full rounded-lg border border-surface-300 bg-surface-0 pl-3 pr-20 py-2.5 text-sm text-surface-950 placeholder:text-surface-500 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500 font-mono"
                 />
@@ -497,6 +593,59 @@ export default function SettingsPage() {
           </Section>
         )}
 
+        {/* ── Groq API keys (admin only) ── */}
+        {isAdmin && (
+          <Section
+            title="Groq API Keys"
+            description="Free-tier keys used to run the WhatsApp bot — rotate here if one expires or hits its rate limit"
+            icon={<KeyRound className="h-4 w-4" />}
+          >
+            <p className="text-xs text-surface-600">
+              {groqKeysCount > 0
+                ? `${groqKeysCount} key${groqKeysCount === 1 ? '' : 's'} currently configured.`
+                : 'No org-specific keys configured — using the server default.'}
+            </p>
+            {groqError && (
+              <div className="flex items-center gap-2 rounded-lg border border-danger/20 bg-danger/10 px-3 py-2.5 text-sm text-danger">
+                <AlertCircle className="h-4 w-4 shrink-0" /> {groqError}
+              </div>
+            )}
+            <Field label="Groq API keys" hint="Comma-separated. Replaces the entire list — paste all keys you want active, not just the new one.">
+              <div className="relative">
+                <textarea
+                  rows={3}
+                  autoComplete="off"
+                  data-lpignore="true"
+                  value={groqKeys}
+                  onChange={e => setGroqKeys(e.target.value)}
+                  placeholder="key-one..., key-two..., key-three..."
+                  style={showGroqKeys ? undefined : { WebkitTextSecurity: 'disc' } as React.CSSProperties}
+                  className="w-full rounded-lg border border-surface-300 bg-surface-0 pl-3 pr-10 py-2.5 text-sm text-surface-950 placeholder:text-surface-500 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500 font-mono resize-y"
+                />
+                <button type="button" onClick={() => setShowGroqKeys(s => !s)}
+                  className="absolute right-2 top-2.5 p-1.5 rounded text-surface-500 hover:text-surface-800 transition-colors">
+                  {showGroqKeys ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+            </Field>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={saveGroqKeys}
+                disabled={savingGroq || !groqKeys.trim()}
+                className="flex items-center gap-2 rounded-lg border border-surface-300 bg-surface-0 hover:bg-surface-200 disabled:opacity-50 text-surface-800 text-sm font-medium px-4 py-2 transition-colors"
+              >
+                {savingGroq
+                  ? <Loader2     className="h-3.5 w-3.5 animate-spin" />
+                  : groqSaved
+                    ? <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+                    : <Save         className="h-3.5 w-3.5" />}
+                {savingGroq ? 'Saving…' : groqSaved ? 'Saved!' : 'Save Groq keys'}
+              </button>
+            </div>
+          </Section>
+        )}
+
         {/* ── Role info ── */}
         <Section
           title="Permissions"
@@ -518,18 +667,6 @@ export default function SettingsPage() {
             </span>
           </div>
         </Section>
-
-        {/* Save button */}
-        <div className="flex justify-end">
-          <button
-            type="submit"
-            disabled={saving}
-            className="flex items-center gap-2 rounded-lg bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-semibold px-5 py-2.5 transition-colors shadow-glow"
-          >
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            {saving ? 'Saving…' : 'Save changes'}
-          </button>
-        </div>
       </form>
 
       {/* ── Change Password ── */}

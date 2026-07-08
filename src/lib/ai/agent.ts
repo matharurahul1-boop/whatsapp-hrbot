@@ -52,6 +52,28 @@ const GROQ_KEYS = [
 ].map(k => k?.trim()).filter((k): k is string => Boolean(k));
 const groqClients  = GROQ_KEYS.map(k => new Groq({ apiKey: k }));
 
+// Per-org Groq key override, set from the Settings page and stored in
+// organization_secrets (never the client-readable organizations row).
+// Falls back to the env-var-configured clients above when an org hasn't
+// set any of its own — same 60s cache pattern as resolveBackend.
+const _groqClientsCache = new Map<string, { clients: Groq[]; t: number }>();
+
+async function resolveGroqClients(orgId: string): Promise<Groq[]> {
+  const hit = _groqClientsCache.get(orgId);
+  if (hit && Date.now() < hit.t) return hit.clients;
+  try {
+    const { createAdminClient } = await import('@/lib/supabase/admin');
+    const { data } = await createAdminClient()
+      .from('organization_secrets').select('groq_api_keys').eq('organization_id', orgId).maybeSingle();
+    const keys = (data?.groq_api_keys ?? '').split(',').map((k: string) => k.trim()).filter(Boolean);
+    const clients = keys.length > 0 ? keys.map((k: string) => new Groq({ apiKey: k })) : groqClients;
+    _groqClientsCache.set(orgId, { clients, t: Date.now() + 60_000 });
+    return clients;
+  } catch {
+    return groqClients;
+  }
+}
+
 // Fisher-Yates shuffle — used to pick a random key order per request so load
 // spreads randomly across all configured keys, and a 429/failure falls back
 // to a random remaining key rather than the next one in a fixed sequence.
@@ -2297,12 +2319,13 @@ async function runGroqLoop(
     // Random key order per request — spreads load randomly across all
     // configured keys, and a 429/failure falls back to a random remaining
     // key rather than a fixed next-in-sequence one.
-    const keyOrder = shuffledIndices(groqClients.length);
+    const activeGroqClients = await resolveGroqClients(orgId);
+    const keyOrder = shuffledIndices(activeGroqClients.length);
 
     // Try each Groq key in random order; on 429 move to another random key
-    for (let keyTry = 0; keyTry < groqClients.length; keyTry++) {
+    for (let keyTry = 0; keyTry < activeGroqClients.length; keyTry++) {
       const clientIdx = keyOrder[keyTry];
-      const client    = groqClients[clientIdx];
+      const client    = activeGroqClients[clientIdx];
 
       try {
         let resp = await client.chat.completions.create({
@@ -2441,7 +2464,7 @@ async function runGroqLoop(
         const status = (err as { status?: number }).status;
         const errMsg = (err as { message?: string }).message ?? String(err);
 
-        if (status === 429 && keyTry < groqClients.length - 1) {
+        if (status === 429 && keyTry < activeGroqClients.length - 1) {
           console.warn(`[Agent] Groq key[${clientIdx}] rate-limited — rotating to next key`);
           continue; // try next key
         }

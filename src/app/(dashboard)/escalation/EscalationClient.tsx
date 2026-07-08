@@ -3,10 +3,11 @@
 import { useState, useEffect } from 'react';
 import {
   AlertTriangle, Clock, CheckCircle2, Loader2,
-  MessageSquare, User, Calendar, Zap, RefreshCw,
+  MessageSquare, User, Calendar, Zap,
   Bell, BellOff, Info,
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
+import RefreshButton from '@/components/ui/RefreshButton';
 
 interface LeaveRequest {
   id:                   string;
@@ -36,7 +37,6 @@ export default function EscalationClient({ initialLeaves }: { initialLeaves: Lea
   const [running,  setRunning]  = useState(false);
   const [result,   setResult]   = useState<EscalationResult | null>(null);
   const [error,    setError]    = useState('');
-  const [refreshing, setRefreshing] = useState(false);
 
   const now = Date.now();
   const HOUR = 3_600_000;
@@ -81,16 +81,6 @@ export default function EscalationClient({ initialLeaves }: { initialLeaves: Lea
     }
   }
 
-  async function refresh() {
-    setRefreshing(true);
-    try {
-      // Re-fetch via server reload
-      window.location.reload();
-    } catch {
-      setRefreshing(false);
-    }
-  }
-
   const stats = {
     total:    leaves.length,
     critical: leaves.filter(l => ageHours(l.created_at) >= 72).length,
@@ -113,14 +103,7 @@ export default function EscalationClient({ initialLeaves }: { initialLeaves: Lea
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={refresh}
-            disabled={refreshing}
-            title="Refresh"
-            className="p-1.5 rounded-lg text-surface-500 hover:text-surface-950 hover:bg-surface-200 transition-colors disabled:opacity-40"
-          >
-            <RefreshCw className={cn('h-4 w-4', refreshing && 'animate-spin')} />
-          </button>
+          <RefreshButton />
           <button
             onClick={runEscalation}
             disabled={running}

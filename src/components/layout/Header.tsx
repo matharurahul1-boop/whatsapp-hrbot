@@ -5,6 +5,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import { Bell, LogOut, X, ChevronRight, Home, Sun, Moon } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Avatar } from '@/components/ui/Avatar';
+import { ConfirmDialog } from '@/components/ui/Modal';
 import { cn } from '@/lib/utils/cn';
 import { useTheme } from '@/components/layout/ThemeProvider';
 import { useSidebar } from '@/components/layout/SidebarProvider';
@@ -47,6 +48,8 @@ export default function Header({ userName, userRole, avatarUrl }: HeaderProps) {
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifs,    setNotifs]    = useState<Notification[]>([]);
   const [unread,    setUnread]    = useState(0);
+  const [signOutOpen,    setSignOutOpen]    = useState(false);
+  const [signingOut,     setSigningOut]     = useState(false);
 
   // Breadcrumbs
   const segments = pathname.split('/').filter(Boolean);
@@ -79,6 +82,7 @@ export default function Header({ userName, userRole, avatarUrl }: HeaderProps) {
   }, [closeMobile]);
 
   async function signOut() {
+    setSigningOut(true);
     await supabase.auth.signOut();
     router.push('/login');
     router.refresh();
@@ -224,13 +228,24 @@ export default function Header({ userName, userRole, avatarUrl }: HeaderProps) {
 
         {/* Sign out */}
         <button
-          onClick={signOut}
+          onClick={() => setSignOutOpen(true)}
           title="Sign out"
           className="flex h-8 w-8 items-center justify-center rounded-lg text-surface-600 hover:text-danger hover:bg-danger/10 transition-colors ml-0.5"
         >
           <LogOut className="h-4 w-4" />
         </button>
       </div>
+
+      <ConfirmDialog
+        open={signOutOpen}
+        onOpenChange={setSignOutOpen}
+        title="Sign out?"
+        description="You'll need to sign in again to access your dashboard."
+        confirmLabel="Sign out"
+        variant="danger"
+        loading={signingOut}
+        onConfirm={signOut}
+      />
     </header>
   );
 }

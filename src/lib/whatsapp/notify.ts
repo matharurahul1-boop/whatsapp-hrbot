@@ -128,8 +128,10 @@ export async function notifyTaskUpdated(opts: {
   orgId:       string;
   taskTitle:   string;
   field:       string;
+  oldValue:    string;
   value:       string;
   field2?:     string;
+  oldValue2?:  string;
   value2?:     string;
   assigneeId:  string;
   updaterName: string;
@@ -140,8 +142,8 @@ export async function notifyTaskUpdated(opts: {
       .from('users').select('full_name, wa_number')
       .eq('id', opts.assigneeId).single();
 
-    const changeSummary = `${opts.field} changed to ${opts.value}` +
-      (opts.field2 && opts.value2 ? `, ${opts.field2} changed to ${opts.value2}` : '');
+    const changeSummary = `${opts.field} changed from ${opts.oldValue} to ${opts.value}` +
+      (opts.field2 && opts.value2 ? `, ${opts.field2} changed from ${opts.oldValue2} to ${opts.value2}` : '');
 
     const sends: Promise<unknown>[] = [
       sendPush(opts.assigneeId, {
@@ -153,17 +155,16 @@ export async function notifyTaskUpdated(opts: {
     ];
 
     if (assignee?.wa_number) {
-      // opts.taskTitle is always the title *before* this update — when the
-      // title itself changed, show both the old and new title instead of
-      // repeating the same (new) title twice.
-      const changeLine = (field: string, value: string) => field === 'title'
-        ? `Title changed from *${opts.taskTitle}* to *${value}*\n`
-        : `${field} changed to: *${value}*\n`;
+      // Every field shows both the old and new value, not just the new one —
+      // "title" gets a friendlier label since "title changed from..." reads
+      // oddly lowercase, everything else keeps the raw field name.
+      const changeLine = (field: string, oldVal: string, newVal: string) =>
+        `${field === 'title' ? 'Title' : field} changed from *${oldVal}* to *${newVal}*\n`;
       const msg =
         `📝 *Task updated, ${firstName(assignee.full_name)}!*\n\n` +
         `*${opts.taskTitle}*\n\n` +
-        changeLine(opts.field, opts.value) +
-        (opts.field2 && opts.value2 ? changeLine(opts.field2, opts.value2) : '') +
+        changeLine(opts.field, opts.oldValue, opts.value) +
+        (opts.field2 && opts.oldValue2 && opts.value2 ? changeLine(opts.field2, opts.oldValue2, opts.value2) : '') +
         `Updated by: *${opts.updaterName}*\n\n` +
         `Reply *my tasks* to view your tasks.`;
       sends.push(sendSmartText(assignee.wa_number, msg, opts.orgId, firstName(assignee.full_name)));

@@ -771,7 +771,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     const query = db
       .from('tasks')
-      .select('id, title, assignee_id')
+      .select('id, title, assignee_id, priority, deadline, status, assignee:users!tasks_assignee_id_fkey(full_name)')
       .eq('organization_id', org_id)
       .ilike('title', `%${taskTitle}%`)
       .is('deleted_at', null)
@@ -793,6 +793,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     const patch: Record<string, unknown> = {};
     let updatedAssigneeId: string | null = null;
+    let updatedAssigneeName: string | null = null;
 
     // Helper: apply one field/value pair to the patch. Returns an error reply or null on success.
     const applyField = async (field: string | undefined, value: string): Promise<string | null> => {
@@ -853,6 +854,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
         }
         patch.assignee_id = found.id;
         updatedAssigneeId = found.id;
+        updatedAssigneeName = found.full_name;
       } else {
         // Unknown field — tell the user what's supported
         return lang === 'hi'
@@ -892,11 +894,25 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       record_id: task.id, new_data: { ...patch, title: task.title }, source: 'whatsapp',
     });
 
+    // Human-readable OLD value for a field, read from `task` (the record as
+    // it was *before* this patch) — used so every WhatsApp notification can
+    // say "changed from X to Y" instead of just announcing the new value.
+    const oldDisplayValue = (f: string): string => {
+      if (f === 'priority') {
+        const pVal = task.priority ?? 'medium';
+        return `${priorityEmoji(pVal)} ${pVal}`;
+      }
+      if (f === 'deadline') return task.deadline ? formatDateTime(task.deadline) + ' IST' : '(none)';
+      if (f === 'assignee') return (task.assignee as { full_name?: string } | null)?.full_name ?? '(unassigned)';
+      if (f === 'status') return task.status ?? 'todo';
+      return task.title;
+    };
+
     // Use human-readable values in the reply (avoid showing UUIDs for assignee).
     const value = slots.update_value?.trim() ?? '';
     let displayValue: string;
     if (field === 'assignee') {
-      displayValue = value;
+      displayValue = updatedAssigneeName ?? value;
     } else if (field === 'priority') {
       const pVal = String(patch.priority ?? value);
       displayValue = `${priorityEmoji(pVal)} ${pVal}`;
@@ -906,6 +922,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       displayValue = String(patch.title ?? patch.status ?? value);
     }
     const displayField = field ?? 'field';
+    const oldValue = field ? oldDisplayValue(field) : '';
     // Always identify the task by its title *before* this update, even when
     // the title itself is the field being changed — otherwise a rename shows
     // the same new title twice ("X" ... "title changed to: X") with no way
@@ -914,17 +931,18 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     // Build combined update label when two fields were updated
     const hasField2 = !!(slots.update_field_2 && slots.update_value_2);
-    const field2Label = hasField2 ? ` and *${slots.update_field_2}* to *${slots.update_value_2}*` : '';
 
     // Same display-value treatment as field 1 (priority emoji, formatted
     // deadline, etc.) so a combined update tells the assignee about BOTH
     // changes, not just the first one.
     let displayField2: string | undefined;
     let displayValue2: string | undefined;
+    let oldValue2: string | undefined;
     if (hasField2) {
       const field2 = slots.update_field_2!.toLowerCase().trim();
       const value2 = slots.update_value_2!.trim();
       displayField2 = field2;
+      oldValue2 = oldDisplayValue(field2);
       if (field2 === 'priority') {
         const pVal2 = String(patch.priority ?? value2);
         displayValue2 = `${priorityEmoji(pVal2)} ${pVal2}`;
@@ -934,10 +952,14 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
         displayValue2 = String(patch.title ?? value2);
       } else if (field2 === 'status') {
         displayValue2 = String(patch.status ?? value2);
+      } else if (field2 === 'assignee') {
+        displayValue2 = updatedAssigneeName ?? value2;
       } else {
         displayValue2 = value2;
       }
     }
+
+    const field2Label = hasField2 ? ` and *${displayField2}* from *${oldValue2}* to *${displayValue2}*` : '';
 
     const notificationAssigneeId = updatedAssigneeId ?? task.assignee_id;
     if (notificationAssigneeId && notificationAssigneeId !== user_id) {
@@ -946,8 +968,10 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
         orgId:       org_id,
         taskTitle:   displayTitle,
         field:       displayField,
+        oldValue:    oldValue,
         value:       displayValue,
         field2:      displayField2,
+        oldValue2:   oldValue2,
         value2:      displayValue2,
         assigneeId:  notificationAssigneeId,
         updaterName: updater?.full_name ?? 'your manager',
@@ -957,8 +981,8 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     return {
       success: true,
       reply: lang === 'hi'
-        ? `✅ *"${displayTitle}"* — ${displayField} *${displayValue}*${hasField2 ? ` और ${slots.update_field_2} *${slots.update_value_2}*` : ''} कर दिया!`
-        : `✅ *"${displayTitle}"* — *${displayField}* updated to *${displayValue}*${field2Label}!`,
+        ? `✅ *"${displayTitle}"* — ${displayField} *${oldValue}* से *${displayValue}* में बदला${hasField2 ? ` और ${displayField2} *${oldValue2}* से *${displayValue2}* में बदला` : ''}!`
+        : `✅ *"${displayTitle}"* — *${displayField}* changed from *${oldValue}* to *${displayValue}*${field2Label}!`,
     };
   },
 

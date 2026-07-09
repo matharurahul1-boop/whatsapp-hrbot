@@ -3,6 +3,7 @@ import { writeAuditLog }       from '@/lib/utils/audit';
 import { formatDate, formatDateTime, calcBusinessDays, todayISO, parseDeadlineToUTC, parseDeadlineString } from '@/lib/utils/date';
 import { generateEmployeeId }  from '@/lib/utils/employee-id';
 import { n8n }                 from '@/lib/n8n/trigger';
+import { isManagerOrAbove }    from '@/lib/rbac';
 import { REPLIES, NOTIFICATIONS } from './prompts/responses';
 import {
   notifyTaskAssigned,
@@ -699,13 +700,10 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
   async DELETE_TASK({ slots, org_id, user_id, user_role }): Promise<ToolResult> {
     const db   = createAdminClient();
     const lang = (slots._lang as 'en' | 'hi') ?? 'en';
-    if (user_role === 'employee') {
-      return { success: false, reply: '🚫 Employees cannot delete tasks.' };
-    }
 
     const query = db
       .from('tasks')
-      .select('id, title, assignee_id, priority, deadline')
+      .select('id, title, assignee_id, created_by, priority, deadline')
       .eq('organization_id', org_id)
       .ilike('title', `%${slots.title}%`)
       .is('deleted_at', null)
@@ -725,6 +723,15 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const task = tasks?.[0];
     if (!task) return { success: false, reply: REPLIES.taskNotFound(slots.title!, lang) };
 
+    // Only the assignee, the creator ("assigned by"), or manager+ may delete a task.
+    const actorIsAssignee = task.assignee_id === user_id;
+    const actorIsCreator   = task.created_by === user_id;
+    if (!actorIsAssignee && !actorIsCreator && !isManagerOrAbove(user_role)) {
+      return { success: false, reply: lang === 'hi'
+        ? '🚫 आप सिर्फ अपने assigned/created tasks delete कर सकते हैं, या manager/HR/admin होने पर कोई भी task।'
+        : '🚫 You can only delete tasks assigned to you or created by you — unless you\'re a manager, HR, or admin.' };
+    }
+
     const deletedAt = new Date().toISOString();
     const { data: deleted, error: deleteError } = await db.from('tasks')
       .update({ deleted_at: deletedAt, updated_by: user_id })
@@ -738,14 +745,16 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       record_id: task.id, new_data: { deleted_at: deletedAt, title: task.title }, source: 'whatsapp',
     });
 
-    if (task.assignee_id && task.assignee_id !== user_id) {
+    // Notification goes to "the other party" — see the matching note in UPDATE_TASK.
+    const notifyTargetId = actorIsAssignee ? task.created_by : task.assignee_id;
+    if (notifyTargetId && notifyTargetId !== user_id) {
       const { data: deleter } = await db.from('users').select('full_name').eq('id', user_id).single();
       notifyTaskDeleted({
         orgId:       org_id,
         taskTitle:   task.title,
         priority:    task.priority,
         deadline:    task.deadline,
-        assigneeId:  task.assignee_id,
+        assigneeId:  notifyTargetId,
         deleterName: deleter?.full_name ?? 'your manager',
       }).catch(() => {});
     }
@@ -778,7 +787,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     const query = db
       .from('tasks')
-      .select('id, title, assignee_id, priority, deadline, status, assignee:users!tasks_assignee_id_fkey(full_name)')
+      .select('id, title, assignee_id, created_by, priority, deadline, status, assignee:users!tasks_assignee_id_fkey(full_name)')
       .eq('organization_id', org_id)
       .ilike('title', `%${taskTitle}%`)
       .is('deleted_at', null)
@@ -797,6 +806,15 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     const task = (tasks as any[])?.[0];
     if (!task) return { success: false, reply: REPLIES.taskNotFound(taskTitle, lang) };
+
+    // Only the assignee, the creator ("assigned by"), or manager+ may update a task.
+    const actorIsAssignee = task.assignee_id === user_id;
+    const actorIsCreator   = task.created_by === user_id;
+    if (!actorIsAssignee && !actorIsCreator && !isManagerOrAbove(user_role)) {
+      return { success: false, reply: lang === 'hi'
+        ? '🚫 आप सिर्फ अपने assigned/created tasks update कर सकते हैं, या manager/HR/admin होने पर कोई भी task।'
+        : '🚫 You can only update tasks assigned to you or created by you — unless you\'re a manager, HR, or admin.' };
+    }
 
     const patch: Record<string, unknown> = {};
     let updatedAssigneeId: string | null = null;
@@ -968,8 +986,12 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     const field2Label = hasField2 ? ` and *${displayField2}* from *${oldValue2}* to *${displayValue2}*` : '';
 
-    const notificationAssigneeId = updatedAssigneeId ?? task.assignee_id;
-    if (notificationAssigneeId && notificationAssigneeId !== user_id) {
+    // Notification goes to "the other party": if the assignee made this change,
+    // tell the creator (assigned-by); otherwise (creator or manager/HR/admin
+    // acting on someone else's task) tell the assignee, as before.
+    const currentAssigneeId = updatedAssigneeId ?? task.assignee_id;
+    const notifyTargetId = actorIsAssignee ? task.created_by : currentAssigneeId;
+    if (notifyTargetId && notifyTargetId !== user_id) {
       const { data: updater } = await db.from('users').select('full_name').eq('id', user_id).single();
       notifyTaskUpdated({
         orgId:       org_id,
@@ -980,7 +1002,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
         field2:      displayField2,
         oldValue2:   oldValue2,
         value2:      displayValue2,
-        assigneeId:  notificationAssigneeId,
+        assigneeId:  notifyTargetId,
         updaterName: updater?.full_name ?? 'your manager',
       }).catch(() => {});
     }

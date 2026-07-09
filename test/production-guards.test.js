@@ -50,13 +50,17 @@ test('task-list requests use the deterministic fast path and reasoning leaks are
   assert.match(webhookSource, /text\.trim\(\)\.length > 900/);
 });
 
-test('task permissions allow organization-wide view/create/update but block employee deletion', () => {
+test('task permissions allow anyone to create, but scope update/delete to assignee, creator, or manager+', () => {
   const executor = read('src/lib/ai/executor.ts');
   const taskApi = read('src/app/api/tasks/[id]/route.ts');
-  assert.match(executor, /user_role === 'employee'[\s\S]{0,120}Employees cannot delete tasks/);
   assert.doesNotMatch(executor, /Employees can only create tasks for themselves/);
   assert.doesNotMatch(executor, /Employees can only update a task's status/);
-  assert.match(taskApi, /profile\.role === 'employee'[\s\S]{0,120}Employees cannot delete tasks/);
+  // DELETE_TASK and UPDATE_TASK (WhatsApp bot) both gate on the same three-way check.
+  const executorGateCount = (executor.match(/!actorIsAssignee && !actorIsCreator && !isManagerOrAbove\(user_role\)/g) ?? []).length;
+  assert.equal(executorGateCount, 2, 'expected the relationship gate in both UPDATE_TASK and DELETE_TASK');
+  // Dashboard PATCH and DELETE mirror the same rule with profile.role.
+  const dashboardGateCount = (taskApi.match(/!actorIsAssignee && !actorIsCreator && !isManagerOrAbove\(profile\.role\)/g) ?? []).length;
+  assert.equal(dashboardGateCount, 2, 'expected the relationship gate in both PATCH and DELETE');
 });
 
 test('WhatsApp inbox first render and refresh use the same recent organization log scope', () => {

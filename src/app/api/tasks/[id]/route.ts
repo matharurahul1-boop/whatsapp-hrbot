@@ -4,7 +4,7 @@ import { createAdminClient }  from '@/lib/supabase/admin';
 import { writeAuditLog }      from '@/lib/utils/audit';
 import { notifyTaskAssigned, notifyTaskCompleted, notifyTaskDeleted } from '@/lib/whatsapp/notify';
 import { scheduleTaskReminders } from '@/lib/tasks/scheduleReminders';
-import { isEmployee } from '@/lib/rbac';
+import { isEmployee, isManagerOrAbove } from '@/lib/rbac';
 import { z } from 'zod';
 
 const UpdateTaskSchema = z.object({
@@ -68,6 +68,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (!profile || !task) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   if (task.organization_id !== profile.organization_id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
+  // Only the assignee, the creator ("assigned by"), or manager+ may update a task.
+  const actorIsAssignee = task.assignee_id === user.id;
+  const actorIsCreator   = task.created_by === user.id;
+  if (!actorIsAssignee && !actorIsCreator && !isManagerOrAbove(profile.role)) {
+    return NextResponse.json({ error: 'You can only update tasks assigned to you or created by you' }, { status: 403 });
+  }
+
   // Convert datetime-local (IST browser value) to UTC for storage, or null to clear
   const { deadline: deadlineISO, ...parsedRest } = parsed.data;
   const deadlineFields: Record<string, unknown> = {};
@@ -120,19 +127,18 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }).catch(() => {});
   }
 
-  // Notify creator when task is marked completed (and they're not the one completing it)
-  const justCompleted =
-    updateData.status === 'done' &&
-    task.status !== 'done' &&
-    updated.created_by &&
-    updated.created_by !== user.id;
+  // Notify "the other party" when task is marked completed: if the assignee
+  // completed it, tell the creator; if the creator/manager completed it on
+  // the assignee's behalf, tell the assignee.
+  const justCompleted = updateData.status === 'done' && task.status !== 'done';
+  const completionNotifyTarget = actorIsAssignee ? task.created_by : task.assignee_id;
 
-  if (justCompleted) {
+  if (justCompleted && completionNotifyTarget && completionNotifyTarget !== user.id) {
     notifyTaskCompleted({
       orgId:           profile.organization_id,
       taskTitle:       updated.title,
       completedByName: actorName,
-      creatorId:       updated.created_by,
+      creatorId:       completionNotifyTarget,
     }).catch(() => {});
   }
 
@@ -150,22 +156,26 @@ export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id:
   if (!profile || !task) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   if (task.organization_id !== profile.organization_id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  if (profile.role === 'employee') return NextResponse.json({ error: 'Employees cannot delete tasks' }, { status: 403 });
-  if (!['manager','hr','admin','super_admin'].includes(profile.role)) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  // Only the assignee, the creator ("assigned by"), or manager+ may delete a task.
+  const actorIsAssignee = task.assignee_id === user.id;
+  const actorIsCreator   = task.created_by === user.id;
+  if (!actorIsAssignee && !actorIsCreator && !isManagerOrAbove(profile.role)) {
+    return NextResponse.json({ error: 'You can only delete tasks assigned to you or created by you' }, { status: 403 });
   }
 
   await db.from('tasks').update({ deleted_at: new Date().toISOString() }).eq('id', id);
   await writeAuditLog({ org_id: profile.organization_id, actor_id: user.id, action: 'DELETE', table_name: 'tasks', record_id: id, old_data: task });
 
-  if (task.assignee_id && task.assignee_id !== user.id) {
+  // Notification goes to "the other party" — see the matching note in PATCH.
+  const notifyTargetId = actorIsAssignee ? task.created_by : task.assignee_id;
+  if (notifyTargetId && notifyTargetId !== user.id) {
     const { data: deleter } = await db.from('users').select('full_name').eq('id', user.id).single();
     notifyTaskDeleted({
       orgId:       profile.organization_id,
       taskTitle:   task.title,
       priority:    task.priority,
       deadline:    task.deadline,
-      assigneeId:  task.assignee_id,
+      assigneeId:  notifyTargetId,
       deleterName: deleter?.full_name ?? 'your manager',
     }).catch(() => {});
   }

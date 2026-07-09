@@ -77,7 +77,7 @@ function describeActivity(log: ActivityLog): string {
   const actor = log.actor?.full_name ?? 'Someone';
   const nd = log.new_data ?? {};
   const od = log.old_data ?? {};
-  const title = (nd.title ?? od.title) as string | undefined;
+  const title = (nd.title ?? nd.task_ref ?? od.title) as string | undefined;
 
   switch (log.action) {
     case 'CREATE_TASK':
@@ -90,7 +90,7 @@ function describeActivity(log: ActivityLog): string {
         return `${actor} checked in`;
       break;
     case 'UPDATE_TASK': {
-      const changed = Object.keys(nd).filter(k => k !== 'title' && k in TASK_FIELD_LABELS);
+      const changed = Object.keys(nd).filter(k => k in TASK_FIELD_LABELS);
       if (changed.length === 1) {
         return `${actor} changed ${TASK_FIELD_LABELS[changed[0]](nd[changed[0]])} on "${title ?? 'a task'}"`;
       }
@@ -135,7 +135,7 @@ function describeActivity(log: ActivityLog): string {
 // and not useful to show in the detail modal's field list.
 const HIDDEN_DETAIL_FIELDS = new Set([
   'id', 'organization_id', 'assignee_id', 'created_by', 'updated_by',
-  'employee_id', 'leave_type_id', 'reviewed_by', 'updated_at',
+  'employee_id', 'leave_type_id', 'reviewed_by', 'updated_at', 'task_ref',
 ]);
 
 function labelFor(key: string): string {

@@ -1069,14 +1069,14 @@ ${isPrivileged ? `
 ## Examples
 
 Task creation — single-turn (all info given):
-User: "create a task Fix login bug due tomorrow 5pm priority high"
-You: I'll create task *Fix login bug* for *you* due *${tmr.display}, 05:00 PM* with *high* priority. Go ahead? (Yes / No)
-User: "yes" → [call create_task(title="Fix login bug", deadline="${tmr.iso} 17:00", priority="high")]
+User: "create a task Sample Task Alpha due tomorrow 5pm priority high"
+You: I'll create task *Sample Task Alpha* for *you* due *${tmr.display}, 05:00 PM* with *high* priority. Go ahead? (Yes / No)
+User: "yes" → [call create_task(title="Sample Task Alpha", deadline="${tmr.iso} 17:00", priority="high")]
 
 Task creation — for someone else:
-User: "create task Design mockups for Tushar due day after tomorrow 9am priority medium"
-You: I'll create task *Design mockups* for *Tushar* due *${dat2.display}, 09:00 AM* with *medium* priority. Go ahead? (Yes / No)
-User: "yes" → [call create_task(title="Design mockups", assignee="Tushar", deadline="${dat2.iso} 09:00", priority="medium")]
+User: "create task Sample Task Beta for Alex Morgan due day after tomorrow 9am priority medium"
+You: I'll create task *Sample Task Beta* for *Alex Morgan* due *${dat2.display}, 09:00 AM* with *medium* priority. Go ahead? (Yes / No)
+User: "yes" → [call create_task(title="Sample Task Beta", assignee="Alex Morgan", deadline="${dat2.iso} 09:00", priority="medium")]
 
 Task creation — multi-turn, nothing given yet (ask ALL fields at once in one message):
 User: "I want to create a task" → You:
@@ -2142,6 +2142,27 @@ async function runGroqLoop(
     if (personName && !/^(?:the\s+)?same$/i.test(personName)) {
       console.log(`[Agent] Update-person bypass: resolving real tasks for "${personName}"`);
       return resolveTaskOwnerForUpdate(personName, user, orgId, conversationId, context.language);
+    }
+  }
+
+  // ── 0f. Bare-name retry after a failed list_tasks assignee lookup ────────────
+  // If the bot's last reply was list_tasks's own "No user found matching X.
+  // Available: ..." failure (executor.ts LIST_TASKS) and the user's next message
+  // is just a bare name (no sentence structure), treat it as the corrected name
+  // and re-run the real list_tasks tool — instead of letting Groq free-generate
+  // a reply, which has been observed fabricating a task list wholesale (blending
+  // in its own few-shot example content, e.g. "Design mockups" for "Tushar")
+  // rather than admitting it has no tool result. Same failure class as 0e.
+  {
+    const lastBot = lastBotMessage(history);
+    const NO_MATCH_RE = /No user found matching|नाम का कोई user नहीं मिला/;
+    const bareNameMatch = message.trim().match(/^(?:no,?\s+)?(?:i\s+mean\s+|actually\s+)?([\p{L}][\p{L} .'-]{1,40})$/iu);
+    const looksLikeBareName = !!bareNameMatch
+      && !/\b(task|tasks|create|update|delete|leave|check|assign|list|show)\b/i.test(message);
+    if (NO_MATCH_RE.test(lastBot) && looksLikeBareName) {
+      const correctedName = bareNameMatch![1].trim();
+      console.log(`[Agent] Name-correction retry after failed list_tasks lookup: "${correctedName}"`);
+      return dispatchTool('list_tasks', { assignee_name: correctedName }, user, orgId);
     }
   }
 

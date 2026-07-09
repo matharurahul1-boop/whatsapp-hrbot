@@ -916,7 +916,13 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     await writeAuditLog({
       org_id, actor_id: user_id, actor_type: 'user',
       action: 'UPDATE_TASK', table_name: 'tasks',
-      record_id: task.id, new_data: { ...patch, title: task.title }, source: 'whatsapp',
+      record_id: task.id,
+      // If title itself changed, patch.title IS the new title — keep it.
+      // Otherwise stash the pre-existing title under a separate key purely
+      // so the activity feed can identify "which task", without it being
+      // mistaken for a real title change (see task_ref in ActivityFeedList).
+      new_data: { ...patch, ...(patch.title === undefined ? { task_ref: task.title } : {}) },
+      source: 'whatsapp',
     });
 
     // Human-readable OLD value for a field, read from `task` (the record as

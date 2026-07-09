@@ -75,11 +75,19 @@ function formatTime(iso: string): string {
   return d.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true });
 }
 
+// Calendar-day difference in IST, not elapsed hours — a message from 6pm
+// yesterday viewed at 4pm today is ~22 hours ago (0 whole days elapsed) but
+// is still "yesterday" by calendar date, which is what WhatsApp itself shows.
+function istDayDiff(iso: string): number {
+  const dateKey = (t: number) => new Date(t).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const d1 = new Date(dateKey(new Date(iso).getTime()));
+  const d2 = new Date(dateKey(Date.now()));
+  return Math.round((d2.getTime() - d1.getTime()) / 86400000);
+}
+
 function formatConvoTime(iso: string): string {
-  const d   = new Date(iso);
-  const now = new Date();
-  const diff = now.getTime() - d.getTime();
-  const days = Math.floor(diff / 86400000);
+  const d    = new Date(iso);
+  const days = istDayDiff(iso);
   if (days === 0) return d.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true });
   if (days === 1) return 'Yesterday';
   if (days < 7)  return d.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'short' });
@@ -87,11 +95,10 @@ function formatConvoTime(iso: string): string {
 }
 
 function formatDateDivider(iso: string): string {
-  const d   = new Date(iso);
-  const now = new Date();
-  const diff = Math.floor((now.getTime() - d.getTime()) / 86400000);
-  if (diff === 0) return 'Today';
-  if (diff === 1) return 'Yesterday';
+  const d    = new Date(iso);
+  const days = istDayDiff(iso);
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Yesterday';
   return d.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'long', year: 'numeric' });
 }
 

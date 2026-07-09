@@ -73,14 +73,6 @@ export default function RecentTasksList({ tasks }: { tasks: Task[] }) {
                   )}
                 </div>
                 <div className="flex items-center gap-2">
-                  {t.creator && t.creator.id !== t.assignee?.id && (
-                    <Avatar
-                      src={t.creator.avatar_url ?? undefined}
-                      name={t.creator.full_name}
-                      size="xs"
-                      title={`Assigned by: ${t.creator.full_name ?? 'Unknown'}`}
-                    />
-                  )}
                   {t.assignee && (
                     <Avatar
                       src={t.assignee.avatar_url ?? undefined}
@@ -91,6 +83,14 @@ export default function RecentTasksList({ tasks }: { tasks: Task[] }) {
                           ? `Self-assigned by: ${t.assignee.full_name ?? 'Unknown'}`
                           : `Assigned to: ${t.assignee.full_name ?? 'Unknown'}`
                       }
+                    />
+                  )}
+                  {t.creator && t.creator.id !== t.assignee?.id && (
+                    <Avatar
+                      src={t.creator.avatar_url ?? undefined}
+                      name={t.creator.full_name}
+                      size="xs"
+                      title={`Assigned by: ${t.creator.full_name ?? 'Unknown'}`}
                     />
                   )}
                   <StatusBadge status={t.status} />

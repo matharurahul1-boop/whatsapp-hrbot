@@ -282,7 +282,9 @@ async function sendMetaWithTemplateFallback(
     const vars = buildTemplateVars(org.wa_template_variables, recipientName, body, org.name ?? '');
 
     console.log(`[WA] Free-form failed (24h window) — retrying via template "${org.wa_message_template}"`);
-    return sendTemplate(opts.to, org.wa_message_template, vars, org.wa_template_lang || 'en', opts.orgId);
+    // Same wa_logs-message-text fix as sendSmartText — pass the real message
+    // as logText, not the default variables[0] (the recipient's name).
+    return sendTemplate(opts.to, org.wa_message_template, vars, org.wa_template_lang || 'en', opts.orgId, opts.messageText ?? body);
   }
 }
 
@@ -416,7 +418,12 @@ export async function sendSmartText(
   const org = await fetchOrgTemplateConfig(orgId);
   if (org?.wa_message_template) {
     const vars = buildTemplateVars(org.wa_template_variables, recipientName, body, org.name ?? '');
-    return sendTemplate(to, org.wa_message_template, vars, org.wa_template_lang || 'en', orgId, logText);
+    // sendTemplate logs `logText ?? variables[0]` as the wa_logs message text —
+    // variables[0] is the recipient's first name (template var {{1}}), not the
+    // actual message, so WA Logs would otherwise show just "Rashmi" instead of
+    // the real notification text. Default to the real body when no explicit
+    // redacted logText was given.
+    return sendTemplate(to, org.wa_message_template, vars, org.wa_template_lang || 'en', orgId, logText ?? body);
   }
 
   return logText ? sendTextRedacted(to, body, logText, orgId) : sendText(to, body, orgId);

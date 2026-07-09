@@ -84,7 +84,7 @@ test('task creation and edit flows never silently select the first ambiguous ass
 test('agent recipient notifications are awaited, organization-scoped, and failure-aware', () => {
   const agent = read('src/lib/ai/agent.ts');
   assert.match(agent, /await sendUserNotifications\(result\.notify, orgId\)/);
-  assert.match(agent, /await sendText\(u\.wa_number, notif\.message, orgId\)/);
+  assert.match(agent, /await sendSmartText\(u\.wa_number, notif\.message, orgId,/);
   assert.match(agent, /\n\s*status,\s*\n/);
   assert.match(agent, /failure_reason/);
   assert.doesNotMatch(agent, /sendUserNotifications\(result\.notify, orgId\)\.catch/);

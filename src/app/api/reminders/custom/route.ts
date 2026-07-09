@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { sendText }                  from '@/lib/whatsapp/client';
+import { sendSmartText }             from '@/lib/whatsapp/client';
+import { createAdminClient }         from '@/lib/supabase/admin';
 
 export async function POST(req: NextRequest) {
   const auth   = req.headers.get('authorization') ?? '';
@@ -15,7 +16,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Missing wa_number or message' }, { status: 400 });
   }
 
-  await sendText(wa_number, `⏰ *Reminder:* ${message}`, organization_id ?? '');
+  const db = createAdminClient();
+  const { data: recipient } = await db.from('users').select('full_name').eq('wa_number', wa_number).maybeSingle();
+  const recipientName = recipient?.full_name?.split(' ')[0] ?? 'there';
+
+  await sendSmartText(wa_number, `⏰ *Reminder:* ${message}`, organization_id ?? '', recipientName);
 
   console.log(`[reminders/custom] ✅ Sent to ${wa_number}: "${message.slice(0, 60)}"`);
   return NextResponse.json({ ok: true });

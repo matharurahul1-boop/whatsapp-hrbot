@@ -21,7 +21,7 @@
 
 import { NextRequest, NextResponse }      from 'next/server';
 import { createAdminClient }              from '@/lib/supabase/admin';
-import { sendText }                       from '@/lib/whatsapp/client';
+import { sendSmartText }                  from '@/lib/whatsapp/client';
 import {
   notifyCheckInReminder,
   notifyCheckOutReminder,
@@ -293,10 +293,13 @@ async function fireBotReminders(): Promise<number> {
       continue;
     }
     try {
-      await sendText(
+      const { data: recipient } = await db.from('users').select('full_name')
+        .eq('wa_number', rem.wa_number).eq('organization_id', rem.organization_id ?? '').maybeSingle();
+      await sendSmartText(
         rem.wa_number,
         `⏰ *Reminder:* ${rem.custom_message}`,
         rem.organization_id ?? '',
+        recipient?.full_name?.split(' ')[0] ?? 'there',
       );
       firedIds.push(rem.id);
       sent++;

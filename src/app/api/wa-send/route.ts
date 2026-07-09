@@ -1,16 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient }              from '@/lib/supabase/server';
 import { createAdminClient }         from '@/lib/supabase/admin';
-import { sendText, sendTemplate }    from '@/lib/whatsapp/client';
+import { sendSmartText }             from '@/lib/whatsapp/client';
 import { isManagerOrAbove }          from '@/lib/rbac';
 
 // POST /api/wa-send
 // Body: { to, message, orgId, contactName? }
-// Strategy:
-//   1. Try free-form sendText  (works within 24h window)
-//   2. If 24h window expired → auto-fallback to org's approved template
-//      Template variables: {{1}} = contactName, {{2}} = message
-//      (also supports single-variable templates where {{1}} = message)
+// sendSmartText proactively checks the recipient's actual 24h window (via
+// wa_logs) and routes straight to the org's approved template when they're
+// outside it, instead of reactively retrying after a free-form send that
+// Meta may have already accepted (200) but will fail asynchronously.
 
 export async function POST(req: NextRequest) {
 
@@ -50,10 +49,7 @@ export async function POST(req: NextRequest) {
     .eq('id', orgId)
     .single();
 
-  const templateName      = org?.wa_message_template?.trim() || null;
-  const templateLang      = org?.wa_template_lang?.trim()    || 'en';
-  // How many variables does the template use? (1 = message only, 2 = name + message)
-  const templateVarCount  = (org?.wa_template_variables as number) || 2;
+  const templateName = org?.wa_message_template?.trim() || null;
 
   // Resolve contact name — from request body or look up from wa_contacts
   let recipientName = contactName?.trim() || '';
@@ -67,48 +63,14 @@ export async function POST(req: NextRequest) {
     recipientName = contact?.name || 'there';
   }
 
-  // Fetch org name for {{3}}
-  const { data: orgData } = await db
-    .from('organizations')
-    .select('name')
-    .eq('id', orgId)
-    .single();
-
-  const orgName = orgData?.name ?? 'HR Team';
-
-  // Build template variables array:
-  // 1 var  → [ message ]
-  // 2 vars → [ name, message ]
-  // 3 vars → [ name, message, orgName ]   ← {{1}}=name  {{2}}=message  {{3}}=org
-  const templateVars: string[] =
-    templateVarCount === 1
-      ? [message.trim()]
-      : templateVarCount === 3
-      ? [recipientName, message.trim(), orgName]
-      : [recipientName, message.trim()];
-
-  // ── Try 1: Free-form text (24h window) ───────────────────────────────────
   let sent = false;
   let lastError = '';
 
   try {
-    await sendText(to, message.trim(), orgId);
+    await sendSmartText(to, message.trim(), orgId, recipientName);
     sent = true;
   } catch (err: unknown) {
     lastError = err instanceof Error ? err.message : String(err);
-    const is24h      = lastError.includes('131047');
-    const isTestMode = lastError.includes('131021');
-
-    // ── Try 2: Template fallback ─────────────────────────────────────────
-    if ((is24h || isTestMode) && templateName) {
-      console.log(`[wa-send] Falling back to template "${templateName}" — vars: ${JSON.stringify(templateVars)}`);
-      try {
-        await sendTemplate(to, templateName, templateVars, templateLang, orgId);
-        sent = true;
-      } catch (tplErr: unknown) {
-        lastError = tplErr instanceof Error ? tplErr.message : String(tplErr);
-      }
-    }
   }
 
   if (!sent) {

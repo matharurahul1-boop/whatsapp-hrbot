@@ -13,43 +13,21 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient }         from '@/lib/supabase/admin';
-import { sendText, sendTemplate }    from '@/lib/whatsapp/client';
+import { sendSmartText }             from '@/lib/whatsapp/client';
 
 const HOUR_MS = 60 * 60 * 1000;
 
-// ── Helper: send a WA message (text first, template fallback) ────────────────
-
+// ── Helper: send a WA message, proactively template-routed outside the 24h window ──
+// orgName is accepted for call-site compatibility but no longer used directly —
+// sendSmartText looks up the org's template config itself.
 async function notifyViaWA(
   wa_number: string,
   message:   string,
   orgId:     string,
-  orgName:   string,
+  _orgName:  string,
   recipientName: string
 ): Promise<void> {
-  try {
-    await sendText(wa_number, message, orgId);
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    // Fallback to template if outside 24h window
-    if (msg.includes('131047') || msg.includes('131021')) {
-      const db   = createAdminClient();
-      const { data: org } = await db
-        .from('organizations')
-        .select('wa_message_template, wa_template_lang, wa_template_variables')
-        .eq('id', orgId)
-        .single();
-      const tplName  = org?.wa_message_template?.trim() ?? null;
-      const tplLang  = org?.wa_template_lang?.trim()    ?? 'en';
-      const tplVars  = (org?.wa_template_variables as number) ?? 2;
-      if (!tplName) throw new Error('No template configured and outside 24h window');
-      const vars = tplVars === 1 ? [message]
-                 : tplVars === 3 ? [recipientName, message, orgName]
-                 : [recipientName, message];
-      await sendTemplate(wa_number, tplName, vars, tplLang, orgId);
-    } else {
-      throw err;
-    }
-  }
+  await sendSmartText(wa_number, message, orgId, recipientName.split(' ')[0]);
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────

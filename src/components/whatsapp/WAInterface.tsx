@@ -200,22 +200,32 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
   }, [userWaNumber]);
 
   // ── Group logs into conversations ─────────────────────────────────────
+  // Group by the linked user's id when known, not raw wa_number — if an
+  // employee's registered WhatsApp number is ever corrected, their older
+  // messages (logged under the old number) would otherwise show up as a
+  // second, orphaned "chat" for the same person instead of merging into
+  // their one conversation. Numbers with no linked user (contacts, unknown
+  // senders) still group by wa_number as before.
   const conversations = useMemo<Conversation[]>(() => {
     const map = new Map<string, WaLog[]>();
     for (const log of allLogs) {
-      const arr = map.get(log.wa_number) ?? [];
+      const key = log.user?.id ?? log.wa_number;
+      const arr = map.get(key) ?? [];
       arr.push(log);
-      map.set(log.wa_number, arr);
+      map.set(key, arr);
     }
-    return Array.from(map.entries())
-      .map(([wa_number, msgs]) => {
+    return Array.from(map.values())
+      .map(msgs => {
         const sorted  = [...msgs].sort((a, b) =>
           new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
         );
         const last    = sorted[sorted.length - 1];
-        const name    = last.user?.full_name ?? last.contact_name ?? `+${wa_number}`;
+        const name    = last.user?.full_name ?? last.contact_name ?? `+${last.wa_number}`;
         return {
-          wa_number,
+          // Most recently used number for this identity — the one replies
+          // should target, since it reflects whatever number they're
+          // currently texting from.
+          wa_number:   last.wa_number,
           name,
           avatar:      last.user?.avatar_url ?? null,
           lastMessage: last.message_text ?? `[${last.message_type}]`,

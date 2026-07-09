@@ -3,7 +3,7 @@ import { GoogleGenerativeAI }  from '@google/generative-ai';
 import OpenAI                  from 'openai';
 import Groq                    from 'groq-sdk';
 import { loadSession, saveMessage, saveContext } from './memory';
-import { sendText }            from '@/lib/whatsapp/client';
+import { sendSmartText }       from '@/lib/whatsapp/client';
 import { parseDeadlineString, formatDateTime } from '@/lib/utils/date';
 import { EMPTY_CONTEXT }       from './types';
 import type { AgentTurn, AgentUser, ConversationContext, SupportedLanguage, ToolResult } from './types';
@@ -519,7 +519,7 @@ async function canonicalizeConfirmation(
   const canonicalStatus = (value: string): string | null => STATUS_CANONICAL[value.trim().toLowerCase().replace(/[_-]+/g, ' ')] ?? null;
 
   if (tool === 'create_task' && !args.priority) {
-    return { args, error: '❌ Please provide a valid priority: low, medium, high, or urgent.' };
+    args.priority = 'medium';
   }
   if (tool === 'create_task' && args.priority) {
     const value = canonicalPriority(args.priority);
@@ -610,16 +610,16 @@ const HRBOT_TOOLS: any[] = [
   },
   {
     name: 'create_task',
-    description: 'Create a new task. ONLY call AFTER user confirms AND you have title + deadline + priority. NEVER call without all three.',
+    description: 'Create a new task. ONLY call AFTER user confirms AND you have title + deadline. NEVER call without both. Priority is optional — defaults to medium if the user does not mention one.',
     parameters: {
       type: 'OBJECT',
       properties: {
         title:    { type: 'STRING', description: 'Short, clear task title' },
         assignee: { type: 'STRING', description: 'Assignee name or "me". Omit if self.' },
         deadline: { type: 'STRING', description: 'REQUIRED. Due date and time as "YYYY-MM-DD HH:MM" (24h IST). Use 17:00 (5 PM) if user gives only a date with no time. E.g. "2026-07-10 17:00"' },
-        priority: { type: 'STRING', description: 'REQUIRED. low | medium | high | urgent' },
+        priority: { type: 'STRING', description: 'OPTIONAL. low | medium | high | urgent. Defaults to medium if omitted.' },
       },
-      required: ['title', 'deadline', 'priority'],
+      required: ['title', 'deadline'],
     },
   },
   {
@@ -914,14 +914,14 @@ reject_leave, cancel_leave, check_in, check_out, set_reminder):
 2. End with "Go ahead? (Yes / No)"
 3. Only call the tool AFTER the user says Yes / Haan / Sure / Ok / Confirm / "Create the task" / "Do it" / "Go ahead".
 4. If user says No / Nahi / Cancel → say "Got it, cancelled. What else can I help with?"
-5. For create_task ONLY: If *title*, *deadline*, or *priority* are not all provided in the user's message, ask for ALL missing fields in ONE single message using this format:
+5. For create_task ONLY: If *title* or *deadline* are not both provided in the user's message, ask for the missing field(s) in ONE single message using this format:
 "Sure! Please provide the following:
 📝 *Title* (Required)
 📅 *Deadline* (Required) — e.g. tomorrow 5pm (defaults to 5:00 PM IST if no time given)
-🔴 *Priority* (Required) — High / Medium / Low / Urgent
+🔴 *Priority* (Optional — defaults to Medium if not provided) — High / Medium / Low / Urgent
 👤 *Assign To* (Optional — defaults to you if not provided)
 💬 *Description* (Optional)"
-NEVER send the confirmation until all three Required fields are collected.
+NEVER send the confirmation until both Required fields are collected. If the user never mentions a priority, default it to medium and say so in the confirmation sentence — do not ask for it separately.
 6. For create_task, ALWAYS include the assignee in the confirmation sentence: "for *you*" when self-assigned, "for *[Name]*" when assigned to someone else. Use the EXACT name the user typed — do NOT resolve or expand it to a full name. Example: "I'll create task *Fix bug* for *Tushar* due *2 Jul 2026, 05:00 PM* with *high* priority. Go ahead? (Yes / No)"
 
 ## CRITICAL: Never lose context mid-collection
@@ -1639,17 +1639,17 @@ async function runGroqLoop(
       if (pendingField === 'title')    { merged.title = message.trim(); usedFullForm = true; }
     }
 
-    // Case A: Full 5-field form (title + deadline + priority minimum)
-    if (lines.length >= 3) {
+    // Case A: Full form (title + deadline minimum — priority optional, defaults to medium)
+    if (lines.length >= 2) {
       const rawPri = lines[2]?.trim() ?? '';
-      const validPri = /^(high|medium|low|urgent)$/i.test(rawPri);
+      const validPri = !rawPri || /^(high|medium|low|urgent)$/i.test(rawPri);
       const iso = lines[0] && lines[1] ? naturalDateToISO(lines[1]) : null;
       if (lines[0] && iso && validPri) {
         const time = extractTimeFromText(lines[1]) ?? '17:00';
         merged = {
           title:       lines[0],
           deadline:    `${iso} ${time}`,
-          priority:    rawPri.toLowerCase(),
+          priority:    rawPri ? rawPri.toLowerCase() : 'medium',
           assignee:    lines[3]?.trim() ?? '',
           description: lines.slice(4).join(' ').trim(),
         };
@@ -1783,7 +1783,8 @@ async function runGroqLoop(
       : '(not set)';
 
     const who = displayAssignee ? `*${displayAssignee}*` : '*you*';
-    const priLow = (merged.priority ?? '').toLowerCase();
+    const priLow = (merged.priority ?? 'medium').toLowerCase();
+    merged.priority = priLow;
     const confReply = `I'll create task *${merged.title ?? '(no title)'}* for ${who} due *${dlFmt}* with *${priLow}* priority${merged.description ? `. Description: "${merged.description.slice(0, 80)}"` : ''}. Go ahead? (Yes / No)`;
 
     // Store new CONFIRMING state with merged payload.
@@ -1826,7 +1827,8 @@ async function runGroqLoop(
       const merged: Record<string, string> = { ...dpCtx.edit_base, deadline };
       const displayAssignee = merged.assignee ?? '';
       const who    = displayAssignee ? `*${displayAssignee}*` : '*you*';
-      const priLow = (merged.priority ?? '').toLowerCase();
+      const priLow = (merged.priority ?? 'medium').toLowerCase();
+      merged.priority = priLow;
       const confReply = `I'll create task *${merged.title ?? '(no title)'}* for ${who} due *${dlFmt}* with *${priLow}* priority${merged.description ? `. Description: "${merged.description.slice(0, 80)}"` : ''}. Go ahead? (Yes / No)`;
       await saveContext(convId, {
         ...EMPTY_CONTEXT, language: ctx.language,
@@ -2020,7 +2022,7 @@ async function runGroqLoop(
           `👤 *Assign To:* ${a.assignee || '(you)'}`,
           ...(a.description ? [`💬 *Description:* ${a.description}`] : []),
         ].join('\n');
-        return `Current details:\n${ref}\n\nWhat would you like to change? You can either:\n• Reply with a correction (e.g. _"Assign to Tushar Bali"_, _"Deadline 10 Jul 3pm"_, _"High priority"_)\n• Or re-enter all fields:\n📝 *Title* (Required)\n📅 *Deadline* (Required) — e.g. tomorrow 5pm (defaults to 5:00 PM IST if no time given)\n🔴 *Priority* (Required) — High / Medium / Low / Urgent\n👤 *Assign To* (Optional — defaults to you if not provided)\n💬 *Description* (Optional)`;
+        return `Current details:\n${ref}\n\nWhat would you like to change? You can either:\n• Reply with a correction (e.g. _"Assign to Tushar Bali"_, _"Deadline 10 Jul 3pm"_, _"High priority"_)\n• Or re-enter all fields:\n📝 *Title* (Required)\n📅 *Deadline* (Required) — e.g. tomorrow 5pm (defaults to 5:00 PM IST if no time given)\n🔴 *Priority* (Optional — defaults to Medium if not provided) — High / Medium / Low / Urgent\n👤 *Assign To* (Optional — defaults to you if not provided)\n💬 *Description* (Optional)`;
       }
       // Non-create-task confirmation edit — give context-aware prompt
       console.log('[Agent] Context shortcircuit: EDIT on non-create → clear + rephrase prompt');
@@ -2205,7 +2207,7 @@ async function runGroqLoop(
       const rawPri  = lines[2]?.trim() ?? '';
       const assignTo = lines[3]?.trim() ?? '';
       const desc    = lines.slice(4).join(' ').trim();
-      const validPri = /^(high|medium|low|urgent)$/i.test(rawPri);
+      const validPri = !rawPri || /^(high|medium|low|urgent)$/i.test(rawPri);
       const iso     = title && rawDl ? naturalDateToISO(rawDl) : null;
 
       if (title && iso && validPri) {
@@ -2216,7 +2218,7 @@ async function runGroqLoop(
         const min       = time.split(':')[1];
         const timeFmt   = `${h > 12 ? h - 12 : h || 12}:${min} ${h >= 12 ? 'PM' : 'AM'}`;
         const dlFmt     = `${parseInt(d)} ${MONTHS[parseInt(mo) - 1]} ${y}, ${timeFmt}`;
-        const priLow    = rawPri.toLowerCase();
+        const priLow    = rawPri ? rawPri.toLowerCase() : 'medium';
         // Resolve typed name to full name from DB for the confirmation display
         let displayAssignee = assignTo;
         if (assignTo) {
@@ -2234,7 +2236,7 @@ async function runGroqLoop(
       }
 
       // Could not parse all required fields — ask Groq but with a targeted hint
-      effectiveMessage = `${message}\n[INSTRUCTION: The user just provided task fields. Parse them and generate the confirmation message, or ask clearly for any missing/unparseable required fields (title, deadline, priority).]`;
+      effectiveMessage = `${message}\n[INSTRUCTION: The user just provided task fields. Parse them and generate the confirmation message. Priority is optional — default to medium if not mentioned. Only ask again for missing/unparseable required fields (title, deadline).]`;
     }
   }
 
@@ -2840,7 +2842,7 @@ async function sendUserNotifications(
     try {
       const { data: u, error: userError } = await db
         .from('users')
-        .select('wa_number')
+        .select('wa_number, full_name')
         .eq('id', notif.user_id)
         .eq('organization_id', orgId)
         .single();
@@ -2849,7 +2851,10 @@ async function sendUserNotifications(
       if (!u?.wa_number) throw new Error('Recipient has no WhatsApp number configured.');
 
       // orgId is required for organization credentials and wa_logs ownership.
-      await sendText(u.wa_number, notif.message, orgId);
+      // sendSmartText (not sendText) — checks the recipient's actual 24h
+      // window and routes through the approved template when they're
+      // outside it, instead of risking a silent late-failing free-form send.
+      await sendSmartText(u.wa_number, notif.message, orgId, (u.full_name ?? 'there').split(' ')[0]);
       status = 'sent';
     } catch (err) {
       failureReason = err instanceof Error ? err.message : String(err);

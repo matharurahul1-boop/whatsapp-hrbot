@@ -323,15 +323,9 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       low: 'low', lo: 'low', minor: 'low',
     };
     const rawPriority = (slots.priority as string | null)?.toLowerCase().trim() ?? '';
-    const taskPriority = PRIORITY_MAP[rawPriority] ?? null;
-    if (!taskPriority) {
-      return {
-        success: false,
-        reply: lang === 'hi'
-          ? '❌ Priority बताएं: low / medium / high / urgent में से एक'
-          : '❌ Please provide a priority: low / medium / high / urgent',
-      };
-    }
+    // Priority is optional — default to medium when the caller didn't mention
+    // one, rather than blocking task creation on an extra round-trip.
+    const taskPriority = PRIORITY_MAP[rawPriority] ?? 'medium';
 
     // Read assignee's reminder preference to auto-set reminders on the task.
     // Default: '1_day' (morning-before reminder). User can override via bot.

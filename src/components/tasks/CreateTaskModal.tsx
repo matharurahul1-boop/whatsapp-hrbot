@@ -46,7 +46,7 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
     description: '',
     assignee_id: '',
     deadline:    '',   // datetime-local format: YYYY-MM-DDTHH:MM
-    priority:    '',
+    priority:    'medium',
     reminders:   ['1_hour'] as string[],
   });
 
@@ -60,7 +60,6 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
     if (!form.title.trim()) e.title       = 'Title is required';
     if (!form.assignee_id)  e.assignee_id = 'Assignee is required';
     if (!form.deadline)     e.deadline    = 'Deadline is required';
-    if (!form.priority)     e.priority    = 'Priority is required';
     return e;
   }
 
@@ -93,7 +92,7 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
       }
 
       setOpen(false);
-      setForm({ title: '', description: '', assignee_id: '', deadline: '', priority: '', reminders: ['1_hour'] });
+      setForm({ title: '', description: '', assignee_id: '', deadline: '', priority: 'medium', reminders: ['1_hour'] });
       setErrors({});
       router.refresh();
     } finally {
@@ -155,12 +154,11 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
                 </SelectNative>
 
                 <SelectNative
-                  label="Priority *"
+                  label="Priority"
                   value={form.priority}
                   onChange={e => set('priority', e.target.value)}
                   error={errors.priority}
                 >
-                  <option value="">Select priority</option>
                   {PRIORITIES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
                 </SelectNative>
               </div>

@@ -12,7 +12,7 @@ const CreateTaskSchema = z.object({
   description: z.string().max(2000).optional(),
   assignee_id: z.string().uuid(),
   deadline:    z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/),   // required datetime
-  priority:    z.enum(['low','medium','high','urgent']),                  // required, no default
+  priority:    z.enum(['low','medium','high','urgent']).default('medium'),
   status:      z.enum(['todo','in_progress','done','cancelled']).default('todo'),
   reminders:   z.array(z.string()).optional(),
 });

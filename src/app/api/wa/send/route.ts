@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { sendText, sendButtons, sendList } from '@/lib/whatsapp/client';
+import { sendSmartText, sendButtons, sendList } from '@/lib/whatsapp/client';
+import { createAdminClient }         from '@/lib/supabase/admin';
 import type { WAListAction } from '@/types/whatsapp.types';
 
 export async function POST(req: NextRequest) {
@@ -29,7 +30,10 @@ export async function POST(req: NextRequest) {
       );
       console.log(`[wa/send] ✅ Sent list to ${to}: "${String(text).slice(0, 60)}"`);
     } else {
-      await sendText(to, text, organization_id ?? '');
+      const db = createAdminClient();
+      const { data: recipient } = await db.from('users').select('full_name')
+        .eq('wa_number', to).eq('organization_id', organization_id ?? '').maybeSingle();
+      await sendSmartText(to, text, organization_id ?? '', recipient?.full_name?.split(' ')[0] ?? 'there');
       console.log(`[wa/send] ✅ Sent to ${to}: "${String(text).slice(0, 60)}"`);
     }
     return NextResponse.json({ ok: true });

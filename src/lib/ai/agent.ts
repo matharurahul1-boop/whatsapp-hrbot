@@ -531,6 +531,15 @@ async function canonicalizeConfirmation(
     if (result.error) return { args, error: result.error };
     args.assignee = result.name!;
   }
+  // The model occasionally miscomputes a deadline itself (e.g. "1:30pm" →
+  // "25:30" by double-adding the PM offset) when a phrasing doesn't match
+  // any deterministic parser earlier in the flow. buildToolConfirmation
+  // silently falls back to showing that raw invalid string if left
+  // unchecked, producing a confirmation that only fails *after* the user
+  // says Yes — catch it here instead and ask for a valid deadline.
+  if (tool === 'create_task' && args.deadline && !parseDeadlineString(args.deadline)) {
+    return { args, error: '❌ That deadline doesn\'t look valid. Please provide a date and time, e.g. "tomorrow 1:30pm" or "10 Jul 2026 3pm".' };
+  }
   if (tool === 'assign_task' && args.assignee) {
     const result = await canonicalUser(args.assignee);
     if (result.error) return { args, error: result.error };
@@ -559,6 +568,8 @@ async function canonicalizeConfirmation(
         const result = await canonicalUser(args[valueKey]);
         if (result.error) return { args, error: result.error };
         args[valueKey] = result.name!;
+      } else if (field === 'deadline' && !parseDeadlineString(args[valueKey])) {
+        return { args, error: '❌ That deadline doesn\'t look valid. Please provide a date and time, e.g. "tomorrow 1:30pm" or "10 Jul 2026 3pm".' };
       }
     }
   }

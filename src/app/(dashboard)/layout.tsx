@@ -9,6 +9,7 @@ import { SidebarShell } from '@/components/layout/SidebarShell';
 import { ContentShell } from '@/components/layout/ContentShell';
 import BottomNav from '@/components/layout/BottomNav';
 import PushNotificationManager from '@/components/layout/PushNotificationManager';
+import { ToastProvider } from '@/components/ui/Toast';
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
@@ -28,6 +29,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   return (
     <ThemeProvider>
+      <ToastProvider>
       <SidebarProvider>
         <div className="flex h-screen overflow-hidden bg-surface-50">
           {/* Sidebar — fixed, collapses on desktop / slides as overlay on mobile */}
@@ -46,7 +48,13 @@ export default async function DashboardLayout({ children }: { children: React.Re
             <main className="flex-1 overflow-hidden flex flex-col">
               {/* Extra bottom padding on mobile so content clears the bottom nav */}
               <div className="flex-1 overflow-y-auto overflow-x-hidden no-scrollbar">
-                <div className="p-4 pb-24 md:p-6 md:pb-24 lg:p-8 lg:pb-8 overflow-x-hidden">
+                {/* No overflow utility here (deliberately) — any non-visible overflow
+                    value on this div, on either axis, makes it a "scroll container" per
+                    the CSS spec even though it never actually scrolls (its height is
+                    intrinsic), which makes position:sticky descendants (page headers)
+                    anchor to this static div instead of the real scrolling div above and
+                    never stick. The outer div's overflow-x-hidden already clips width. */}
+                <div className="p-4 pb-24 md:p-6 md:pb-24 lg:p-8 lg:pb-8">
                   <ContentShell>{children}</ContentShell>
                 </div>
               </div>
@@ -59,6 +67,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
         <PushNotificationManager />
       </SidebarProvider>
+      </ToastProvider>
     </ThemeProvider>
   );
 }

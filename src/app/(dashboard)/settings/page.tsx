@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import { normalizeWaNumber } from '@/lib/utils/phone';
+import { useToast } from '@/components/ui/Toast';
 
 // ── tiny helpers ─────────────────────────────────────────────────────────────
 function Section({ title, description, icon, children }: {
@@ -62,6 +63,7 @@ function TextInput({ value, onChange, placeholder, disabled, type = 'text' }: {
 export default function SettingsPage() {
   const supabase = createClient();
   const router   = useRouter();
+  const { toast } = useToast();
 
   const [loading, setLoading]   = useState(true);
   const [saving,  setSaving]    = useState(false);
@@ -91,6 +93,7 @@ export default function SettingsPage() {
   // comma-separated string when saved (that's the format the API stores)
   const [groqKeys,        setGroqKeys]        = useState<string[]>(['']);
   const [groqKeysCount,   setGroqKeysCount]   = useState(0);
+  const [groqKeysSource,  setGroqKeysSource]  = useState<'org' | 'server'>('server');
   const [visibleGroqKeys, setVisibleGroqKeys] = useState<Set<number>>(new Set());
   const [savingGroq,      setSavingGroq]      = useState(false);
   const [groqSaved,       setGroqSaved]       = useState(false);
@@ -194,6 +197,7 @@ export default function SettingsPage() {
         setAiBackend((org as any).settings?.ai_backend === 'claude' ? 'claude' : 'groq');
         setGroqKeysCount(org.groq_api_keys_count ?? 0);
         setGroqKeys(Array.isArray(org.groq_api_keys) && org.groq_api_keys.length > 0 ? org.groq_api_keys : ['']);
+        setGroqKeysSource(org.groq_api_keys_source === 'org' ? 'org' : 'server');
       }
     }
 
@@ -217,7 +221,7 @@ export default function SettingsPage() {
       .update({ full_name: fullName, wa_number: cleanWaNumber || null, department, designation, avatar_url: avatarUrl })
       .eq('id', userId);
 
-    if (err) { setError(err.message); setSaving(false); return; }
+    if (err) { setError(err.message); toast(err.message, 'error'); setSaving(false); return; }
 
     if (isAdmin && orgId) {
       const orgRes = await fetch('/api/organizations/settings', {
@@ -238,6 +242,7 @@ export default function SettingsPage() {
           ? orgErr.error
           : 'Failed to save organisation settings';
         setError(errMsg);
+        toast(errMsg, 'error');
         setSaving(false);
         return;
       }
@@ -257,6 +262,7 @@ export default function SettingsPage() {
 
     setSaving(false);
     setSaved(true);
+    toast('Profile saved.');
     setTimeout(() => setSaved(false), 3000);
   }
 
@@ -301,12 +307,16 @@ export default function SettingsPage() {
       });
       if (!res.ok) {
         const json = await res.json().catch(() => ({}));
-        setGroqError(typeof json.error === 'string' ? json.error : 'Failed to save Groq keys');
+        const msg = typeof json.error === 'string' ? json.error : 'Failed to save Groq keys';
+        setGroqError(msg);
+        toast(msg, 'error');
         return;
       }
       setGroqKeysCount(filled.length);
       setGroqKeys(filled.length > 0 ? filled : ['']);
+      setGroqKeysSource(filled.length > 0 ? 'org' : 'server');
       setGroqSaved(true);
+      toast('Groq keys saved.');
       setTimeout(() => setGroqSaved(false), 2500);
     } finally {
       setSavingGroq(false);
@@ -320,11 +330,12 @@ export default function SettingsPage() {
     setPwError('');
 
     const { error: err } = await supabase.auth.updateUser({ password: newPw });
-    if (err) { setPwError(err.message); setSavingPw(false); return; }
+    if (err) { setPwError(err.message); toast(err.message, 'error'); setSavingPw(false); return; }
 
     setNewPw('');
     setSavingPw(false);
     setPwSaved(true);
+    toast('Password updated.');
     setTimeout(() => setPwSaved(false), 3000);
   }
 
@@ -344,7 +355,10 @@ export default function SettingsPage() {
       });
       if (res.ok) {
         setAiSaved(true);
+        toast('AI backend updated.');
         setTimeout(() => setAiSaved(false), 2500);
+      } else {
+        toast('Failed to save AI backend.', 'error');
       }
     } finally {
       setSavingAi(false);
@@ -361,6 +375,7 @@ export default function SettingsPage() {
       };
       await supabase.from('users').update({ metadata: merged }).eq('id', userId);
       setRemindersSaved(true);
+      toast('Reminder settings saved.');
       setTimeout(() => setRemindersSaved(false), 2500);
     } finally {
       setSavingReminders(false);
@@ -634,9 +649,9 @@ export default function SettingsPage() {
             icon={<KeyRound className="h-4 w-4" />}
           >
             <p className="text-xs text-surface-600">
-              {groqKeysCount > 0
-                ? `${groqKeysCount} key${groqKeysCount === 1 ? '' : 's'} currently configured.`
-                : 'No org-specific keys configured — using the server default.'}
+              {groqKeysSource === 'org'
+                ? `${groqKeysCount} org-specific key${groqKeysCount === 1 ? '' : 's'} currently active.`
+                : 'No org-specific keys saved yet — showing the server-default key(s) currently powering the bot. Edit and save to switch to your own.'}
             </p>
             {groqError && (
               <div className="flex items-center gap-2 rounded-lg border border-danger/20 bg-danger/10 px-3 py-2.5 text-sm text-danger">

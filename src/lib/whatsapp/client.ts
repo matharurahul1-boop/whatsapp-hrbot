@@ -225,6 +225,36 @@ function buildTemplateVars(varsCount: number | null | undefined, name: string, b
   return [flatBody];
 }
 
+interface OrgTemplateConfig {
+  wa_message_template: string | null;
+  wa_template_lang:    string | null;
+  wa_template_variables: number | null;
+  name: string | null;
+}
+
+// wa_template_variables was added by a migration that (as of this writing)
+// hasn't been run in every environment yet — selecting it alongside the
+// other columns then fails the *entire* query (PGRST204), silently
+// disabling template fallback. Retry without it and default to 2 vars
+// (name + message), which matches every template this app currently ships,
+// rather than let the whole org lookup come back empty.
+async function fetchOrgTemplateConfig(orgId: string): Promise<OrgTemplateConfig | null> {
+  const db = createAdminClient();
+  const full = await db
+    .from('organizations')
+    .select('wa_message_template, wa_template_lang, wa_template_variables, name')
+    .eq('id', orgId)
+    .maybeSingle();
+  if (!full.error) return full.data;
+
+  const partial = await db
+    .from('organizations')
+    .select('wa_message_template, wa_template_lang, name')
+    .eq('id', orgId)
+    .maybeSingle();
+  return partial.data ? { ...partial.data, wa_template_variables: 2 } : null;
+}
+
 // ── Template fallback for automated sends ─────────────────────────────────
 //
 // A brand-new recipient (e.g. a just-created employee's welcome message)
@@ -246,12 +276,7 @@ async function sendMetaWithTemplateFallback(
     const msg = err instanceof Error ? err.message : String(err);
     if (!msg.includes('131047') && !msg.includes('131021')) throw err;
 
-    const db = createAdminClient();
-    const { data: org } = await db
-      .from('organizations')
-      .select('wa_message_template, wa_template_lang, wa_template_variables, name')
-      .eq('id', opts.orgId)
-      .maybeSingle();
+    const org = await fetchOrgTemplateConfig(opts.orgId);
     if (!org?.wa_message_template) throw err;
 
     const vars = buildTemplateVars(org.wa_template_variables, recipientName, body, org.name ?? '');
@@ -355,12 +380,7 @@ export async function sendFirstContactText(
   recipientName: string,
   logText?:      string,
 ): Promise<WAApiResponse> {
-  const db = createAdminClient();
-  const { data: org } = await db
-    .from('organizations')
-    .select('wa_message_template, wa_template_lang, wa_template_variables, name')
-    .eq('id', orgId)
-    .maybeSingle();
+  const org = await fetchOrgTemplateConfig(orgId);
 
   if (org?.wa_message_template) {
     const vars = buildTemplateVars(org.wa_template_variables, recipientName, body, org.name ?? '');

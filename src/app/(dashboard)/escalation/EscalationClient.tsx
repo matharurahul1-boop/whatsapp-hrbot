@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import RefreshButton from '@/components/ui/RefreshButton';
+import { useToast } from '@/components/ui/Toast';
 
 interface LeaveRequest {
   id:                   string;
@@ -30,6 +31,7 @@ interface EscalationResult {
 }
 
 export default function EscalationClient({ initialLeaves }: { initialLeaves: LeaveRequest[] }) {
+  const { toast } = useToast();
   const [leaves,   setLeaves]   = useState(initialLeaves);
   // Same stale-state fix as EmployeeGrid — router.refresh() only helps if
   // we actually pick up the new prop value on re-render.
@@ -74,8 +76,10 @@ export default function EscalationClient({ initialLeaves }: { initialLeaves: Lea
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? 'Escalation failed');
       setResult(json);
+      toast(`Escalation run complete — ${json.actions} action${json.actions === 1 ? '' : 's'} taken.`);
     } catch (err) {
       setError(String(err));
+      toast(String(err), 'error');
     } finally {
       setRunning(false);
     }

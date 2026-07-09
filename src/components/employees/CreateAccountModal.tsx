@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { SelectOrCustom } from '@/components/ui/SelectOrCustom';
 import { ROLE_LABEL, isAdminOrAbove, isSuperAdmin, type UserRole } from '@/lib/rbac';
 import { DEPARTMENT_OPTIONS, JOB_TITLE_OPTIONS } from '@/lib/constants/org-fields';
+import { useToast } from '@/components/ui/Toast';
 
 const ALL_ROLES: UserRole[] = ['employee', 'manager', 'hr', 'admin', 'super_admin'];
 
@@ -29,6 +30,7 @@ const EMPTY: FormState = {
 
 export default function CreateAccountModal({ actorRole }: { actorRole: string }) {
   const router = useRouter();
+  const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY);
   const [showPw, setShowPw] = useState(false);
@@ -87,15 +89,18 @@ export default function CreateAccountModal({ actorRole }: { actorRole: string })
             ? Object.values(json.error.fieldErrors).flat().join(', ') || 'Account creation failed'
             : 'Account creation failed';
         setError(message);
+        toast(message, 'error');
         setLoading(false);
         return;
       }
 
       setLoading(false);
+      toast(`Account created for ${form.full_name.trim()}.`);
       close();
       router.refresh();
     } catch {
       setError('Account creation failed — please check your connection and try again');
+      toast('Account creation failed — please check your connection and try again', 'error');
       setLoading(false);
     }
   }

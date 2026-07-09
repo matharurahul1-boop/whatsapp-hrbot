@@ -72,7 +72,7 @@ export default async function DashboardPage() {
   return (
     <div className="space-y-8 max-w-7xl mx-auto animate-fade-up">
       {/* ── Header ── */}
-      <div className="flex items-start justify-between">
+      <div className="page-header">
         <div>
           <h2 className="text-xl sm:text-2xl font-bold text-surface-950">
             {greeting}, {firstName} 👋

@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import { ExpandText } from '@/components/ui/ExpandText';
+import { useToast } from '@/components/ui/Toast';
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -139,6 +140,7 @@ function Avatar({ name, src, size = 40 }: { name: string; src?: string | null; s
 // ── Main component ────────────────────────────────────────────────────────
 
 export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber, userRole = 'hr', userWaNumber }: Props) {
+  const { toast } = useToast();
   const [search,          setSearch]          = useState('');
   const [selectedNumber,  setSelectedNumber]  = useState<string | null>(null);
   const [allLogs,         setAllLogs]         = useState<WaLog[]>(logs);
@@ -380,7 +382,9 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
         const json = await res.json();
 
         if (!res.ok) {
-          setSendError(json.error ?? 'Failed to send');
+          const msg = json.error ?? 'Failed to send';
+          setSendError(msg);
+          toast(msg, 'error');
           setAllLogs(prev => prev.filter(l => l.id !== optimisticId));
           setReplyText(text);
         } else if (json.log) {
@@ -388,6 +392,7 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
         }
       } catch {
         setSendError('Network error — message not sent');
+        toast('Network error — message not sent', 'error');
         setAllLogs(prev => prev.filter(l => l.id !== optimisticId));
         setReplyText(text);
       } finally {

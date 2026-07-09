@@ -23,16 +23,24 @@ export async function POST(req: NextRequest) {
   const { endpoint, keys } = parsed.data;
 
   const db = createAdminClient();
-  const { error } = await db.from('push_subscriptions').upsert(
-    {
-      user_id:    user.id,
-      endpoint,
-      p256dh:     keys.p256dh,
-      auth:       keys.auth,
-      user_agent: req.headers.get('user-agent') ?? null,
-    },
-    { onConflict: 'endpoint' },
-  );
+  const row = {
+    user_id:    user.id,
+    endpoint,
+    p256dh:     keys.p256dh,
+    auth:       keys.auth,
+    user_agent: req.headers.get('user-agent') ?? null,
+  };
+
+  // Conflict target is (user_id, endpoint), not endpoint alone — an endpoint
+  // is tied to the browser/device, not to who's logged in, so a shared or
+  // reused browser can hold one subscription row per user, not just the
+  // most recent login (see migration 018). Falls back to the old endpoint-only
+  // conflict target if that migration hasn't run yet, rather than failing
+  // subscribe outright with "no unique constraint matches".
+  let { error } = await db.from('push_subscriptions').upsert(row, { onConflict: 'user_id,endpoint' });
+  if (error?.message.includes('no unique or exclusion constraint')) {
+    ({ error } = await db.from('push_subscriptions').upsert(row, { onConflict: 'endpoint' }));
+  }
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });

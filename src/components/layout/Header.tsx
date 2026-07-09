@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import { Bell, LogOut, X, ChevronRight, Home, Sun, Moon } from 'lucide-react';
+import { Bell, LogOut, X, ChevronRight, Home, Sun, Moon, ExternalLink } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Avatar } from '@/components/ui/Avatar';
-import { ConfirmDialog } from '@/components/ui/Modal';
+import { ConfirmDialog, Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '@/components/ui/Modal';
+import { Button } from '@/components/ui/Button';
 import { cn } from '@/lib/utils/cn';
 import { useTheme } from '@/components/layout/ThemeProvider';
 import { useSidebar } from '@/components/layout/SidebarProvider';
@@ -50,6 +51,7 @@ export default function Header({ userName, userRole, avatarUrl }: HeaderProps) {
   const [unread,    setUnread]    = useState(0);
   const [signOutOpen,    setSignOutOpen]    = useState(false);
   const [signingOut,     setSigningOut]     = useState(false);
+  const [viewingNotif,   setViewingNotif]   = useState<Notification | null>(null);
 
   // Breadcrumbs
   const segments = pathname.split('/').filter(Boolean);
@@ -92,6 +94,20 @@ export default function Header({ userName, userRole, avatarUrl }: HeaderProps) {
     await fetch('/api/notifications', { method: 'PATCH', body: '{}', headers: { 'Content-Type': 'application/json' } });
     setNotifs(n => n.map(x => ({ ...x, is_read: true })));
     setUnread(0);
+  }
+
+  function openNotification(n: Notification) {
+    setNotifOpen(false);
+    setViewingNotif(n);
+    if (!n.is_read) {
+      fetch('/api/notifications', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: [n.id] }),
+      }).catch(() => {});
+      setNotifs(prev => prev.map(x => x.id === n.id ? { ...x, is_read: true } : x));
+      setUnread(u => Math.max(0, u - 1));
+    }
   }
 
   const timeAgo = (d: string) => {
@@ -195,7 +211,7 @@ export default function Header({ userName, userRole, avatarUrl }: HeaderProps) {
                 ) : notifs.map(n => (
                   <div
                     key={n.id}
-                    onClick={() => { if (n.action_url) router.push(n.action_url); setNotifOpen(false); }}
+                    onClick={() => openNotification(n)}
                     className={cn(
                       'flex gap-3 px-4 py-3 cursor-pointer hover:bg-surface-200/50 transition-colors',
                       !n.is_read && 'bg-brand-500/[0.04]'
@@ -235,6 +251,33 @@ export default function Header({ userName, userRole, avatarUrl }: HeaderProps) {
           <LogOut className="h-4 w-4" />
         </button>
       </div>
+
+      <Dialog open={!!viewingNotif} onOpenChange={o => { if (!o) setViewingNotif(null); }}>
+        <DialogContent size="sm">
+          <DialogHeader>
+            <DialogTitle>{viewingNotif?.title}</DialogTitle>
+          </DialogHeader>
+          <DialogBody>
+            <p className="text-sm text-surface-800 whitespace-pre-wrap">{viewingNotif?.body}</p>
+            {viewingNotif && (
+              <p className="text-xs text-surface-500 mt-3">{timeAgo(viewingNotif.created_at)}</p>
+            )}
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="ghost" size="md" onClick={() => setViewingNotif(null)}>Close</Button>
+            {viewingNotif?.action_url && (
+              <Button
+                variant="primary"
+                size="md"
+                className="gap-1.5"
+                onClick={() => { const url = viewingNotif.action_url!; setViewingNotif(null); router.push(url); }}
+              >
+                <ExternalLink className="h-3.5 w-3.5" /> Go to details
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <ConfirmDialog
         open={signOutOpen}

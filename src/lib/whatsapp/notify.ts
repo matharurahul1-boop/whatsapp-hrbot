@@ -13,7 +13,7 @@
  */
 
 import { createAdminClient } from '@/lib/supabase/admin';
-import { sendText, sendFirstContactText } from '@/lib/whatsapp/client';
+import { sendSmartText } from '@/lib/whatsapp/client';
 import { sendPush } from '@/lib/push/send';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -34,11 +34,12 @@ function firstName(fullName: string | null | undefined): string {
   return (fullName ?? 'there').split(' ')[0];
 }
 
-/** Lookup a user's wa_number. Returns null if not set. */
-async function getWaNumber(userId: string): Promise<string | null> {
+/** Lookup a user's wa_number + name together — sendSmartText needs both. */
+async function getWaAndName(userId: string): Promise<{ wa_number: string; full_name: string } | null> {
   const db = createAdminClient();
-  const { data } = await db.from('users').select('wa_number').eq('id', userId).single();
-  return data?.wa_number ?? null;
+  const { data } = await db.from('users').select('wa_number, full_name').eq('id', userId).single();
+  if (!data?.wa_number) return null;
+  return { wa_number: data.wa_number, full_name: data.full_name };
 }
 
 /** Fire-and-forget wrapper — always resolves, never rejects. */
@@ -83,7 +84,7 @@ export async function notifyTaskAssigned(opts: {
         `🗓 Deadline: *${fmtDate(opts.deadline)}*\n` +
         `👤 Assigned by: *${opts.creatorName}*\n\n` +
         `Reply *my tasks* to view all your pending tasks.`;
-      sends.push(sendText(assignee.wa_number, msg, opts.orgId));
+      sends.push(sendSmartText(assignee.wa_number, msg, opts.orgId, firstName(assignee.full_name)));
     }
 
     await Promise.all(sends);
@@ -98,7 +99,7 @@ export async function notifyTaskCompleted(opts: {
   creatorId: string;
 }): Promise<void> {
   return fire('TaskCompleted', async () => {
-    const waNum = await getWaNumber(opts.creatorId);
+    const creator = await getWaAndName(opts.creatorId);
 
     const sends: Promise<unknown>[] = [
       sendPush(opts.creatorId, {
@@ -109,17 +110,17 @@ export async function notifyTaskCompleted(opts: {
       }),
     ];
 
-    if (waNum) {
+    if (creator) {
       const msg =
         `✅ *Task completed!*\n\n` +
         `*${opts.taskTitle}*\n` +
         `Marked done by: *${opts.completedByName}*\n\n` +
         `Reply *my tasks* to view remaining tasks.`;
-      sends.push(sendText(waNum, msg, opts.orgId));
+      sends.push(sendSmartText(creator.wa_number, msg, opts.orgId, firstName(creator.full_name)));
     }
 
     await Promise.all(sends);
-    console.log(`[Notify:TaskCompleted] ✅ push${waNum ? ' + wa:' + waNum : ' only'}`);
+    console.log(`[Notify:TaskCompleted] ✅ push${creator ? ' + wa:' + creator.wa_number : ' only'}`);
   });
 }
 
@@ -153,7 +154,7 @@ export async function notifyTaskUpdated(opts: {
         `${opts.field} changed to: *${opts.value}*\n` +
         `Updated by: *${opts.updaterName}*\n\n` +
         `Reply *my tasks* to view your tasks.`;
-      sends.push(sendText(assignee.wa_number, msg, opts.orgId));
+      sends.push(sendSmartText(assignee.wa_number, msg, opts.orgId, firstName(assignee.full_name)));
     }
 
     await Promise.all(sends);
@@ -187,7 +188,7 @@ export async function notifyTaskDeleted(opts: {
         `🗑️ *Task removed, ${firstName(assignee.full_name)}!*\n\n` +
         `*${opts.taskTitle}* has been deleted by *${opts.deleterName}*.\n\n` +
         `Reply *my tasks* to view your remaining tasks.`;
-      sends.push(sendText(assignee.wa_number, msg, opts.orgId));
+      sends.push(sendSmartText(assignee.wa_number, msg, opts.orgId, firstName(assignee.full_name)));
     }
 
     await Promise.all(sends);
@@ -230,7 +231,7 @@ export async function notifyTaskDeadlineReminder(opts: {
       `Due: *${deadlineStr}*\n\n` +
       `Reply *my tasks* to view and update your tasks.`;
 
-    await sendText(opts.waNumber, msg, opts.orgId);
+    await sendSmartText(opts.waNumber, msg, opts.orgId, firstName(opts.assigneeName));
     console.log(`[Notify:TaskDeadline] ✅ ${opts.waNumber}`);
   });
 }
@@ -265,7 +266,7 @@ export async function notifyLeaveSubmitted(opts: {
     }
 
     if (!targetId) return;
-    const waNum = await getWaNumber(targetId);
+    const target = await getWaAndName(targetId);
 
     const isSingle = opts.startDate === opts.endDate;
     const dateStr  = isSingle
@@ -281,7 +282,7 @@ export async function notifyLeaveSubmitted(opts: {
       }),
     ];
 
-    if (waNum) {
+    if (target) {
       const msg =
         `📩 *New leave request*\n\n` +
         `👤 *${opts.employeeName}*\n` +
@@ -290,11 +291,11 @@ export async function notifyLeaveSubmitted(opts: {
         (opts.reason ? `💬 "${opts.reason}"\n` : '') +
         `\nReply *approve leave for ${opts.employeeName.split(' ')[0]}* or ` +
         `*reject leave for ${opts.employeeName.split(' ')[0]}* to action.`;
-      sends.push(sendText(waNum, msg, opts.orgId));
+      sends.push(sendSmartText(target.wa_number, msg, opts.orgId, firstName(target.full_name)));
     }
 
     await Promise.all(sends);
-    console.log(`[Notify:LeaveSubmitted] ✅ push${waNum ? ' + wa:' + waNum : ' only'}`);
+    console.log(`[Notify:LeaveSubmitted] ✅ push${target ? ' + wa:' + target.wa_number : ' only'}`);
   });
 }
 
@@ -309,7 +310,7 @@ export async function notifyLeaveDecision(opts: {
   remarks?: string | null;
 }): Promise<void> {
   return fire('LeaveDecision', async () => {
-    const waNum = await getWaNumber(opts.employeeId);
+    const target = await getWaAndName(opts.employeeId);
 
     const isSingle = opts.startDate === opts.endDate;
     const dateStr  = isSingle
@@ -327,7 +328,7 @@ export async function notifyLeaveDecision(opts: {
       }),
     ];
 
-    if (waNum) {
+    if (target) {
       const msg =
         `${approved ? '✅' : '❌'} *Your leave request has been ${opts.action}!*\n\n` +
         `📋 Type: *${opts.leaveTypeName}*\n` +
@@ -337,11 +338,11 @@ export async function notifyLeaveDecision(opts: {
         (approved
           ? `\nEnjoy your time off! 🎉`
           : `\nPlease contact HR if you have questions.`);
-      sends.push(sendText(waNum, msg, opts.orgId));
+      sends.push(sendSmartText(target.wa_number, msg, opts.orgId, firstName(target.full_name)));
     }
 
     await Promise.all(sends);
-    console.log(`[Notify:LeaveDecision] ✅ push${waNum ? ' + wa:' + waNum : ' only'}`);
+    console.log(`[Notify:LeaveDecision] ✅ push${target ? ' + wa:' + target.wa_number : ' only'}`);
   });
 }
 
@@ -362,8 +363,8 @@ export async function notifyLeaveCancelled(opts: {
       targetId = hr?.id ?? null;
     }
     if (!targetId) return;
-    const waNum = await getWaNumber(targetId);
-    if (!waNum) return;
+    const target = await getWaAndName(targetId);
+    if (!target) return;
 
     const msg =
       `🚫 *Leave cancelled*\n\n` +
@@ -371,8 +372,8 @@ export async function notifyLeaveCancelled(opts: {
       `leave scheduled for *${fmtDate(opts.startDate)}*.\n\n` +
       `No action required.`;
 
-    await sendText(waNum, msg, opts.orgId);
-    console.log(`[Notify:LeaveCancelled] ✅ ${waNum}`);
+    await sendSmartText(target.wa_number, msg, opts.orgId, firstName(target.full_name));
+    console.log(`[Notify:LeaveCancelled] ✅ ${target.wa_number}`);
   });
 }
 
@@ -390,7 +391,7 @@ export async function notifyCheckInReminder(opts: {
       `Reply *checkin* to mark your attendance.\n` +
       `_Work from home? That counts too!_ 😊`;
 
-    await sendText(opts.waNumber, msg, opts.orgId);
+    await sendSmartText(opts.waNumber, msg, opts.orgId, firstName(opts.employeeName));
     console.log(`[Notify:CheckInReminder] ✅ ${opts.waNumber}`);
   });
 }
@@ -412,7 +413,7 @@ export async function notifyCheckOutReminder(opts: {
       `Reply *checkout* to mark your departure.\n` +
       `_Your hours won't be calculated until you check out._ ⏱`;
 
-    await sendText(opts.waNumber, msg, opts.orgId);
+    await sendSmartText(opts.waNumber, msg, opts.orgId, firstName(opts.employeeName));
     console.log(`[Notify:CheckOutReminder] ✅ ${opts.waNumber}`);
   });
 }
@@ -435,7 +436,7 @@ export async function notifyWelcome(opts: {
       `❓ *Help* — just type "help" anytime\n\n` +
       `_Reply in English or Hindi — I understand both!_ 🤖`;
 
-    await sendFirstContactText(opts.waNumber, msg, opts.orgId, firstName(opts.employeeName));
+    await sendSmartText(opts.waNumber, msg, opts.orgId, firstName(opts.employeeName));
     console.log(`[Notify:Welcome] ✅ ${opts.waNumber}`);
   });
 }
@@ -462,7 +463,7 @@ export async function notifyAccountCreated(opts: {
       `_Please change your password after your first login._\n\n` +
       `I'm also your AI HR assistant right here on WhatsApp — type "help" anytime to see what I can do.`;
 
-    await sendFirstContactText(
+    await sendSmartText(
       opts.waNumber,
       msg,
       opts.orgId,
@@ -513,7 +514,7 @@ export async function broadcastMessage(opts: {
   for (const emp of employees) {
     if (!emp.wa_number) { skipped++; continue; }
     try {
-      await sendText(emp.wa_number, header, opts.orgId);
+      await sendSmartText(emp.wa_number, header, opts.orgId, firstName(emp.full_name));
       sent++;
       // Small delay to avoid rate limiting
       await new Promise(r => setTimeout(r, 200));

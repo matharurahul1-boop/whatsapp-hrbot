@@ -362,26 +362,58 @@ export async function sendTextRedacted(
   );
 }
 
+// Meta accepts (200 + message id) a free-form send to a recipient outside
+// the 24h session window surprisingly often, only reporting the delivery
+// failure later via the async status webhook — by which point our own code
+// already returned "success" and sendMetaWithTemplateFallback's synchronous
+// catch never fires. The only reliable fix is to know *in advance* whether
+// the recipient is inside the window and skip the risky free-form attempt
+// entirely when they aren't, rather than reactively retrying after the
+// fact. This checks their most recent inbound message.
+async function isWithin24hWindow(to: string, orgId: string): Promise<boolean> {
+  try {
+    const db = createAdminClient();
+    const { data } = await db
+      .from('wa_logs')
+      .select('created_at')
+      .eq('wa_number', to)
+      .eq('organization_id', orgId)
+      .eq('direction', 'incoming')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!data) return false;
+    return Date.now() - new Date(data.created_at).getTime() < 24 * 60 * 60 * 1000;
+  } catch {
+    // Unknown state — assume within-window so we at least attempt free-form
+    // rather than forcing every send through the template path on an error.
+    return true;
+  }
+}
+
 /**
- * For messages where the recipient is *guaranteed* to be outside the 24h
- * window — onboarding a brand-new employee who has, by definition, never
- * messaged the business number before. Meta sometimes accepts a free-form
- * send to such a recipient (200 + message id) and only reports the delivery
- * failure later via the async status webhook, so sendMetaWithTemplateFallback's
- * synchronous catch never fires and the message silently never arrives.
- * Here we go straight to the org's pre-approved template when one is
- * configured, and only attempt free-form as a best-effort fallback when it
- * isn't (matching the previous, less reliable behavior).
+ * Every automated/business-initiated WhatsApp send (task and leave
+ * notifications, reminders, onboarding, broadcasts — anything that isn't a
+ * direct reply to something the recipient just said) should go through this
+ * instead of sendText/sendTextRedacted. If the recipient is outside the 24h
+ * window (or has never messaged the business number at all), it goes
+ * straight to the org's pre-approved template instead of gambling on
+ * free-form text silently failing. Falls back to best-effort free-form when
+ * no template is configured for the org.
  */
-export async function sendFirstContactText(
+export async function sendSmartText(
   to:            string,
   body:          string,
   orgId:         string,
   recipientName: string,
   logText?:      string,
 ): Promise<WAApiResponse> {
-  const org = await fetchOrgTemplateConfig(orgId);
+  const withinWindow = await isWithin24hWindow(to, orgId);
+  if (withinWindow) {
+    return logText ? sendTextRedacted(to, body, logText, orgId) : sendText(to, body, orgId);
+  }
 
+  const org = await fetchOrgTemplateConfig(orgId);
   if (org?.wa_message_template) {
     const vars = buildTemplateVars(org.wa_template_variables, recipientName, body, org.name ?? '');
     return sendTemplate(to, org.wa_message_template, vars, org.wa_template_lang || 'en', orgId, logText);

@@ -51,6 +51,25 @@ async function fire(label: string, fn: () => Promise<void>): Promise<void> {
   }
 }
 
+/** Insert a bell-dropdown row so the in-app notification shows this event
+ *  regardless of whether the recipient has push notifications enabled or is
+ *  reachable on WhatsApp — sendPush only fires real browser push (silently
+ *  does nothing without an active subscription) and doesn't touch this
+ *  table on its own. */
+async function writeInApp(userId: string, orgId: string, title: string, body: string, actionUrl: string): Promise<void> {
+  const db = createAdminClient();
+  const { error } = await db.from('notifications').insert({
+    user_id: userId,
+    organization_id: orgId,
+    type: 'agent_notification',
+    title,
+    body,
+    action_url: actionUrl,
+    is_read: false,
+  });
+  if (error) console.error('[Notify] in_app insert failed:', error.message);
+}
+
 // ── TASK NOTIFICATIONS ────────────────────────────────────────────────────────
 
 export async function notifyTaskAssigned(opts: {
@@ -74,6 +93,7 @@ export async function notifyTaskAssigned(opts: {
         url:   '/tasks',
         tag:   'task-assigned',
       }),
+      writeInApp(opts.assigneeId, opts.orgId, '📋 New task assigned', `${opts.taskTitle} — assigned by ${opts.creatorName}`, '/tasks'),
     ];
 
     if (assignee?.wa_number) {
@@ -108,6 +128,7 @@ export async function notifyTaskCompleted(opts: {
         url:   '/tasks',
         tag:   'task-completed',
       }),
+      writeInApp(opts.creatorId, opts.orgId, '✅ Task completed', `${opts.taskTitle} — marked done by ${opts.completedByName}`, '/tasks'),
     ];
 
     if (creator) {
@@ -152,6 +173,7 @@ export async function notifyTaskUpdated(opts: {
         url:   '/tasks',
         tag:   'task-updated',
       }),
+      writeInApp(opts.assigneeId, opts.orgId, '📝 Task updated', `${opts.taskTitle} — ${changeSummary}`, '/tasks'),
     ];
 
     if (assignee?.wa_number) {
@@ -196,6 +218,7 @@ export async function notifyTaskDeleted(opts: {
         url:   '/tasks',
         tag:   'task-deleted',
       }),
+      writeInApp(opts.assigneeId, opts.orgId, '🗑️ Task removed', `${opts.taskTitle} was deleted by ${opts.deleterName}`, '/tasks'),
     ];
 
     if (assignee?.wa_number) {
@@ -299,6 +322,7 @@ export async function notifyLeaveSubmitted(opts: {
         url:   '/leave',
         tag:   'leave-submitted',
       }),
+      writeInApp(targetId, opts.orgId, '📩 New leave request', `${opts.employeeName} — ${opts.leaveTypeName}, ${dateStr}`, '/leave'),
     ];
 
     if (target) {
@@ -345,6 +369,7 @@ export async function notifyLeaveDecision(opts: {
         url:   '/leave',
         tag:   'leave-decision',
       }),
+      writeInApp(opts.employeeId, opts.orgId, approved ? '✅ Leave approved' : '❌ Leave rejected', `${opts.leaveTypeName} — ${dateStr}`, '/leave'),
     ];
 
     if (target) {

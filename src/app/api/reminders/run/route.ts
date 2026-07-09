@@ -241,6 +241,7 @@ async function runDeadlineReminders(): Promise<number> {
           await db.from('notifications').insert({
             user_id:         assignee.id,
             organization_id: org.id,
+            type:            'agent_notification',
             title:           '⏰ Task deadline reminder',
             body:            `"${task.title}" is ${label}.`,
             action_url:      '/tasks',

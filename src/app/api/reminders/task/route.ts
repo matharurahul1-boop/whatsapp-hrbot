@@ -63,6 +63,7 @@ export async function POST(req: NextRequest) {
     await db.from('notifications').insert({
       user_id:         assignee.id,
       organization_id: task.organization_id,
+      type:            'agent_notification',
       title:           '⏰ Task reminder',
       body:            `"${task.title}" is ${REMINDER_LABEL[reminder] ?? 'due soon'}.`,
       action_url:      notifKey,

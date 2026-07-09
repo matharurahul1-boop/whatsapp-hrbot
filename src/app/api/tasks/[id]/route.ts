@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient }       from '@/lib/supabase/server';
 import { createAdminClient }  from '@/lib/supabase/admin';
 import { writeAuditLog }      from '@/lib/utils/audit';
-import { notifyTaskAssigned, notifyTaskCompleted } from '@/lib/whatsapp/notify';
+import { notifyTaskAssigned, notifyTaskCompleted, notifyTaskDeleted } from '@/lib/whatsapp/notify';
 import { scheduleTaskReminders } from '@/lib/tasks/scheduleReminders';
 import { isEmployee } from '@/lib/rbac';
 import { z } from 'zod';
@@ -157,6 +157,18 @@ export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id:
 
   await db.from('tasks').update({ deleted_at: new Date().toISOString() }).eq('id', id);
   await writeAuditLog({ org_id: profile.organization_id, actor_id: user.id, action: 'DELETE', table_name: 'tasks', record_id: id, old_data: task });
+
+  if (task.assignee_id && task.assignee_id !== user.id) {
+    const { data: deleter } = await db.from('users').select('full_name').eq('id', user.id).single();
+    notifyTaskDeleted({
+      orgId:       profile.organization_id,
+      taskTitle:   task.title,
+      priority:    task.priority,
+      deadline:    task.deadline,
+      assigneeId:  task.assignee_id,
+      deleterName: deleter?.full_name ?? 'your manager',
+    }).catch(() => {});
+  }
 
   return new NextResponse(null, { status: 204 });
 }

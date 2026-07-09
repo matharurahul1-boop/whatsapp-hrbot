@@ -196,9 +196,6 @@ export const REPLIES = {
 // ─── Notification Messages (sent to OTHER users) ──────────────────────────────
 
 export const NOTIFICATIONS = {
-  taskAssigned: (assignerName: string, taskTitle: string, deadline: string | null) =>
-    `📋 New task assigned by *${assignerName}*:\n\n*${taskTitle}*${deadline ? `\n⏰ Due: ${formatDate(deadline)}` : ''}\n\nReply "my tasks" to view all tasks.`,
-
   onboardingWelcome: (name: string, orgName: string) =>
     `🎉 Welcome to *${orgName}*, ${name}!\n\nI'm HRBot — your AI HR assistant.\nI'll guide you through your onboarding process.\n\nReply with anything to begin! 👋`,
 };

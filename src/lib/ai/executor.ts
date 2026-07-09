@@ -367,19 +367,24 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       record_id: task.id, new_data: task, source: 'whatsapp',
     });
 
-    const notify = assignedTo !== user_id ? [{
-      user_id: assignedTo,
-      message: NOTIFICATIONS.taskAssigned(user_name || 'your colleague', slots.title!, deadlineISO),
-    }] : [];
-
     if (assignedTo !== user_id) {
+      // notifyTaskAssigned includes priority + deadline + creator, not just
+      // title — matches what the dashboard-created-task path already sends,
+      // so the WhatsApp notification carries every detail of the task.
+      notifyTaskAssigned({
+        orgId:       org_id,
+        taskTitle:   slots.title!,
+        priority:    taskPriority,
+        deadline:    deadlineISO,
+        assigneeId:  assignedTo,
+        creatorName: user_name || 'your colleague',
+      }).catch(() => {});
       n8n.notifyTaskAssigned(org_id, task.id, assignedTo).catch(() => {});
     }
 
     return {
       success: true,
       reply:   REPLIES.taskCreated(slots.title!, assigneeName, formatDateTime(deadlineISO), taskPriority, lang),
-      notify,
     };
   },
 
@@ -700,7 +705,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     const query = db
       .from('tasks')
-      .select('id, title, assignee_id')
+      .select('id, title, assignee_id, priority, deadline')
       .eq('organization_id', org_id)
       .ilike('title', `%${slots.title}%`)
       .is('deleted_at', null)
@@ -738,6 +743,8 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       notifyTaskDeleted({
         orgId:       org_id,
         taskTitle:   task.title,
+        priority:    task.priority,
+        deadline:    task.deadline,
         assigneeId:  task.assignee_id,
         deleterName: deleter?.full_name ?? 'your manager',
       }).catch(() => {});

@@ -178,6 +178,8 @@ export async function notifyTaskUpdated(opts: {
 export async function notifyTaskDeleted(opts: {
   orgId:       string;
   taskTitle:   string;
+  priority?:   string | null;
+  deadline?:   string | null;
   assigneeId:  string;
   deleterName: string;
 }): Promise<void> {
@@ -197,9 +199,13 @@ export async function notifyTaskDeleted(opts: {
     ];
 
     if (assignee?.wa_number) {
+      const pEmoji = opts.priority ? PRIORITY_EMOJI[opts.priority] ?? '⚪' : null;
       const msg =
         `🗑️ *Task removed, ${firstName(assignee.full_name)}!*\n\n` +
-        `*${opts.taskTitle}* has been deleted by *${opts.deleterName}*.\n\n` +
+        `*${opts.taskTitle}*\n` +
+        (pEmoji ? `${pEmoji} Priority: *${opts.priority}*\n` : '') +
+        (opts.deadline ? `🗓 Deadline: *${fmtDate(opts.deadline)}*\n` : '') +
+        `Deleted by: *${opts.deleterName}*\n\n` +
         `Reply *my tasks* to view your remaining tasks.`;
       sends.push(sendSmartText(assignee.wa_number, msg, opts.orgId, firstName(assignee.full_name)));
     }

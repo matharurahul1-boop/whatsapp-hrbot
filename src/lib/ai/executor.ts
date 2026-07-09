@@ -916,6 +916,29 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const hasField2 = !!(slots.update_field_2 && slots.update_value_2);
     const field2Label = hasField2 ? ` and *${slots.update_field_2}* to *${slots.update_value_2}*` : '';
 
+    // Same display-value treatment as field 1 (priority emoji, formatted
+    // deadline, etc.) so a combined update tells the assignee about BOTH
+    // changes, not just the first one.
+    let displayField2: string | undefined;
+    let displayValue2: string | undefined;
+    if (hasField2) {
+      const field2 = slots.update_field_2!.toLowerCase().trim();
+      const value2 = slots.update_value_2!.trim();
+      displayField2 = field2;
+      if (field2 === 'priority') {
+        const pVal2 = String(patch.priority ?? value2);
+        displayValue2 = `${priorityEmoji(pVal2)} ${pVal2}`;
+      } else if (field2 === 'deadline') {
+        displayValue2 = formatDateTime(patch.deadline as string) + ' IST';
+      } else if (field2 === 'title') {
+        displayValue2 = String(patch.title ?? value2);
+      } else if (field2 === 'status') {
+        displayValue2 = String(patch.status ?? value2);
+      } else {
+        displayValue2 = value2;
+      }
+    }
+
     const notificationAssigneeId = updatedAssigneeId ?? task.assignee_id;
     if (notificationAssigneeId && notificationAssigneeId !== user_id) {
       const { data: updater } = await db.from('users').select('full_name').eq('id', user_id).single();
@@ -924,6 +947,8 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
         taskTitle:   displayTitle,
         field:       displayField,
         value:       displayValue,
+        field2:      displayField2,
+        value2:      displayValue2,
         assigneeId:  notificationAssigneeId,
         updaterName: updater?.full_name ?? 'your manager',
       }).catch(() => {});

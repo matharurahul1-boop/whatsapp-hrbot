@@ -129,6 +129,8 @@ export async function notifyTaskUpdated(opts: {
   taskTitle:   string;
   field:       string;
   value:       string;
+  field2?:     string;
+  value2?:     string;
   assigneeId:  string;
   updaterName: string;
 }): Promise<void> {
@@ -138,10 +140,13 @@ export async function notifyTaskUpdated(opts: {
       .from('users').select('full_name, wa_number')
       .eq('id', opts.assigneeId).single();
 
+    const changeSummary = `${opts.field} changed to ${opts.value}` +
+      (opts.field2 && opts.value2 ? `, ${opts.field2} changed to ${opts.value2}` : '');
+
     const sends: Promise<unknown>[] = [
       sendPush(opts.assigneeId, {
         title: '📝 Task updated',
-        body:  `${opts.taskTitle} — ${opts.field} changed to ${opts.value}`,
+        body:  `${opts.taskTitle} — ${changeSummary}`,
         url:   '/tasks',
         tag:   'task-updated',
       }),
@@ -151,13 +156,14 @@ export async function notifyTaskUpdated(opts: {
       // opts.taskTitle is always the title *before* this update — when the
       // title itself changed, show both the old and new title instead of
       // repeating the same (new) title twice.
-      const changeLine = opts.field === 'title'
-        ? `Title changed from *${opts.taskTitle}* to *${opts.value}*\n`
-        : `${opts.field} changed to: *${opts.value}*\n`;
+      const changeLine = (field: string, value: string) => field === 'title'
+        ? `Title changed from *${opts.taskTitle}* to *${value}*\n`
+        : `${field} changed to: *${value}*\n`;
       const msg =
         `📝 *Task updated, ${firstName(assignee.full_name)}!*\n\n` +
         `*${opts.taskTitle}*\n\n` +
-        changeLine +
+        changeLine(opts.field, opts.value) +
+        (opts.field2 && opts.value2 ? changeLine(opts.field2, opts.value2) : '') +
         `Updated by: *${opts.updaterName}*\n\n` +
         `Reply *my tasks* to view your tasks.`;
       sends.push(sendSmartText(assignee.wa_number, msg, opts.orgId, firstName(assignee.full_name)));

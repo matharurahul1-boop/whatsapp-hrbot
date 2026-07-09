@@ -8,6 +8,11 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS pending_welcome_password TEXT;
 -- Expose onboarding_status through the directory view so the Team page can
 -- display and edit it (the view previously omitted it entirely). Does NOT
 -- select pending_welcome_password — that stays server-only.
+--
+-- New column is appended at the end, not inserted where it logically
+-- belongs alongside joined_at — CREATE OR REPLACE VIEW only allows adding
+-- columns at the end of the list; reordering existing ones is rejected with
+-- "cannot change name of view column ... to ..." (42P16).
 CREATE OR REPLACE VIEW v_employee_directory AS
 SELECT
   u.id,
@@ -22,14 +27,14 @@ SELECT
   u.avatar_url,
   u.is_active,
   u.joined_at,
-  u.onboarding_status,
   m.full_name                                      AS manager_name,
   m.email                                          AS manager_email,
   -- today's attendance
   att.status                                        AS today_status,
   att.check_in_time,
   att.check_out_time,
-  att.total_hours
+  att.total_hours,
+  u.onboarding_status
 FROM users u
 LEFT JOIN users m ON m.id = u.manager_id
 LEFT JOIN attendance_records att

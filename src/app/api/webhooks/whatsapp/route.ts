@@ -929,33 +929,15 @@ async function handleAudioMessage(from: string, mediaId: string, orgId: string):
 
   console.log(`[WA Audio] Transcript for ${from}: "${transcript.slice(0, 100)}"`);
 
-  // Save AUDIO_CONFIRM state so the agent knows to process the transcript on "Yes"
-  const session = await loadSession(from, orgId).catch(() => null);
-  if (session) {
-    await saveContext(session.conversation_id, {
-      ...EMPTY_CONTEXT,
-      language:           session.context.language,
-      flow_state:         'AUDIO_CONFIRM',
-      pending_transcript: transcript,
-    }).catch(() => {});
+  // Skip the "I heard: ..." echo/confirmation step and dispatch the
+  // transcript straight to the agent — it shows its own action confirmation
+  // (with an Edit details option) before anything is actually created or
+  // changed, so the extra echo round-trip was redundant.
+  if (isPolicyQuestion(transcript)) {
+    await dispatchPolicyBot(from, transcript, orgId);
+  } else {
+    await dispatchAgent(from, transcript, orgId);
   }
-
-  // Show transcript preview + Yes / No buttons
-  const preview  = transcript.length > 900 ? transcript.slice(0, 900) + '…' : transcript;
-  const bodyText = `🎙️ I heard:\n\n"${preview}"\n\nShall I go ahead?`;
-
-  await sendButtons(
-    from,
-    bodyText,
-    [
-      { id: 'audio_yes', title: 'Yes' },
-      { id: 'audio_no',  title: 'No'  },
-    ],
-    orgId
-  ).catch(async () => {
-    // Fallback: if interactive buttons fail (e.g. AISensy), send plain text
-    await sendText(from, `${bodyText}\n\nReply *Yes* or *No*`, orgId).catch(() => {});
-  });
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────

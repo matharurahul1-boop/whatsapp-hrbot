@@ -148,10 +148,16 @@ export async function notifyTaskUpdated(opts: {
     ];
 
     if (assignee?.wa_number) {
+      // opts.taskTitle is always the title *before* this update — when the
+      // title itself changed, show both the old and new title instead of
+      // repeating the same (new) title twice.
+      const changeLine = opts.field === 'title'
+        ? `Title changed from *${opts.taskTitle}* to *${opts.value}*\n`
+        : `${opts.field} changed to: *${opts.value}*\n`;
       const msg =
         `📝 *Task updated, ${firstName(assignee.full_name)}!*\n\n` +
         `*${opts.taskTitle}*\n\n` +
-        `${opts.field} changed to: *${opts.value}*\n` +
+        changeLine +
         `Updated by: *${opts.updaterName}*\n\n` +
         `Reply *my tasks* to view your tasks.`;
       sends.push(sendSmartText(assignee.wa_number, msg, opts.orgId, firstName(assignee.full_name)));

@@ -906,7 +906,11 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       displayValue = String(patch.title ?? patch.status ?? value);
     }
     const displayField = field ?? 'field';
-    const displayTitle = field === 'title' ? value : task.title;
+    // Always identify the task by its title *before* this update, even when
+    // the title itself is the field being changed — otherwise a rename shows
+    // the same new title twice ("X" ... "title changed to: X") with no way
+    // to tell what it used to be called.
+    const displayTitle = task.title;
 
     // Build combined update label when two fields were updated
     const hasField2 = !!(slots.update_field_2 && slots.update_value_2);
@@ -1400,15 +1404,13 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       reviewerName:  approver?.full_name ?? 'your manager',
     }).catch(() => {});
 
+    // notifyLeaveDecision above already sends the WhatsApp message + in-app
+    // push notification to the employee — returning a `notify` array here
+    // too would fire a second, differently-worded WhatsApp message and a
+    // duplicate in-app notification for the same approval.
     return {
       success: true,
       reply: REPLIES.leaveApproved(employee.full_name, (request.leave_types as any)?.name, request.start_date, request.end_date, lang),
-      notify: [{
-        user_id: employee.id,
-        message: NOTIFICATIONS.leaveApprovedNotify(
-          (request.leave_types as any)?.name, request.start_date, request.end_date, 'your manager'
-        ),
-      }],
     };
   },
 
@@ -1511,13 +1513,12 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       remarks:       reason,
     }).catch(() => {});
 
+    // notifyLeaveDecision above already sends the WhatsApp message + in-app
+    // push notification to the employee — see the matching note in
+    // APPROVE_LEAVE for why `notify` isn't also returned here.
     return {
       success: true,
       reply: REPLIES.leaveRejected(employee.full_name, (request.leave_types as any)?.name, lang),
-      notify: [{
-        user_id: employee.id,
-        message: NOTIFICATIONS.leaveRejectedNotify((request.leave_types as any)?.name, reason),
-      }],
     };
   },
 

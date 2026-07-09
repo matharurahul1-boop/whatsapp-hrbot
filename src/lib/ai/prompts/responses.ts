@@ -199,15 +199,6 @@ export const NOTIFICATIONS = {
   taskAssigned: (assignerName: string, taskTitle: string, deadline: string | null) =>
     `📋 New task assigned by *${assignerName}*:\n\n*${taskTitle}*${deadline ? `\n⏰ Due: ${formatDate(deadline)}` : ''}\n\nReply "my tasks" to view all tasks.`,
 
-  leaveRequestReceived: (employeeName: string, type: string, start: string, end: string, days: number) =>
-    `📅 Leave request from *${employeeName}*:\n\n🏷️ ${type}\n📆 ${formatDate(start)} — ${formatDate(end)} (${days} day${days > 1 ? 's' : ''})\n\nReply "approve leave for ${employeeName}" or "reject leave for ${employeeName}".`,
-
-  leaveApprovedNotify: (type: string, start: string, end: string, approverName: string) =>
-    `✅ Your ${type} leave has been *approved* by *${approverName}*!\n📆 ${formatDate(start)} — ${formatDate(end)}\n\nEnjoy your time off! 🌴`,
-
-  leaveRejectedNotify: (type: string, reason: string | null) =>
-    `❌ Your ${type} leave request was *not approved*.\n${reason ? `Reason: ${reason}\n` : ''}Please contact your manager for more details.`,
-
   onboardingWelcome: (name: string, orgName: string) =>
     `🎉 Welcome to *${orgName}*, ${name}!\n\nI'm HRBot — your AI HR assistant.\nI'll guide you through your onboarding process.\n\nReply with anything to begin! 👋`,
 };

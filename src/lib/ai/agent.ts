@@ -2829,6 +2829,18 @@ async function dispatchToolResult(
 
 // ─── Notify other users via WhatsApp ─────────────────────────────────────────
 
+// The in-app notification bell shows this text in a dashboard modal, not a
+// chat bubble — WhatsApp-specific instructions ("Reply \"my tasks\" to view
+// all tasks.") and *bold* markdown don't belong there. Strip them for the
+// stored notification body while the WhatsApp send below still gets the
+// original, unmodified message.
+function cleanNotificationBody(text: string): string {
+  return text
+    .replace(/\n+Reply\b[\s\S]*$/i, '')
+    .replace(/\*(.+?)\*/g, '$1')
+    .trim();
+}
+
 async function sendUserNotifications(
   notifications: Array<{ user_id: string; message: string }>,
   orgId: string,
@@ -2866,7 +2878,7 @@ async function sendUserNotifications(
         user_id:         notif.user_id,
         type:            'agent_notification',
         title:           'HRBot Notification',
-        body:            notif.message,
+        body:            cleanNotificationBody(notif.message),
         channel:         'whatsapp',
         status,
         sent_at:         status === 'sent' ? new Date().toISOString() : null,

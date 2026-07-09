@@ -16,6 +16,7 @@ interface AvatarProps {
   size?:     keyof typeof sizeClasses;
   className?: string;
   online?:   boolean;
+  title?:    string;
 }
 
 function getInitials(name: string) {
@@ -27,9 +28,9 @@ function getInitials(name: string) {
     .toUpperCase();
 }
 
-function Avatar({ src, name, size = 'md', className, online }: AvatarProps) {
+function Avatar({ src, name, size = 'md', className, online, title }: AvatarProps) {
   return (
-    <div className="relative inline-flex shrink-0">
+    <div className="relative inline-flex shrink-0" title={title}>
       <AvatarPrimitive.Root
         className={cn(
           'relative flex items-center justify-center rounded-full overflow-hidden',

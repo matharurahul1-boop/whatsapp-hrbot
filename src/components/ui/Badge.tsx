@@ -67,7 +67,7 @@ const statusVariantMap: Record<string, VariantProps<typeof badgeVariants>['varia
 export function StatusBadge({ status, className }: { status: string; className?: string }) {
   const variant = statusVariantMap[status] ?? 'default';
   const label   = status.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-  return <Badge variant={variant} dot className={className}>{label}</Badge>;
+  return <Badge variant={variant} dot className={className} title={`Status: ${label}`}>{label}</Badge>;
 }
 
 export { Badge, badgeVariants };

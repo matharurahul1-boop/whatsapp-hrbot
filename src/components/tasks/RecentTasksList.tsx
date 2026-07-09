@@ -74,7 +74,12 @@ export default function RecentTasksList({ tasks }: { tasks: Task[] }) {
                 </div>
                 <div className="flex items-center gap-2">
                   {t.assignee && (
-                    <Avatar src={t.assignee.avatar_url ?? undefined} name={t.assignee.full_name} size="xs" />
+                    <Avatar
+                      src={t.assignee.avatar_url ?? undefined}
+                      name={t.assignee.full_name}
+                      size="xs"
+                      title={`Assigned to: ${t.assignee.full_name ?? 'Unknown'}`}
+                    />
                   )}
                   <StatusBadge status={t.status} />
                 </div>

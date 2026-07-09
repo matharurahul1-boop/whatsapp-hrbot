@@ -1275,18 +1275,25 @@ function shouldHaveCalledTool(msg: string): boolean {
 // Returns true when Groq's reply is a useless generic phrase that ignores the intent
 function isGroqGenericFiller(reply: string): boolean {
   const r = reply.toLowerCase().trim();
-  const head = r.slice(0, 160);
+  const head = r.slice(0, 220);
   return (
     r === '' ||
     /^what else (?:can|would) (?:i|you)/i.test(r) ||
     /^is there anything else/i.test(r) ||
     /^i('?m| am) not sure (what|how)/i.test(r) ||
     (r.length < 80 && /^(sorry|i (didn'?t|couldn'?t|can'?t)|i don'?t (understand|recognize))/i.test(r)) ||
-    // Leaked chain-of-thought: model outputs reasoning instead of a reply
-    /^(?:we need to|i need to (?:parse|analyze|check|look)|according to (?:the )?rules|the user (?:says|wrote|typed|has provided|said|gave|asked for)|to handle this|let me (?:analyze|think|check|parse|fetch|get|list|look up)|the (?:previous|last) (?:message|response|bot))/i.test(head) ||
+    // Leaked chain-of-thought: model narrates its reasoning instead of a reply.
+    // Checked against the opening of the reply — observed leaks always start
+    // with one of these framing phrases before descending into paragraphs of
+    // "We need to interpret... According to rule... We must not call the tool..."
+    /^(?:we (?:need to|have (?:a|received)|should|must|already have)|i need to (?:parse|analyze|check|look)|according to (?:the )?rules?|the user (?:is|says|wrote|typed|has provided|said|gave|asked for)|they want (?:a|to)|to handle this|let me (?:analyze|think|check|parse|fetch|get|list|look up)|the (?:previous|last) (?:message|response|bot))/i.test(head) ||
     // Bot narrates a future action instead of calling the tool ("I'll list all tasks... Let me fetch...")
     /^i'?ll (?:list|fetch|get|show|retrieve|look up|check|find|pull)/i.test(head) ||
-    /^let me (?:fetch|get|list|look|check|retrieve|find|pull)/i.test(head)
+    /^let me (?:fetch|get|list|look|check|retrieve|find|pull)/i.test(head) ||
+    // Safety net: no legitimate confirmation sentence, tool-free answer, or
+    // templated reply this app sends is anywhere near this long — a reply
+    // this size is always a leaked reasoning dump, whatever words it uses.
+    reply.length > 900
   );
 }
 

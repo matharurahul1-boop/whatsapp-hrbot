@@ -23,6 +23,7 @@ interface Employee {
   joined_at:    string | null;
   today_status: string | null;
   manager_name: string | null;
+  onboarding_status: string | null;
 }
 
 interface DrawerProps {
@@ -74,7 +75,14 @@ interface EditFormState {
   designation: string;
   role:        string;
   is_active:   boolean;
+  onboarding_status: string;
 }
+
+const ONBOARDING_LABELS: Record<string, string> = {
+  pending:     'Pending',
+  in_progress: 'In progress',
+  completed:   'Completed',
+};
 
 export default function EmployeeProfileDrawer({ employee, onClose, canEdit, onUpdated }: DrawerProps) {
   const [editing, setEditing]   = useState(false);
@@ -82,6 +90,7 @@ export default function EmployeeProfileDrawer({ employee, onClose, canEdit, onUp
   const [error,   setError]     = useState<string | null>(null);
   const [form,    setForm]      = useState<EditFormState>({
     full_name: '', wa_number: '', department: '', designation: '', role: 'employee', is_active: true,
+    onboarding_status: 'pending',
   });
 
   // Reset edit state when employee changes
@@ -96,6 +105,7 @@ export default function EmployeeProfileDrawer({ employee, onClose, canEdit, onUp
         designation: employee.designation ?? '',
         role:        employee.role        ?? 'employee',
         is_active:   employee.is_active   ?? true,
+        onboarding_status: employee.onboarding_status ?? 'pending',
       });
     }
   }, [employee]);
@@ -120,6 +130,7 @@ export default function EmployeeProfileDrawer({ employee, onClose, canEdit, onUp
         designation: form.designation || null,
         role:        form.role,
         is_active:   form.is_active,
+        onboarding_status: form.onboarding_status,
       };
 
       const res = await fetch('/api/employees', {
@@ -139,6 +150,7 @@ export default function EmployeeProfileDrawer({ employee, onClose, canEdit, onUp
         designation: form.designation || null,
         role:        form.role,
         is_active:   form.is_active,
+        onboarding_status: form.onboarding_status,
       });
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Unknown error');
@@ -210,6 +222,17 @@ export default function EmployeeProfileDrawer({ employee, onClose, canEdit, onUp
                 <InfoRow      icon={<User2     className="h-4 w-4" />} label="Manager"     value={employee.manager_name} />
                 <InfoRow      icon={<Hash      className="h-4 w-4" />} label="Employee ID" value={employee.employee_id} />
                 <InfoRow      icon={<Calendar  className="h-4 w-4" />} label="Joined"      value={employee.joined_at ? formatDate(employee.joined_at) : null} />
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 text-surface-500 shrink-0"><Check className="h-4 w-4" /></span>
+                  <div>
+                    <p className="text-2xs text-surface-600 uppercase tracking-wide font-medium">Onboarding</p>
+                    <p className="text-sm mt-0.5">
+                      <Badge variant={employee.onboarding_status === 'completed' ? 'success' : employee.onboarding_status === 'in_progress' ? 'info' : 'warning'}>
+                        {ONBOARDING_LABELS[employee.onboarding_status ?? 'pending'] ?? 'Pending'}
+                      </Badge>
+                    </p>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -271,6 +294,22 @@ export default function EmployeeProfileDrawer({ employee, onClose, canEdit, onUp
                   >
                     {['employee','manager','hr','admin','super_admin'].map(r => (
                       <option key={r} value={r}>{ROLE_LABELS[r] ?? r}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-2xs text-surface-600 uppercase tracking-wide font-medium mb-1">
+                    Onboarding status
+                    <span className="ml-1 text-brand-400 normal-case font-normal">(marking "Completed" sends the welcome message)</span>
+                  </label>
+                  <select
+                    value={form.onboarding_status}
+                    onChange={e => setForm(f => ({ ...f, onboarding_status: e.target.value }))}
+                    className="w-full rounded-lg border border-surface-300 bg-surface-200 px-3 py-2 text-sm text-surface-900 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+                  >
+                    {['pending','in_progress','completed'].map(s => (
+                      <option key={s} value={s}>{ONBOARDING_LABELS[s]}</option>
                     ))}
                   </select>
                 </div>

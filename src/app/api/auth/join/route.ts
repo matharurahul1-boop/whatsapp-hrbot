@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient }    from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { notifyWelcome }   from '@/lib/whatsapp/notify';
 import { verifyInvite, type InviteRole } from '@/lib/utils/invite-token';
 import { normalizeWaNumber } from '@/lib/utils/phone';
 import { z } from 'zod';
@@ -104,16 +103,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Send WhatsApp welcome message if number was provided
-    if (waNumber) {
-      const { data: orgInfo } = await db.from('organizations').select('name').eq('id', orgId).single();
-      notifyWelcome({
-        orgId,
-        waNumber:     waNumber.replace(/\D/g, ''),
-        employeeName: fullName.trim(),
-        companyName:  orgInfo?.name ?? 'your company',
-      }).catch(() => {});
-    }
+    // Welcome message is deferred — sent once an admin marks this account's
+    // onboarding_status as 'completed' (see PATCH /api/employees).
 
     return NextResponse.json({ ok: true, orgId, role });
   } catch (err: unknown) {

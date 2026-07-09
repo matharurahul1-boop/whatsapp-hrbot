@@ -22,6 +22,7 @@ interface Employee {
   joined_at:      string | null;
   today_status:   string | null;
   manager_name:   string | null;
+  onboarding_status: string | null;
 }
 
 interface EmployeeGridProps {

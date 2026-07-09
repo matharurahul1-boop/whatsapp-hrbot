@@ -3,7 +3,7 @@ import { createClient }    from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { writeAuditLog }   from '@/lib/utils/audit';
 import { normalizeWaNumber } from '@/lib/utils/phone';
-import { notifyAccountCreated } from '@/lib/whatsapp/notify';
+import { notifyAccountCreated, notifyWelcome } from '@/lib/whatsapp/notify';
 import {
   isEmployee, isManager, isManagerOrAbove, isHrOrAbove, isAdminOrAbove, isSuperAdmin,
   EMPLOYEE_PROFILE_WRITABLE, HR_PROFILE_WRITABLE, ADMIN_PROFILE_WRITABLE,
@@ -20,6 +20,7 @@ const UpdateProfileSchema = z.object({
   joined_at:   z.string().datetime().optional(),
   is_active:   z.boolean().optional(),
   role:        z.enum(['super_admin','admin','hr','manager','employee']).optional(),
+  onboarding_status: z.enum(['pending', 'in_progress', 'completed']).optional(),
 });
 
 const CreateAccountSchema = z.object({
@@ -178,10 +179,24 @@ export async function PATCH(req: NextRequest) {
     }
   }
 
-  // Verify target belongs to same org
-  const { data: target } = await db
-    .from('users').select('id, organization_id')
-    .eq('id', targetId).single();
+  // Verify target belongs to same org. pending_welcome_password is a newer
+  // column (migration 017) — select it separately so a not-yet-migrated
+  // environment doesn't fail this lookup for every profile edit, not just
+  // onboarding-status changes.
+  let target: { id: string; organization_id: string; onboarding_status: string | null; full_name: string; email: string; wa_number: string | null; pending_welcome_password?: string | null } | null = null;
+  {
+    const full = await db
+      .from('users').select('id, organization_id, onboarding_status, pending_welcome_password, full_name, email, wa_number')
+      .eq('id', targetId).single();
+    if (!full.error) {
+      target = full.data;
+    } else {
+      const partial = await db
+        .from('users').select('id, organization_id, onboarding_status, full_name, email, wa_number')
+        .eq('id', targetId).single();
+      target = partial.data;
+    }
+  }
   if (!target || target.organization_id !== profile.organization_id) {
     return NextResponse.json({ error: 'Employee not found' }, { status: 404 });
   }
@@ -204,6 +219,39 @@ export async function PATCH(req: NextRequest) {
     org_id: profile.organization_id, actor_id: user.id,
     action: 'UPDATE', table_name: 'users', record_id: targetId, new_data: updated,
   });
+
+  // Welcome message was deferred at account-creation time — send it now that
+  // onboarding is actually being marked complete, not before. Guarded on the
+  // prior status so re-saving other fields while already 'completed' doesn't
+  // re-send it.
+  if (
+    updateData.onboarding_status === 'completed' &&
+    target.onboarding_status !== 'completed' &&
+    updated.wa_number
+  ) {
+    const { data: org } = await db.from('organizations').select('name').eq('id', profile.organization_id).single();
+    const companyName = org?.name ?? 'your company';
+
+    if (target.pending_welcome_password) {
+      notifyAccountCreated({
+        orgId:        profile.organization_id,
+        waNumber:     updated.wa_number,
+        employeeName: updated.full_name ?? target.full_name,
+        companyName,
+        email:        target.email,
+        password:     target.pending_welcome_password,
+        loginUrl:     `${req.nextUrl.origin}/login`,
+      }).catch(() => {});
+      await db.from('users').update({ pending_welcome_password: null }).eq('id', targetId);
+    } else {
+      notifyWelcome({
+        orgId:        profile.organization_id,
+        waNumber:     updated.wa_number,
+        employeeName: updated.full_name ?? target.full_name,
+        companyName,
+      }).catch(() => {});
+    }
+  }
 
   return NextResponse.json({ data: updated });
 }
@@ -272,7 +320,7 @@ export async function POST(req: NextRequest) {
 
   const newUserId = created.user.id;
 
-  const { data: newProfile, error: profileErr } = await db.from('users').insert({
+  const baseProfile = {
     id:              newUserId,
     organization_id: profile.organization_id,
     full_name:       full_name.trim(),
@@ -283,7 +331,25 @@ export async function POST(req: NextRequest) {
     designation:     designation?.trim() || null,
     is_active:       true,
     joined_at:       new Date().toISOString(),
+  };
+
+  // pending_welcome_password lives on a column that isn't guaranteed to exist
+  // yet (migration 017) — if the insert fails because of that, fall back to
+  // creating the profile without it, and send the welcome message immediately
+  // (the old behavior) rather than deferring to onboarding_status='completed'
+  // with no way to ever deliver the password.
+  let sendImmediately = false;
+  let { data: newProfile, error: profileErr } = await db.from('users').insert({
+    ...baseProfile,
+    // Held only until onboarding_status is marked 'completed' (welcome
+    // message is deferred until then), then cleared — see PATCH handler.
+    pending_welcome_password: password,
   }).select().single();
+
+  if (profileErr) {
+    ({ data: newProfile, error: profileErr } = await db.from('users').insert(baseProfile).select().single());
+    sendImmediately = true;
+  }
 
   if (profileErr) {
     // Roll back the orphaned auth user so a failed creation doesn't leave a
@@ -322,16 +388,22 @@ export async function POST(req: NextRequest) {
     new_data: { full_name, email, role, department, designation },
   });
 
-  const { data: org } = await db.from('organizations').select('name').eq('id', profile.organization_id).single();
-  notifyAccountCreated({
-    orgId:        profile.organization_id,
-    waNumber:     cleanWaNumber,
-    employeeName: full_name.trim(),
-    companyName:  org?.name ?? 'your company',
-    email:        email.trim(),
-    password,
-    loginUrl:     `${req.nextUrl.origin}/login`,
-  }).catch(() => {});
+  // Welcome message (with these credentials) is deferred until onboarding_status
+  // is marked 'completed' for this account — see PATCH /api/employees. Unless
+  // migration 017 hasn't run yet, in which case there's nowhere to hold the
+  // password for later, so send it now like before.
+  if (sendImmediately) {
+    const { data: org } = await db.from('organizations').select('name').eq('id', profile.organization_id).single();
+    notifyAccountCreated({
+      orgId:        profile.organization_id,
+      waNumber:     cleanWaNumber,
+      employeeName: full_name.trim(),
+      companyName:  org?.name ?? 'your company',
+      email:        email.trim(),
+      password,
+      loginUrl:     `${req.nextUrl.origin}/login`,
+    }).catch(() => {});
+  }
 
   return NextResponse.json({ data: newProfile }, { status: 201 });
 }

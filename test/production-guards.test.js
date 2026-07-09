@@ -44,8 +44,10 @@ test('task-list requests use the deterministic fast path and reasoning leaks are
   const source = read('src/lib/ai/agent.ts');
   assert.match(read('src/lib/ai/routing.ts'), /function quickTaskListArgs/);
   assert.match(source, /dispatchTool\('list_tasks', taskListArgs/);
-  assert.match(source, /the user \(\?:says\|wrote\|typed/);
-  assert.match(read('src/app/api/webhooks/whatsapp/route.ts'), /looksLikeInternalReasoning/);
+  assert.match(source, /the user \(\?:is\|says\|wrote\|typed/);
+  const webhookSource = read('src/app/api/webhooks/whatsapp/route.ts');
+  assert.match(webhookSource, /looksLikeInternalReasoning/);
+  assert.match(webhookSource, /text\.trim\(\)\.length > 900/);
 });
 
 test('task permissions allow organization-wide view/create/update but block employee deletion', () => {

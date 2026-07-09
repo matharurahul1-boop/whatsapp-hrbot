@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useState, useRef, useEffect } from 'react';
 import {
   LayoutDashboard, CheckSquare, Calendar, Clock,
-  Users, MessageSquare, Settings, FileText, AlertTriangle,
+  Users, MessageSquare, Settings, FileText,
   MoreHorizontal, X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
@@ -26,7 +26,6 @@ const MORE_ITEMS = [
   { href: '/employees',  label: 'Team',       Icon: Users,         color: 'text-pink-400',    roles: MGR },
   { href: '/whatsapp',   label: 'WA Logs',    Icon: MessageSquare, color: 'text-green-400',   roles: ALL },
   { href: '/policy',     label: 'Policy',     Icon: FileText,      color: 'text-blue-400',    roles: HR  },
-  { href: '/escalation', label: 'Escalation', Icon: AlertTriangle, color: 'text-orange-400',  roles: HR  },
   { href: '/settings',   label: 'Settings',   Icon: Settings,      color: 'text-surface-400', roles: ALL },
 ];
 

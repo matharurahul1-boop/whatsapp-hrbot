@@ -6,7 +6,7 @@ import { useEffect, useState, useRef } from 'react';
 import {
   LayoutDashboard, CheckSquare, Calendar, Clock,
   Users, MessageSquare, Settings, Zap,
-  FileText, AlertTriangle, X, Loader2,
+  FileText, X, Loader2,
   PanelLeftClose, PanelLeftOpen, ChevronLeft,
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
@@ -29,7 +29,6 @@ const NAV: NavItem[] = [
   { href: '/employees',  label: 'Team',        icon: <Users           className="h-[18px] w-[18px]" />, roles: ['super_admin','admin','hr','manager'],           color: 'text-pink-400'   },
   { href: '/whatsapp',   label: 'WA Logs',     icon: <MessageSquare   className="h-[18px] w-[18px]" />, roles: ['super_admin','admin','hr','manager','employee'], color: 'text-green-400'  },
   { href: '/policy',     label: 'Policy Bot',  icon: <FileText        className="h-[18px] w-[18px]" />, roles: ['super_admin','admin','hr'],                     color: 'text-blue-400'   },
-  { href: '/escalation', label: 'Escalation',  icon: <AlertTriangle   className="h-[18px] w-[18px]" />, roles: ['super_admin','admin','hr'],                     color: 'text-orange-400' },
 ];
 
 const MODE_OPTIONS: { key: SidebarMode; label: string }[] = [

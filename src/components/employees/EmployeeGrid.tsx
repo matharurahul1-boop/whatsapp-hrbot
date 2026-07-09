@@ -38,6 +38,12 @@ const ROLE_LABELS: Record<string, string> = {
   employee:    'Employee',
 };
 
+const ONBOARDING_LABELS: Record<string, string> = {
+  pending:     'Onboarding: Pending',
+  in_progress: 'Onboarding: In progress',
+  completed:   'Onboarded',
+};
+
 export default function EmployeeGrid({ employees: initialEmployees, canEdit }: EmployeeGridProps) {
   const [search,     setSearch]     = useState('');
   const [dept,       setDept]       = useState('');
@@ -157,6 +163,13 @@ export default function EmployeeGrid({ employees: initialEmployees, canEdit }: E
                     <Badge variant="danger">Inactive</Badge>
                   )}
                 </div>
+
+                <Badge
+                  variant={emp.onboarding_status === 'completed' ? 'success' : emp.onboarding_status === 'in_progress' ? 'info' : 'warning'}
+                  dot
+                >
+                  {ONBOARDING_LABELS[emp.onboarding_status ?? 'pending'] ?? 'Onboarding: Pending'}
+                </Badge>
 
                 {emp.employee_id && (
                   <p className="text-2xs text-surface-500 font-mono">{emp.employee_id}</p>

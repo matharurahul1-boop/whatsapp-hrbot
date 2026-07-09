@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Mail, Phone, Building2, Calendar, User2, Hash, Pencil, Check, Loader2 } from 'lucide-react';
 import { Avatar } from '@/components/ui/Avatar';
 import { Badge } from '@/components/ui/Badge';
@@ -92,6 +93,13 @@ export default function EmployeeProfileDrawer({ employee, onClose, canEdit, onUp
     full_name: '', wa_number: '', department: '', designation: '', role: 'employee', is_active: true,
     onboarding_status: 'pending',
   });
+  // Rendered via a portal straight to document.body (see the return below) so
+  // this fixed-position overlay never inherits layout from wherever it's
+  // mounted in the tree — e.g. EmployeeGrid returns it as a Fragment sibling
+  // of the page content, which used to leak the parent's space-y-6 margin
+  // onto the drawer and clip ~24px off its top.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
 
   // Reset edit state when employee changes
   useEffect(() => {
@@ -159,7 +167,9 @@ export default function EmployeeProfileDrawer({ employee, onClose, canEdit, onUp
     }
   }
 
-  return (
+  if (!mounted) return null;
+
+  return createPortal(
     <>
       {/* Overlay */}
       <div
@@ -354,6 +364,7 @@ export default function EmployeeProfileDrawer({ employee, onClose, canEdit, onUp
           </div>
         )}
       </div>
-    </>
+    </>,
+    document.body,
   );
 }

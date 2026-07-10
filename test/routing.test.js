@@ -61,6 +61,17 @@ test('does not misroute task mutations as task-list requests', () => {
   }
 });
 
+test('"mark X as completed" is a completion action, never a task-list request', () => {
+  for (const message of [
+    'mark new task QST as completed',
+    'Mark new task QST as completed.',
+    'mark Payroll task as complete',
+    'mark Payroll task done',
+  ]) {
+    assert.equal(routing.quickTaskListArgs(message), null, message);
+  }
+});
+
 test('resolves task-list pronouns from recent conversation context', () => {
   const args = routing.quickTaskListArgs('list of her tasks');
   assert.deepEqual(

@@ -53,6 +53,12 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
   // (e.g. "give me list of his task" was being read as "my tasks").
   const t = normalizeCommandText(message).replace(/[?.!,;]+$/, '')
     .replace(/^(?:please\s+)?(?:give|send|tell)\s+me\s+/i, '');
+  // "mark X as complete/completed/done" is a completion ACTION, not a list
+  // request — but it contains "completed"/"done", which would otherwise
+  // satisfy the listing-verb check further down and get misrouted into a
+  // task list instead of COMPLETE_TASK (observed live: "mark new task QST
+  // as completed" returned "All To Do tasks" instead of completing it).
+  if (/\bmark\s+.{1,60}\s+(?:as\s+)?(?:complete|completed|done)\b/i.test(t)) return null;
   const isAllScope = requestsAllTasks(t);
   const statusFilter = requestedTaskStatus(t);
   // "all my tasks" / "list all of my tasks" means every one of the caller's

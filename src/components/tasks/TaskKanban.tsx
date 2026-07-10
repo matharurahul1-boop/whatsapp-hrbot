@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import {
   LayoutGrid, List, Clock, AlertTriangle, CheckCircle2,
-  Circle, PlayCircle, XCircle, MoreHorizontal, Loader2, ChevronDown, Check, X,
+  Circle, PlayCircle, XCircle, MoreHorizontal, Loader2, ChevronDown, Check, X, Search,
 } from 'lucide-react';
 import { Avatar } from '@/components/ui/Avatar';
 import TaskCard from './TaskCard';
@@ -125,6 +125,7 @@ function MultiSelectDropdown({
   // clipped ancestor. Flips to open upward when there isn't enough room
   // below (e.g. the table is short or the row is near the bottom).
   const [pos, setPos] = useState<{ top?: number; bottom?: number; left?: number; right?: number } | null>(null);
+  const [query, setQuery] = useState('');
   const triggerRef  = useRef<HTMLButtonElement>(null);
   const popoverRef  = useRef<HTMLDivElement>(null);
 
@@ -136,10 +137,18 @@ function MultiSelectDropdown({
       if (popoverRef.current?.contains(target)) return;
       setOpen(false);
     }
-    // Scrolling (the table body, or the page) would leave a `position:
-    // fixed` popover visually detached from its trigger — closing is
-    // simpler and safer than tracking every scrollable ancestor.
-    function onScrollOrResize() { setOpen(false); }
+    // Scrolling the page or the table body would leave a `position: fixed`
+    // popover visually detached from its trigger, so those close it — but
+    // scrolling *inside the popover's own option list* must NOT close it.
+    // The window listener is capture-phase (to catch scrollable ancestors
+    // anywhere in the tree), which means it also fires for scroll events
+    // bubbling up from the popover's own `overflow-y-auto` list — without
+    // this check, scrolling down the list to reach an option below the fold
+    // closed the dropdown before you could click anything.
+    function onScrollOrResize(e: Event) {
+      if (popoverRef.current && e.target instanceof Node && popoverRef.current.contains(e.target)) return;
+      setOpen(false);
+    }
     document.addEventListener('mousedown', onClickOutside);
     window.addEventListener('scroll', onScrollOrResize, true);
     window.addEventListener('resize', onScrollOrResize);
@@ -159,9 +168,16 @@ function MultiSelectDropdown({
       setPos(openUpward
         ? { bottom: window.innerHeight - rect.top + 6, ...horizontal }
         : { top: rect.bottom + 6, ...horizontal });
+      setQuery('');
     }
     setOpen(o => !o);
   }
+
+  const filteredOptions = query.trim()
+    ? options.filter(o => o.label.toLowerCase().includes(query.trim().toLowerCase()))
+    : options;
+  // A search box only earns its space once there's enough to search through.
+  const showSearch = options.length > 6;
 
   function toggle(value: string) {
     onChange(selected.includes(value) ? selected.filter(v => v !== value) : [...selected, value]);
@@ -213,8 +229,24 @@ function MultiSelectDropdown({
           style={{ position: 'fixed', ...pos }}
           className="z-50 w-48 rounded-xl border border-surface-300/50 bg-surface-100 shadow-xl shadow-black/30 overflow-hidden animate-[fadeUp_0.15s_ease-out]"
         >
+          {showSearch && (
+            <div className="relative border-b border-surface-300/40 p-1.5">
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-surface-500" />
+              <input
+                type="text"
+                autoFocus
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder="Search..."
+                className="w-full rounded-md border border-transparent bg-surface-200/60 py-1.5 pl-7 pr-2 text-xs normal-case text-surface-900 placeholder:text-surface-500 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
+              />
+            </div>
+          )}
           <div className="max-h-56 overflow-y-auto py-1">
-            {options.map(opt => {
+            {filteredOptions.length === 0 && (
+              <p className="px-3 py-2 text-xs text-surface-500">No matches</p>
+            )}
+            {filteredOptions.map(opt => {
               const checked = selected.includes(opt.value);
               return (
                 <button

@@ -844,7 +844,15 @@ async function dispatchPolicyBot(from: string, question: string, orgId: string):
 
 // ── Audio transcription via Groq Whisper ──────────────────────────────────
 
-async function transcribeAudio(mediaId: string, orgId: string): Promise<string | null> {
+// Only these two languages are supported end-to-end (task/reply generation
+// only knows English/Hindi) — anything else Whisper detects is rejected
+// rather than silently passed downstream, where a wrong-language transcript
+// has no recognizable keywords and causes the AI to guess wildly.
+const ALLOWED_TRANSCRIPT_LANGUAGES = new Set(['english', 'hindi']);
+
+type TranscribeResult = { text: string; language: string } | 'unsupported_language' | null;
+
+async function transcribeAudio(mediaId: string, orgId: string): Promise<TranscribeResult> {
   const { buffer, mimeType } = await downloadMediaContent(mediaId, orgId);
 
   const ext = mimeType.startsWith('audio/ogg')  ? '.ogg'
@@ -857,7 +865,7 @@ async function transcribeAudio(mediaId: string, orgId: string): Promise<string |
   // "audio/ogg; codecs=opus" MIME type that WhatsApp sends.
   const blobType = mimeType.split(';')[0].trim();
 
-  const tryKey = async (apiKey: string): Promise<string | null | 'skip'> => {
+  const tryKey = async (apiKey: string): Promise<TranscribeResult | 'skip'> => {
     const form = new FormData();
     form.append('file', new Blob([buffer], { type: blobType }), `audio${ext}`);
     form.append('model', 'whisper-large-v3-turbo');
@@ -868,6 +876,10 @@ async function transcribeAudio(mediaId: string, orgId: string): Promise<string |
     // both languages this bot supports, steering detection without forcing
     // translation (which would break Hindi-language responses downstream).
     form.append('prompt', 'HR assistant conversation about tasks, leave, and attendance. English ya Hindi mein baat ho sakti hai — jaise "list of tasks", "apply leave", "mark task complete".');
+    // verbose_json exposes Whisper's own detected-language guess, so a
+    // mis-detected clip can be caught and rejected instead of silently
+    // processed as gibberish downstream.
+    form.append('response_format', 'verbose_json');
 
     let res: Response;
     try {
@@ -893,7 +905,14 @@ async function transcribeAudio(mediaId: string, orgId: string): Promise<string |
     }
 
     const data = await res.json();
-    return (data.text as string)?.trim() || null;
+    const text     = (data.text as string)?.trim() || '';
+    const language = ((data.language as string) ?? '').toLowerCase();
+    if (!text) return null;
+    if (!ALLOWED_TRANSCRIPT_LANGUAGES.has(language)) {
+      console.warn(`[WA Audio] Rejected transcript in unsupported language "${language}": "${text.slice(0, 80)}"`);
+      return 'unsupported_language';
+    }
+    return { text, language };
   };
 
   // GROQ_API_KEY may be comma-separated (legacy format) — split it the same
@@ -926,20 +945,26 @@ async function handleAudioMessage(from: string, mediaId: string, orgId: string):
 
   console.log(`[WA Audio] Transcribing ${mediaId} for ${from}`);
 
-  let transcript: string | null;
+  let result: TranscribeResult;
   try {
-    transcript = await transcribeAudio(mediaId, orgId);
+    result = await transcribeAudio(mediaId, orgId);
   } catch (err) {
     console.error('[WA Audio] Transcription failed:', err);
     await sendText(from, '❌ Could not transcribe your voice message. Please send a text message instead.', orgId).catch(() => {});
     return;
   }
 
-  if (!transcript) {
+  if (!result) {
     await sendText(from, '❌ Your voice message was empty or unclear. Please try again.', orgId).catch(() => {});
     return;
   }
 
+  if (result === 'unsupported_language') {
+    await sendText(from, '❌ Sorry, I could only understand voice messages in English or Hindi. Please try again in one of those languages, or send a text message instead.', orgId).catch(() => {});
+    return;
+  }
+
+  const transcript = result.text;
   console.log(`[WA Audio] Transcript for ${from}: "${transcript.slice(0, 100)}"`);
 
   // Skip the "I heard: ..." echo/confirmation step and dispatch the

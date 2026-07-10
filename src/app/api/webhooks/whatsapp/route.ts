@@ -332,12 +332,18 @@ const EDIT_PICKER_RE     = /^Current details:\n([\s\S]+?)\n\nWhat would you like
 
 function looksLikeInternalReasoning(text: string): boolean {
   const head = text.trim().slice(0, 500);
+  // LIST_TASKS/COMPLETE_TASK build these headers purely from DB rows —
+  // never touched by an LLM — so a long list here can never be a leaked
+  // chain-of-thought. Since the task-list cap was raised to 50 results,
+  // a genuine full list can legitimately exceed the length safety net below.
+  const isDeterministicTaskList = /^📋 \*[^*]+\*/.test(text.trim()) || /^✅ \*.*completed tasks/.test(text.trim());
   return /^(?:the user (?:is|says|wrote|typed|asked)|according to (?:the )?rules?|we (?:need to|have (?:a|received)|should|must|already have)|they want (?:a|to)|i need to (?:parse|analyze|check)|let me (?:analyze|reason|parse)|analysis:|reasoning:)/i.test(head)
     || /(?:call|use)\s+[a-z_]+\s*\([^)]*\).*\btool\b/i.test(head)
     || /"tool_calls"\s*:|"function"\s*:\s*\{\s*"name"/i.test(head)
-    // Safety net: no legitimate reply is anywhere near this long — this size
-    // is always a leaked chain-of-thought dump regardless of exact wording.
-    || text.trim().length > 900;
+    // Safety net: outside the deterministic task-list shape above, no
+    // legitimate reply is anywhere near this long — this size is always a
+    // leaked chain-of-thought dump regardless of exact wording.
+    || (!isDeterministicTaskList && text.trim().length > 900);
 }
 
 async function sendAgentReply(to: string, text: string, orgId: string): Promise<void> {

@@ -14,8 +14,8 @@ test('normalizes common action spelling mistakes without changing names', () => 
 
 test('routes self, team, person, typo, and completed task-list requests', () => {
   assert.deepEqual(routing.quickTaskListArgs('my tasks'), { assignee_name: 'mine' });
-  assert.deepEqual(routing.quickTaskListArgs('list of tasks'), { assignee_name: 'mine', implicit_self: 'true' });
-  assert.deepEqual(routing.quickTaskListArgs('show tasks'), { assignee_name: 'mine', implicit_self: 'true' });
+  assert.deepEqual(routing.quickTaskListArgs('list of tasks'), { scope: 'all' });
+  assert.deepEqual(routing.quickTaskListArgs('show tasks'), { scope: 'all' });
   assert.deepEqual(routing.quickTaskListArgs('list all tasks'), { scope: 'all' });
   assert.deepEqual(routing.quickTaskListArgs('list of all tasks'), { scope: 'all' });
   assert.deepEqual(routing.quickTaskListArgs('list of all completed tasks'), { status_filter: 'done', scope: 'all' });
@@ -86,25 +86,9 @@ test('"give me list of his task" resolves to the person named earlier, not the c
   );
 });
 
-test('an implicit "mine" default carries forward org-wide scope from the prior turn', () => {
-  const args = routing.quickTaskListArgs('list of completed tasks');
-  assert.deepEqual(args, { status_filter: 'done', assignee_name: 'mine', implicit_self: 'true' });
-  // Prior bot turn was an org-wide list ("All tasks") -> carry scope=all forward.
-  assert.deepEqual(
-    routing.resolveTaskListScope(args, '📋 *All tasks:*\n\n🔴 *Overdue:*\n1. ...'),
-    { status_filter: 'done', scope: 'all' },
-  );
-  // Prior bot turn was NOT an org-wide list -> stay self-scoped as before.
-  assert.deepEqual(
-    routing.resolveTaskListScope(args, '📋 *Your tasks:*\n\n1. ...'),
-    { status_filter: 'done', assignee_name: 'mine' },
-  );
-});
-
-test('an explicit "my tasks" request never gets overridden to org-wide scope', () => {
-  const args = routing.quickTaskListArgs('my tasks');
-  assert.deepEqual(
-    routing.resolveTaskListScope(args, '📋 *All tasks:*\n\n1. ...'),
-    { assignee_name: 'mine' },
-  );
+test('a bare task-list request defaults to everyone\'s tasks, not just the caller\'s', () => {
+  assert.deepEqual(routing.quickTaskListArgs('list of completed tasks'), { status_filter: 'done', scope: 'all' });
+  assert.deepEqual(routing.quickTaskListArgs('list of tasks'), { scope: 'all' });
+  // Only an explicit self-reference narrows it back to the caller.
+  assert.deepEqual(routing.quickTaskListArgs('my completed tasks'), { status_filter: 'done', assignee_name: 'mine' });
 });

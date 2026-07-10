@@ -41,6 +41,22 @@ function requestedTaskPriority(message: string): string | null {
   return null;
 }
 
+/**
+ * Deadline filter — mirrors the dashboard's DEADLINE_OPTIONS
+ * (overdue/today/week/none in TaskKanban.tsx). Kept to unambiguous phrases
+ * only ("due today"/"due this week", not bare "today"/"week") so it never
+ * collides with the possessive-name pattern (e.g. "today's tasks" is NOT
+ * treated as a deadline filter — "today" would otherwise get captured as if
+ * it were a person's name).
+ */
+function requestedTaskDeadline(message: string): string | null {
+  if (/\boverdue\b/i.test(message)) return 'overdue';
+  if (/\bdue\s+today\b/i.test(message)) return 'today';
+  if (/\bdue\s+this\s+week\b/i.test(message) || /\bdue\s+(?:with)?in\s+(?:a|the\s+next)?\s*week\b/i.test(message)) return 'week';
+  if (/\bno\s+deadline\b/i.test(message) || /\bwithout\s+(?:a\s+)?deadline\b/i.test(message)) return 'none';
+  return null;
+}
+
 function requestedTaskStatus(message: string): string | null {
   // "complete task list" means the full list, not only completed tasks.
   if (/\b(?:full|complete|total)\s+(?:task\s+)?list\b/i.test(message)) return null;
@@ -79,6 +95,11 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
   // elsewhere (e.g. "what is the priority of task X", "update priority")
   // is a field query/mutation, not a list filter. See hasNonFilterPriorityMention below.
   const priorityFilter = requestedTaskPriority(t);
+  // Same reasoning as priorityFilter above — only a real filter shape
+  // ("overdue"/"due today"/"due this week"/"no deadline") counts; a bare
+  // "deadline" elsewhere (e.g. "what is the deadline of task X", "update
+  // deadline") is a field query/mutation, not a list filter.
+  const deadlineFilter = requestedTaskDeadline(t);
   // "all my tasks" / "list all of my tasks" means every one of the caller's
   // own tasks, not every task in the org — self-reference always wins over
   // the generic all-scope keyword.
@@ -95,7 +116,7 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
     .replace(/^of\s+/i, '')
     .trim();
   const hasValidPossessiveName = !!possessiveName
-    && !/^(?:all|every|each|entire|whole|everyone|everybody|team|staff|workforce|company|org|organisation|organization|the|of|a|an|my|mine)$/i.test(possessiveName);
+    && !/^(?:all|every|each|entire|whole|everyone|everybody|team|staff|workforce|company|org|organisation|organization|the|of|a|an|my|mine|today|tomorrow|week|overdue)$/i.test(possessiveName);
   if (!/\btasks?\b/i.test(t)) return null;
   // "priority" alone used to be a blanket exclusion trigger (assumed to mean
   // a field query/mutation like "what is the priority of task X" or "update
@@ -106,7 +127,8 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
   // filter). Only still excludes "priority" when it's NOT part of the
   // "<level> priority" filter shape this function itself now recognizes.
   const hasNonFilterPriorityMention = /\bpriority\b/i.test(t) && !priorityFilter;
-  if ((/\b(details?|info|status|deadline|assignee|update|change|delete|remove|complete|finish|assign|create|add|note)\b/i.test(t) || hasNonFilterPriorityMention)
+  const hasNonFilterDeadlineMention = /\bdeadline\b/i.test(t) && !deadlineFilter;
+  if ((/\b(details?|info|status|assignee|update|change|delete|remove|complete|finish|assign|create|add|note)\b/i.test(t) || hasNonFilterPriorityMention || hasNonFilterDeadlineMention)
     && !/\b(completed|complete|done|finished|closed)\s+tasks?\b/i.test(t) && !/\b(?:full|complete|total)\s+(?:task\s+)?list\b/i.test(t)) {
     return null;
   }
@@ -114,21 +136,26 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
     return {
       ...(statusFilter ? { status_filter: statusFilter } : {}),
       ...(priorityFilter ? { priority_filter: priorityFilter } : {}),
+      ...(deadlineFilter ? { deadline_filter: deadlineFilter } : {}),
       scope: 'all',
     };
   }
-  // Gate on statusFilter/priorityFilter (not a separate hardcoded word list)
-  // so every status requestedTaskStatus recognizes — including "in
-  // progress"/"cancelled", which a previous, narrower version of this list
-  // omitted and caused "<name> in progress tasks" to bypass the
-  // deterministic route entirely.
-  if (!/\b(list|show|get|display)\b/i.test(t) && !statusFilter && !priorityFilter && !isSelfRef && !hasValidPossessiveName && !/[’']s\s+tasks?$/i.test(t)) {
+  // Gate on statusFilter/priorityFilter/deadlineFilter (not a separate
+  // hardcoded word list) so every status requestedTaskStatus recognizes —
+  // including "in progress"/"cancelled", which a previous, narrower version
+  // of this list omitted and caused "<name> in progress tasks" to bypass the
+  // deterministic route entirely. Same reasoning applies to deadlineFilter:
+  // without it, a bare "overdue tasks" (no list/show/status/name keyword)
+  // fell through to the AI, which was observed fabricating/mislabeling
+  // overdue results (e.g. including an already-completed task).
+  if (!/\b(list|show|get|display)\b/i.test(t) && !statusFilter && !priorityFilter && !deadlineFilter && !isSelfRef && !hasValidPossessiveName && !/[’']s\s+tasks?$/i.test(t)) {
     return null;
   }
 
   const args: Record<string, string> = {};
   if (statusFilter) args.status_filter = statusFilter;
   if (priorityFilter) args.priority_filter = priorityFilter;
+  if (deadlineFilter) args.deadline_filter = deadlineFilter;
   if (/\b(my|mine|me)\b/i.test(t)) {
     args.assignee_name = 'mine';
     return args;
@@ -155,14 +182,23 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
   ];
   for (const pattern of personPatterns) {
     const taskOwnerText = t
-      // Strip a "<level> priority" filter phrase directly before "tasks" —
-      // same reasoning as the status-word stripping below: without this,
+      // Strip filter-descriptor phrases (priority level, deadline bucket,
+      // status word) wherever they appear in the message — not just directly
+      // before "tasks" — so stacked modifiers (e.g. "high priority overdue
+      // tasks") all get removed, not just whichever one happens to sit
+      // adjacent to "tasks". These words are never legitimately part of a
+      // real person's name, so unconditional stripping is safe. Without this,
       // "Rashmi's high priority tasks" would fail to match the possessive
-      // patterns (the words sit between 's and "tasks"), and bare "high
-      // priority tasks" would get "high priority" read back as if it were
-      // a person's name by the catch-all pattern at the end of this list.
-      .replace(/\b(?:urgent|high|medium|low)\s+priority\b(?=\s+tasks?\b)/ig, '')
-      .replace(/\b(?:completed|complete|done|finished|closed|cancelled|canceled|dropped|abandoned|in[\s_-]*progress|wip|ongoing|underway|started|working\s+on|to[\s_-]*do|todo|pending|open|not\s+started|active)\b(?=\s+tasks?\b)/ig, '')
+      // patterns (the words sit between 's and "tasks"), bare "high priority
+      // tasks" would get "high priority" read back as if it were a person's
+      // name by the catch-all pattern at the end of this list, and combined
+      // phrases like "high priority overdue tasks" would leave the
+      // non-adjacent modifier ("high priority") uncaptured and misread as a name.
+      .replace(/\b(?:urgent|high|medium|low)\s+priority\b/ig, '')
+      .replace(/\boverdue\b/ig, '')
+      .replace(/\bdue\s+today\b/ig, '')
+      .replace(/\bdue\s+this\s+week\b/ig, '')
+      .replace(/\b(?:completed|complete|done|finished|closed|cancelled|canceled|dropped|abandoned|in[\s_-]*progress|wip|ongoing|underway|started|working\s+on|to[\s_-]*do|todo|pending|open|not\s+started|active)\b/ig, '')
       .replace(/\s+/g, ' ').trim();
     const match = taskOwnerText.match(pattern);
     const name = match?.[1]
@@ -170,7 +206,7 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
       ?.replace(/^of\s+/i, '')
       .replace(/(?:[’']s)$/i, '')
       .trim();
-    if (name && !/^(?:all|team|everyone|everybody|organisation|organization|company|pending|open|completed|done|finished|the|of|a|an|my|mine|list|show|get|display|find|give|send|tell|pull|fetch|check|urgent|high|medium|low|priority)$/i.test(name)) {
+    if (name && !/^(?:all|team|everyone|everybody|organisation|organization|company|pending|open|completed|done|finished|the|of|a|an|my|mine|list|show|get|display|find|give|send|tell|pull|fetch|check|urgent|high|medium|low|priority|overdue|deadline|today|tomorrow|week)$/i.test(name)) {
       args.assignee_name = name;
       break;
     }

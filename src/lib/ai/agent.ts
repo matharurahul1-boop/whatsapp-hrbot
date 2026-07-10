@@ -616,6 +616,7 @@ const HRBOT_TOOLS: any[] = [
         scope: { type: 'STRING', enum: ['all'], description: "Use 'all' only when the user explicitly asks for all/team/company tasks." },
         status_filter: { type: 'STRING', description: "todo | in_progress | done | cancelled | active. Omit for all unfinished tasks." },
         priority_filter: { type: 'STRING', description: "urgent | high | medium | low. Omit for all priorities. Independent of status_filter — both can be set together." },
+        deadline_filter: { type: 'STRING', description: "overdue | today | week | none. 'overdue' = past deadline and not done/cancelled. 'today' = due today. 'week' = due within the next 7 days. 'none' = no deadline set. Independent of status_filter/priority_filter — any combination can be set together." },
       },
     },
   },
@@ -987,6 +988,14 @@ Priority filter — pass priority_filter (independent of status_filter, both may
 - "medium priority tasks" → priority_filter="medium"
 - "low priority tasks" → priority_filter="low"
 - "high priority all tasks" → list_tasks(priority_filter="high", scope="all")
+
+Deadline filter — pass deadline_filter (independent of status_filter/priority_filter, any combination may be set together):
+- "overdue tasks" → deadline_filter="overdue"
+- "tasks due today" → deadline_filter="today"
+- "tasks due this week" → deadline_filter="week"
+- "tasks with no deadline" → deadline_filter="none"
+- "my overdue tasks" → list_tasks(assignee_name="mine", deadline_filter="overdue")
+RULE: NEVER compute "overdue" yourself from a task list you already have in context — deadlines change and stale context will misclassify a task (e.g. calling an already-completed task "overdue"). ALWAYS call list_tasks(deadline_filter="overdue") fresh and return the result verbatim.
 
 RULE: NEVER pass assignee_name="my" or assignee_name="me". Use assignee_name="mine" for self-queries.
 RULE: NEVER return task data as text. ALWAYS call list_tasks and return the result verbatim.
@@ -2914,6 +2923,7 @@ async function dispatchToolResult(
       description:   input.description                         ?? null,
       status_filter: input.status_filter                       ?? null,
       priority_filter: input.priority_filter                   ?? null,
+      deadline_filter: input.deadline_filter                   ?? null,
       scope:         input.scope                               ?? null,
       note:          input.note                                ?? null,
     };

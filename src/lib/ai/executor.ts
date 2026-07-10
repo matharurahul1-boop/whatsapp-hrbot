@@ -423,6 +423,19 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     // tasks". Independent of status_filter; both can apply together.
     const priorityFilter = (slots.priority_filter as string | null)?.toLowerCase();
     const validPriority = priorityFilter && ['urgent', 'high', 'medium', 'low'].includes(priorityFilter) ? priorityFilter : null;
+    // deadline_filter: 'overdue'|'today'|'week'|'none' — mirrors the
+    // dashboard's DEADLINE_OPTIONS (TaskKanban.tsx). Applied as a real
+    // DB-level filter (not just a display label) so the reply is always
+    // grounded in actual data — this closes the gap where "overdue tasks"
+    // previously had no dedicated filter at all and fell through to the AI,
+    // which was observed fabricating/mislabeling results (e.g. listing an
+    // already-completed task as overdue).
+    const deadlineFilter = (slots.deadline_filter as string | null)?.toLowerCase();
+    const validDeadline = deadlineFilter && ['overdue', 'today', 'week', 'none'].includes(deadlineFilter) ? deadlineFilter : null;
+    const nowMs        = Date.now();
+    const todayStartMs = new Date(`${today}T00:00:00+05:30`).getTime();
+    const todayEndMs   = new Date(`${today}T23:59:59+05:30`).getTime();
+    const weekEndMs    = todayStartMs + 7 * 24 * 60 * 60 * 1000;
 
     let query = db
       .from('tasks')
@@ -431,6 +444,19 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       .is('deleted_at', null);
 
     if (validPriority) query = (query as any).eq('priority', validPriority);
+
+    if (validDeadline === 'overdue') {
+      // Matches the dashboard's overdue definition exactly (matchesDeadlinePreset
+      // in TaskKanban.tsx): a task already done/cancelled is never "overdue",
+      // regardless of any other status filter combined with it.
+      query = (query as any).lt('deadline', new Date(nowMs).toISOString()).neq('status', 'done').neq('status', 'cancelled');
+    } else if (validDeadline === 'today') {
+      query = (query as any).gte('deadline', new Date(todayStartMs).toISOString()).lte('deadline', new Date(todayEndMs).toISOString());
+    } else if (validDeadline === 'week') {
+      query = (query as any).gte('deadline', new Date(nowMs).toISOString()).lte('deadline', new Date(weekEndMs).toISOString());
+    } else if (validDeadline === 'none') {
+      query = (query as any).is('deadline', null);
+    }
 
     if (showDone) {
       query = (query as any).eq('status', 'done').order('completed_at', { ascending: false, nullsFirst: false });
@@ -507,10 +533,13 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const { data: tasks, error: taskListError } = await query;
     if (taskListError) throw taskListError;
 
+    const deadlineLabelMap: Record<string, string> = { overdue: 'overdue', today: 'due today', week: 'due this week', none: 'no-deadline' };
+    const deadlineLabel = validDeadline ? deadlineLabelMap[validDeadline] : null;
+
     if (!tasks?.length) {
       const noTasksName = slots.assignee_name && !isSelfQuery ? (resolvedAssigneeName ?? slots.assignee_name) : null;
       const statusLabel_ = statusFilter === 'in_progress' ? 'in progress' : statusFilter === 'todo' ? 'to do' : statusFilter === 'active' ? 'pending' : statusFilter;
-      const noTasksLabel = [validPriority, statusLabel_].filter(Boolean).join(' ');
+      const noTasksLabel = [validPriority, deadlineLabel, statusLabel_].filter(Boolean).join(' ');
       if (noTasksLabel) {
         return { success: true, reply: noTasksName
           ? `📋 No ${noTasksLabel} tasks found for *${noTasksName}*.`
@@ -523,9 +552,6 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
           : (lang === 'hi' ? `📋 कोई पेंडिंग टास्क नहीं। शानदार काम! 🎉` : `📋 No pending tasks — you're all caught up! 🎉`),
       };
     }
-
-    const todayStartMs = new Date(`${today}T00:00:00+05:30`).getTime();
-    const todayEndMs   = new Date(`${today}T23:59:59+05:30`).getTime();
 
     const formatTask = (t: any, i: number) => {
       const pEmoji = priorityEmoji(t.priority);
@@ -544,11 +570,14 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       : null;
 
     const priorityLabel = validPriority ? `${validPriority.charAt(0).toUpperCase()}${validPriority.slice(1)} Priority` : null;
+    const deadlineHeaderLabelMap: Record<string, string> = { overdue: 'Overdue', today: 'Due Today', week: 'Due This Week', none: 'No-Deadline' };
+    const deadlineHeaderLabel = validDeadline ? deadlineHeaderLabelMap[validDeadline] : null;
 
     if (showDone) {
       // Completed tasks: list flat in completion order — no time bucketing
       // (bucketing by deadline makes no sense for already-done tasks)
-      const doneFilterLabel = priorityLabel ? ` ${priorityLabel}` : '';
+      const doneFilterLabelText = [priorityLabel, deadlineHeaderLabel].filter(Boolean).join(' ');
+      const doneFilterLabel = doneFilterLabelText ? ` ${doneFilterLabelText}` : '';
       const header = headerName
         ? `✅ *${headerName}'s${doneFilterLabel} completed tasks (${tasks.length}):*`
         : wantsAll
@@ -558,7 +587,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       (tasks as any[]).forEach((t, i) => lines.push(formatTask(t, i)));
     } else {
       const statusLabelText = statusFilter === 'in_progress' ? 'In Progress' : statusFilter === 'todo' ? 'To Do' : statusFilter === 'cancelled' ? 'Cancelled' : statusFilter === 'active' ? 'Pending' : null;
-      const filterLabel = [priorityLabel, statusLabelText].filter(Boolean).join(' ') || null;
+      const filterLabel = [priorityLabel, deadlineHeaderLabel, statusLabelText].filter(Boolean).join(' ') || null;
       const header = headerName
         ? `📋 *${headerName}'s${filterLabel ? ` ${filterLabel}` : ''} tasks:*`
         : wantsAll

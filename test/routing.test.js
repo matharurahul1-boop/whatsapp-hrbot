@@ -113,6 +113,32 @@ test('priority filter ("<level> priority tasks") is recognized and never blocked
   assert.equal(routing.quickTaskListArgs('update task Payroll priority to high'), null);
 });
 
+test('deadline filter ("overdue"/"due today"/"due this week"/"no deadline") is recognized and never blocked', () => {
+  // Observed live: "Overdue tasks" fell through to the AI (no status/priority/
+  // name/scope keyword to trip the deterministic route), which fabricated a
+  // wrong result — including an already-Done task as "overdue" and missing
+  // several genuinely overdue tasks the dashboard showed correctly.
+  assert.deepEqual(routing.quickTaskListArgs('overdue tasks'), { deadline_filter: 'overdue', scope: 'all' });
+  assert.deepEqual(routing.quickTaskListArgs('Overdue tasks'), { deadline_filter: 'overdue', scope: 'all' });
+  assert.deepEqual(routing.quickTaskListArgs('show all overdue tasks'), { deadline_filter: 'overdue', scope: 'all' });
+  assert.deepEqual(routing.quickTaskListArgs('my overdue tasks'), { deadline_filter: 'overdue', assignee_name: 'mine' });
+  assert.deepEqual(routing.quickTaskListArgs('tasks due today'), { deadline_filter: 'today', scope: 'all' });
+  assert.deepEqual(routing.quickTaskListArgs('tasks due this week'), { deadline_filter: 'week', scope: 'all' });
+  assert.deepEqual(routing.quickTaskListArgs('tasks with no deadline'), { deadline_filter: 'none', scope: 'all' });
+  // Combines correctly with a named person.
+  assert.deepEqual(routing.quickTaskListArgs("Rashmi's overdue tasks"), { deadline_filter: 'overdue', assignee_name: 'Rashmi' });
+  assert.deepEqual(routing.quickTaskListArgs('Ashish overdue tasks'), { deadline_filter: 'overdue', assignee_name: 'Ashish' });
+  // Combines correctly with priority filter.
+  assert.deepEqual(routing.quickTaskListArgs('high priority overdue tasks'), { priority_filter: 'high', deadline_filter: 'overdue', scope: 'all' });
+  // Genuine field queries/mutations about the deadline field must still be excluded.
+  assert.equal(routing.quickTaskListArgs('what is the deadline of task Payroll'), null);
+  assert.equal(routing.quickTaskListArgs('update task Payroll deadline to tomorrow'), null);
+  // "today's tasks" must NOT be misread as a deadline filter — "today" here
+  // reads as an (invalid, excluded) possessive name, so this falls through
+  // to a generic org-wide list rather than a deadline filter.
+  assert.deepEqual(routing.quickTaskListArgs("today's tasks"), { scope: 'all' });
+});
+
 test('does not misroute task mutations as task-list requests', () => {
   for (const message of ['create a task', 'delete task Payroll', 'update task Payroll', 'assign task Payroll to Mahima', 'show details of task Payroll', 'show task status']) {
     assert.equal(routing.quickTaskListArgs(message), null, message);

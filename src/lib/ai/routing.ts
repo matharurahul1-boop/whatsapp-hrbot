@@ -195,6 +195,15 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
       // phrases like "high priority overdue tasks" would leave the
       // non-adjacent modifier ("high priority") uncaptured and misread as a name.
       .replace(/\b(?:urgent|high|medium|low)\s+priority\b/ig, '')
+      // Bare level word with no "priority" suffix — e.g. "Medium tasks
+      // assigned to rashmi" (requestedTaskPriority() already recognizes a
+      // bare level word as a real priority filter; this strip needs to match
+      // that same recognition, or the leading modifier is left in place and
+      // breaks the "tasks (of|for|assigned to) NAME" pattern below, which
+      // requires "tasks" to be the very first word. Observed live: "Medium
+      // tasks assigned to rashmi" silently dropped "assigned to rashmi" and
+      // returned the org-wide medium-priority list instead.
+      .replace(/\b(?:urgent|high|medium|low)\b/ig, '')
       .replace(/\boverdue\b/ig, '')
       .replace(/\bdue\s+today\b/ig, '')
       .replace(/\bdue\s+this\s+week\b/ig, '')

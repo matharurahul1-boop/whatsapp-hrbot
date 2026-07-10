@@ -139,6 +139,25 @@ test('deadline filter ("overdue"/"due today"/"due this week"/"no deadline") is r
   assert.deepEqual(routing.quickTaskListArgs("today's tasks"), { scope: 'all' });
 });
 
+test('combined filters ("<priority/status/deadline> tasks assigned to/for/of <name>") resolve to that person, not the whole org', () => {
+  // Observed live: "Medium tasks assigned to rashmi" returned the org-wide
+  // "All Medium Priority tasks" list — the bare priority word "Medium"
+  // wasn't being stripped before matching the "tasks (of|for|assigned to)
+  // NAME" pattern, which requires "tasks" to be the very first word, so the
+  // leading modifier broke the match entirely and "assigned to rashmi" was
+  // silently dropped.
+  assert.deepEqual(routing.quickTaskListArgs('Medium tasks assigned to rashmi'), { priority_filter: 'medium', assignee_name: 'rashmi' });
+  assert.deepEqual(routing.quickTaskListArgs('high priority tasks assigned to rashmi'), { priority_filter: 'high', assignee_name: 'rashmi' });
+  assert.deepEqual(routing.quickTaskListArgs('urgent tasks for rashmi'), { priority_filter: 'urgent', assignee_name: 'rashmi' });
+  assert.deepEqual(routing.quickTaskListArgs('pending tasks assigned to rashmi'), { status_filter: 'active', assignee_name: 'rashmi' });
+  assert.deepEqual(routing.quickTaskListArgs('overdue tasks assigned to rashmi'), { deadline_filter: 'overdue', assignee_name: 'rashmi' });
+  assert.deepEqual(routing.quickTaskListArgs('completed tasks of rashmi'), { status_filter: 'done', assignee_name: 'rashmi' });
+  // Also fixes the equivalent possessive phrasing for a bare level word.
+  assert.deepEqual(routing.quickTaskListArgs("rashmi's medium tasks"), { priority_filter: 'medium', assignee_name: 'rashmi' });
+  // Bare priority filter with no name still resolves org-wide, unaffected.
+  assert.deepEqual(routing.quickTaskListArgs('medium tasks'), { priority_filter: 'medium', scope: 'all' });
+});
+
 test('does not misroute task mutations as task-list requests', () => {
   for (const message of ['create a task', 'delete task Payroll', 'update task Payroll', 'assign task Payroll to Mahima', 'show details of task Payroll', 'show task status']) {
     assert.equal(routing.quickTaskListArgs(message), null, message);

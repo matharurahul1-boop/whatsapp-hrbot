@@ -1335,7 +1335,46 @@ function looksLikeUnconfirmedSuccessClaim(reply: string): boolean {
 
 // ─── Master agent entry point ─────────────────────────────────────────────────
 
+// ── Final safety net: block any task-list-shaped reply whose claimed task
+// titles don't actually exist in the database ──────────────────────────────
+// Deterministic quick-routes (list_tasks, complete_task, etc.) always build
+// their reply text directly from real DB rows, so their output can never
+// fail this check. Free-text AI generation, however, has repeatedly been
+// observed fabricating a task-list-shaped reply that blends real and made-up
+// tasks (or gets a real task's status/deadline wrong) when a message doesn't
+// match any known deterministic trigger — each prior fix only covered the
+// ONE trigger phrasing that had been reported. This runs on every reply
+// regardless of which code path or AI backend produced it, so it catches
+// any future fabrication, not just already-patched phrasings.
+const TASK_LIST_LINE_RE = /^\d+\.\s*[🔴🟠🟡🟢⚪]\s*\*([^*]+)\*/gmu;
+
+async function guardAgainstFabricatedTaskList(reply: string, orgId: string): Promise<string> {
+  const claimedTitles = [...reply.matchAll(TASK_LIST_LINE_RE)].map(m => m[1].trim());
+  if (claimedTitles.length === 0) return reply;
+
+  const { createAdminClient } = await import('@/lib/supabase/admin');
+  const { data: realTasks } = await createAdminClient()
+    .from('tasks').select('title').eq('organization_id', orgId).is('deleted_at', null);
+  const realTitles = new Set((realTasks ?? []).map(t => t.title.trim().toLowerCase()));
+
+  const allReal = claimedTitles.every(title => realTitles.has(title.toLowerCase()));
+  if (allReal) return reply;
+
+  console.error('[Agent] Blocked a fabricated task-list reply — claimed titles not found in DB:', claimedTitles);
+  return "⚠️ Sorry, I couldn't reliably pull that list. Please try again — e.g. \"list tasks\" or \"<name>'s tasks\".";
+}
+
 export async function runMasterAgent(
+  message: string,
+  waNumber: string,
+  orgId: string,
+): Promise<AgentTurn> {
+  const turn = await runMasterAgentInner(message, waNumber, orgId);
+  const verifiedReply = await guardAgainstFabricatedTaskList(turn.reply, orgId);
+  return verifiedReply === turn.reply ? turn : { ...turn, reply: verifiedReply };
+}
+
+async function runMasterAgentInner(
   message: string,
   waNumber: string,
   orgId: string,

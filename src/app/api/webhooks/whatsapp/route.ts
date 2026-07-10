@@ -861,6 +861,13 @@ async function transcribeAudio(mediaId: string, orgId: string): Promise<string |
     const form = new FormData();
     form.append('file', new Blob([buffer], { type: blobType }), `audio${ext}`);
     form.append('model', 'whisper-large-v3-turbo');
+    // Whisper auto-detects language with no hint, which occasionally locks
+    // onto an unrelated language for short/ambiguous clips (observed: a
+    // short English "List of tasks" transcribed as Spanish "Lista de
+    // pastos"). A `prompt` primes it with the expected domain vocabulary in
+    // both languages this bot supports, steering detection without forcing
+    // translation (which would break Hindi-language responses downstream).
+    form.append('prompt', 'HR assistant conversation about tasks, leave, and attendance. English ya Hindi mein baat ho sakti hai — jaise "list of tasks", "apply leave", "mark task complete".');
 
     let res: Response;
     try {

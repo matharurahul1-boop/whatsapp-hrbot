@@ -70,14 +70,46 @@ interface TaskKanbanProps {
 }
 
 const PRIORITIES = ['', 'urgent', 'high', 'medium', 'low'];
+const STATUSES: { id: string; label: string }[] = [
+  { id: '',            label: 'All' },
+  { id: 'todo',        label: 'To Do' },
+  { id: 'in_progress', label: 'In Progress' },
+  { id: 'done',        label: 'Done' },
+  { id: 'cancelled',   label: 'Cancelled' },
+];
+const DEADLINE_PRESETS: { id: string; label: string }[] = [
+  { id: '',        label: 'All' },
+  { id: 'overdue', label: 'Overdue' },
+  { id: 'today',   label: 'Due Today' },
+  { id: 'week',    label: 'Due This Week' },
+  { id: 'none',    label: 'No Deadline' },
+];
 
 function initials(name: string) {
   return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
 }
 
+function matchesDeadlinePreset(task: Task, preset: string, now: Date): boolean {
+  if (!preset) return true;
+  if (preset === 'none') return !task.deadline;
+  if (!task.deadline) return false;
+  const d = deadlineToUTCDate(task.deadline);
+  if (preset === 'overdue') return task.status !== 'done' && task.status !== 'cancelled' && d < now;
+  if (preset === 'today') {
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const endOfToday    = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    return d >= startOfToday && d <= endOfToday;
+  }
+  if (preset === 'week') {
+    const weekFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    return d >= now && d <= weekFromNow;
+  }
+  return true;
+}
+
 function EmployeeDropdown({
-  employees, value, onChange,
-}: { employees: Employee[]; value: string; onChange: (v: string) => void }) {
+  employees, value, onChange, label = 'All Employees', icon,
+}: { employees: Employee[]; value: string; onChange: (v: string) => void; label?: string; icon?: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -112,8 +144,8 @@ function EmployeeDropdown({
           </>
         ) : (
           <>
-            <Users className="h-3.5 w-3.5 shrink-0" />
-            <span>All Employees</span>
+            {icon ?? <Users className="h-3.5 w-3.5 shrink-0" />}
+            <span>{label}</span>
           </>
         )}
         <ChevronDown className={cn('h-3 w-3 shrink-0 transition-transform', open && 'rotate-180')} />
@@ -131,9 +163,9 @@ function EmployeeDropdown({
               )}
             >
               <span className="flex h-6 w-6 items-center justify-center rounded-full bg-surface-300/60 shrink-0">
-                <Users className="h-3 w-3" />
+                {icon ?? <Users className="h-3 w-3" />}
               </span>
-              <span className="flex-1 text-left">All Employees</span>
+              <span className="flex-1 text-left">{label}</span>
               {!value && <Check className="h-3 w-3 shrink-0" />}
             </button>
             <div className="mx-3 my-1 border-t border-surface-300/30" />
@@ -298,6 +330,9 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
   const [search,         setSearch]         = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
   const [assigneeFilter, setAssigneeFilter] = useState('');
+  const [creatorFilter,  setCreatorFilter]  = useState('');
+  const [statusFilter,   setStatusFilter]   = useState('');
+  const [deadlineFilter, setDeadlineFilter] = useState('');
   const [showFilters,    setShowFilters]    = useState(false);
   const [view,           setView]           = useState<ViewMode>('list');
   const [localTasks,     setLocalTasks]     = useState(tasks);
@@ -324,14 +359,18 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
     if (search)         r = r.filter(t => t.title.toLowerCase().includes(search.toLowerCase()));
     if (priorityFilter) r = r.filter(t => t.priority === priorityFilter);
     if (assigneeFilter) r = r.filter(t => t.assignee?.id === assigneeFilter);
+    if (creatorFilter)  r = r.filter(t => t.creator?.id === creatorFilter);
+    if (statusFilter)   r = r.filter(t => t.status === statusFilter);
+    if (deadlineFilter) r = r.filter(t => matchesDeadlinePreset(t, deadlineFilter, now));
     return r;
-  }, [localTasks, search, priorityFilter, assigneeFilter]);
+  }, [localTasks, search, priorityFilter, assigneeFilter, creatorFilter, statusFilter, deadlineFilter, now]);
 
   const byStatus = (s: TaskStatus) => filtered.filter(t => t.status === s);
   const total    = localTasks.length;
   const active   = filtered.length;
 
-  const hasFilter = !!(assigneeFilter || priorityFilter || search);
+  const hasFilter = !!(assigneeFilter || priorityFilter || creatorFilter || statusFilter || deadlineFilter || search);
+  const activeFilterCount = [priorityFilter, statusFilter, deadlineFilter].filter(Boolean).length;
 
   return (
     <div className="space-y-4">
@@ -395,9 +434,14 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
           />
         </div>
 
-        {/* Employee dropdown — managers only */}
+        {/* Assigned To dropdown — managers only */}
         {employees.length > 0 && (
-          <EmployeeDropdown employees={employees} value={assigneeFilter} onChange={setAssigneeFilter} />
+          <EmployeeDropdown employees={employees} value={assigneeFilter} onChange={setAssigneeFilter} label="All Assignees" />
+        )}
+
+        {/* Assigned By dropdown — managers only */}
+        {employees.length > 0 && (
+          <EmployeeDropdown employees={employees} value={creatorFilter} onChange={setCreatorFilter} label="All Assigners" />
         )}
 
         <Button
@@ -407,14 +451,17 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
           onClick={() => setShowFilters(f => !f)}
         >
           Filter
-          {priorityFilter && <Badge variant="brand" className="ml-1 h-4 px-1.5 text-2xs">{priorityFilter}</Badge>}
+          {activeFilterCount > 0 && <Badge variant="brand" className="ml-1 h-4 px-1.5 text-2xs">{activeFilterCount}</Badge>}
         </Button>
 
         {/* Count + clear + view toggle */}
         <div className="ml-auto flex items-center gap-3 shrink-0">
           {hasFilter && (
             <button
-              onClick={() => { setAssigneeFilter(''); setPriorityFilter(''); setSearch(''); }}
+              onClick={() => {
+                setAssigneeFilter(''); setPriorityFilter(''); setCreatorFilter('');
+                setStatusFilter(''); setDeadlineFilter(''); setSearch('');
+              }}
               className="text-2xs text-brand-400 hover:text-brand-300 transition-colors underline underline-offset-2"
             >
               Clear all
@@ -460,22 +507,58 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
 
       {/* ── Filter bar ── */}
       {showFilters && (
-        <div className="flex items-center gap-2 flex-wrap p-3 rounded-xl bg-surface-200/40 border border-surface-300/50 animate-[fadeUp_0.2s_ease-out]">
-          <span className="text-xs text-surface-600 font-semibold">Priority:</span>
-          {PRIORITIES.map(p => (
-            <button
-              key={p}
-              onClick={() => setPriorityFilter(p)}
-              className={cn(
-                'px-2.5 py-1 rounded-lg text-xs font-medium transition-all',
-                priorityFilter === p
-                  ? 'bg-brand-500/15 text-brand-400 border border-brand-500/30'
-                  : 'bg-surface-200 text-surface-700 hover:bg-surface-300 border border-transparent'
-              )}
-            >
-              {p ? p.charAt(0).toUpperCase() + p.slice(1) : 'All'}
-            </button>
-          ))}
+        <div className="flex flex-col gap-2.5 p-3 rounded-xl bg-surface-200/40 border border-surface-300/50 animate-[fadeUp_0.2s_ease-out]">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-surface-600 font-semibold w-20 shrink-0">Priority:</span>
+            {PRIORITIES.map(p => (
+              <button
+                key={p}
+                onClick={() => setPriorityFilter(p)}
+                className={cn(
+                  'px-2.5 py-1 rounded-lg text-xs font-medium transition-all',
+                  priorityFilter === p
+                    ? 'bg-brand-500/15 text-brand-400 border border-brand-500/30'
+                    : 'bg-surface-200 text-surface-700 hover:bg-surface-300 border border-transparent'
+                )}
+              >
+                {p ? p.charAt(0).toUpperCase() + p.slice(1) : 'All'}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-surface-600 font-semibold w-20 shrink-0">Status:</span>
+            {STATUSES.map(s => (
+              <button
+                key={s.id}
+                onClick={() => setStatusFilter(s.id)}
+                className={cn(
+                  'px-2.5 py-1 rounded-lg text-xs font-medium transition-all',
+                  statusFilter === s.id
+                    ? 'bg-brand-500/15 text-brand-400 border border-brand-500/30'
+                    : 'bg-surface-200 text-surface-700 hover:bg-surface-300 border border-transparent'
+                )}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-surface-600 font-semibold w-20 shrink-0">Deadline:</span>
+            {DEADLINE_PRESETS.map(d => (
+              <button
+                key={d.id}
+                onClick={() => setDeadlineFilter(d.id)}
+                className={cn(
+                  'px-2.5 py-1 rounded-lg text-xs font-medium transition-all',
+                  deadlineFilter === d.id
+                    ? 'bg-brand-500/15 text-brand-400 border border-brand-500/30'
+                    : 'bg-surface-200 text-surface-700 hover:bg-surface-300 border border-transparent'
+                )}
+              >
+                {d.label}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

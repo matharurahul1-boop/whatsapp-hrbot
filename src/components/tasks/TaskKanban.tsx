@@ -1,15 +1,11 @@
 'use client';
 
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Search, SlidersHorizontal, X, ChevronDown, Users, Check,
   LayoutGrid, List, Clock, AlertTriangle, CheckCircle2,
   Circle, PlayCircle, XCircle, MoreHorizontal, Loader2,
 } from 'lucide-react';
-import { Input } from '@/components/ui/Input';
-import { Button } from '@/components/ui/Button';
-import { Badge } from '@/components/ui/Badge';
 import { Avatar } from '@/components/ui/Avatar';
 import TaskCard from './TaskCard';
 import { ExpandText } from '@/components/ui/ExpandText';
@@ -85,10 +81,6 @@ const DEADLINE_PRESETS: { id: string; label: string }[] = [
   { id: 'none',    label: 'No Deadline' },
 ];
 
-function initials(name: string) {
-  return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
-}
-
 function matchesDeadlinePreset(task: Task, preset: string, now: Date): boolean {
   if (!preset) return true;
   if (preset === 'none') return !task.deadline;
@@ -107,94 +99,6 @@ function matchesDeadlinePreset(task: Task, preset: string, now: Date): boolean {
   return true;
 }
 
-function EmployeeDropdown({
-  employees, value, onChange, label = 'All Employees', icon,
-}: { employees: Employee[]; value: string; onChange: (v: string) => void; label?: string; icon?: React.ReactNode }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function onClickOutside(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
-    document.addEventListener('mousedown', onClickOutside);
-    return () => document.removeEventListener('mousedown', onClickOutside);
-  }, []);
-
-  const selected = employees.find(e => e.id === value);
-
-  return (
-    <div ref={ref} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen(o => !o)}
-        className={cn(
-          'flex items-center gap-2 h-9 px-3 rounded-xl border text-xs font-medium transition-all',
-          'bg-surface-200/60 border-surface-300/50 text-surface-700 hover:bg-surface-300/60 hover:text-surface-900',
-          open && 'bg-surface-300/60 border-surface-400/50',
-          value && 'border-brand-500/40 bg-brand-500/10 text-brand-400'
-        )}
-      >
-        {selected ? (
-          <>
-            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-brand-500/20 text-2xs font-bold text-brand-400 shrink-0">
-              {initials(selected.full_name)}
-            </span>
-            <span className="max-w-[100px] truncate">{selected.full_name}</span>
-          </>
-        ) : (
-          <>
-            {icon ?? <Users className="h-3.5 w-3.5 shrink-0" />}
-            <span>{label}</span>
-          </>
-        )}
-        <ChevronDown className={cn('h-3 w-3 shrink-0 transition-transform', open && 'rotate-180')} />
-      </button>
-
-      {open && (
-        <div className="absolute top-full left-0 z-50 mt-1.5 w-52 rounded-xl border border-surface-300/50 bg-surface-100 shadow-xl shadow-black/30 overflow-hidden animate-[fadeUp_0.15s_ease-out]">
-          <div className="max-h-56 overflow-y-auto py-1">
-            <button
-              type="button"
-              onClick={() => { onChange(''); setOpen(false); }}
-              className={cn(
-                'flex w-full items-center gap-2.5 px-3 py-2 text-xs transition-colors',
-                !value ? 'bg-brand-500/10 text-brand-400' : 'text-surface-700 hover:bg-surface-200/60 hover:text-surface-900'
-              )}
-            >
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-surface-300/60 shrink-0">
-                {icon ?? <Users className="h-3 w-3" />}
-              </span>
-              <span className="flex-1 text-left">{label}</span>
-              {!value && <Check className="h-3 w-3 shrink-0" />}
-            </button>
-            <div className="mx-3 my-1 border-t border-surface-300/30" />
-            {employees.map(emp => (
-              <button
-                key={emp.id}
-                type="button"
-                onClick={() => { onChange(emp.id); setOpen(false); }}
-                className={cn(
-                  'flex w-full items-center gap-2.5 px-3 py-2 text-xs transition-colors',
-                  value === emp.id ? 'bg-brand-500/10 text-brand-400' : 'text-surface-700 hover:bg-surface-200/60 hover:text-surface-900'
-                )}
-              >
-                <span className={cn(
-                  'flex h-6 w-6 items-center justify-center rounded-full text-2xs font-bold shrink-0',
-                  value === emp.id ? 'bg-brand-500/20 text-brand-400' : 'bg-surface-300/80 text-surface-600'
-                )}>
-                  {initials(emp.full_name)}
-                </span>
-                <span className="flex-1 text-left truncate">{emp.full_name}</span>
-                {value === emp.id && <Check className="h-3 w-3 shrink-0" />}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 /* ── Inline list-row quick toggle (mirrors TaskCard quickToggle) ── */
 function ListRow({
@@ -333,7 +237,6 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
   const [creatorFilter,  setCreatorFilter]  = useState('');
   const [statusFilter,   setStatusFilter]   = useState('');
   const [deadlineFilter, setDeadlineFilter] = useState('');
-  const [showFilters,    setShowFilters]    = useState(false);
   const [view,           setView]           = useState<ViewMode>('list');
   const [localTasks,     setLocalTasks]     = useState(tasks);
 
@@ -370,7 +273,6 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
   const active   = filtered.length;
 
   const hasFilter = !!(assigneeFilter || priorityFilter || creatorFilter || statusFilter || deadlineFilter || search);
-  const activeFilterCount = [priorityFilter, statusFilter, deadlineFilter].filter(Boolean).length;
 
   return (
     <div className="space-y-4">
@@ -418,43 +320,7 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
       )}
 
       {/* ── Toolbar ── */}
-      <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
-        {/* Search — full width on mobile so placeholder is visible */}
-        <div className="basis-full sm:basis-auto sm:flex-1 sm:min-w-[160px] sm:max-w-xs">
-          <Input
-            placeholder="Search tasks…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            leftIcon={<Search className="h-3.5 w-3.5" />}
-            rightIcon={search ? (
-              <button type="button" onClick={() => setSearch('')} className="text-surface-500 hover:text-surface-900 transition-colors">
-                <X className="h-3.5 w-3.5" />
-              </button>
-            ) : undefined}
-          />
-        </div>
-
-        {/* Assigned To dropdown — managers only */}
-        {employees.length > 0 && (
-          <EmployeeDropdown employees={employees} value={assigneeFilter} onChange={setAssigneeFilter} label="All Assignees" />
-        )}
-
-        {/* Assigned By dropdown — managers only */}
-        {employees.length > 0 && (
-          <EmployeeDropdown employees={employees} value={creatorFilter} onChange={setCreatorFilter} label="All Assigners" />
-        )}
-
-        <Button
-          variant="secondary"
-          size="md"
-          leftIcon={<SlidersHorizontal className="h-3.5 w-3.5" />}
-          onClick={() => setShowFilters(f => !f)}
-        >
-          Filter
-          {activeFilterCount > 0 && <Badge variant="brand" className="ml-1 h-4 px-1.5 text-2xs">{activeFilterCount}</Badge>}
-        </Button>
-
-        {/* Count + clear + view toggle */}
+      <div className="flex items-center gap-3 flex-wrap">
         <div className="ml-auto flex items-center gap-3 shrink-0">
           {hasFilter && (
             <button
@@ -505,63 +371,6 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
         </div>
       </div>
 
-      {/* ── Filter bar ── */}
-      {showFilters && (
-        <div className="flex flex-col gap-2.5 p-3 rounded-xl bg-surface-200/40 border border-surface-300/50 animate-[fadeUp_0.2s_ease-out]">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs text-surface-600 font-semibold w-20 shrink-0">Priority:</span>
-            {PRIORITIES.map(p => (
-              <button
-                key={p}
-                onClick={() => setPriorityFilter(p)}
-                className={cn(
-                  'px-2.5 py-1 rounded-lg text-xs font-medium transition-all',
-                  priorityFilter === p
-                    ? 'bg-brand-500/15 text-brand-400 border border-brand-500/30'
-                    : 'bg-surface-200 text-surface-700 hover:bg-surface-300 border border-transparent'
-                )}
-              >
-                {p ? p.charAt(0).toUpperCase() + p.slice(1) : 'All'}
-              </button>
-            ))}
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs text-surface-600 font-semibold w-20 shrink-0">Status:</span>
-            {STATUSES.map(s => (
-              <button
-                key={s.id}
-                onClick={() => setStatusFilter(s.id)}
-                className={cn(
-                  'px-2.5 py-1 rounded-lg text-xs font-medium transition-all',
-                  statusFilter === s.id
-                    ? 'bg-brand-500/15 text-brand-400 border border-brand-500/30'
-                    : 'bg-surface-200 text-surface-700 hover:bg-surface-300 border border-transparent'
-                )}
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs text-surface-600 font-semibold w-20 shrink-0">Deadline:</span>
-            {DEADLINE_PRESETS.map(d => (
-              <button
-                key={d.id}
-                onClick={() => setDeadlineFilter(d.id)}
-                className={cn(
-                  'px-2.5 py-1 rounded-lg text-xs font-medium transition-all',
-                  deadlineFilter === d.id
-                    ? 'bg-brand-500/15 text-brand-400 border border-brand-500/30'
-                    : 'bg-surface-200 text-surface-700 hover:bg-surface-300 border border-transparent'
-                )}
-              >
-                {d.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* ── Kanban board ── */}
       {view === 'kanban' && (
         <div className="kanban-board">
@@ -597,15 +406,97 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
       {/* ── List view ── */}
       {view === 'list' && (
         <div className="rounded-2xl border border-surface-300/50 bg-surface-100 overflow-hidden shadow-sm">
-          {/* List header */}
+          {/* List header — column titles double as inline filter controls */}
           <div className="flex items-center gap-3 px-4 py-2.5 bg-surface-200/60 border-b border-surface-300/50">
             <div className="w-5 shrink-0" />
-            <div className="flex-1 text-2xs font-semibold text-surface-500 uppercase tracking-wider">Task</div>
-            <div className="hidden sm:block  w-32 shrink-0 text-2xs font-semibold text-surface-500 uppercase tracking-wider">Assigned To</div>
-            <div className="hidden md:block  w-32 shrink-0 text-2xs font-semibold text-surface-500 uppercase tracking-wider">Assigned By</div>
-            <div className="hidden md:block  w-20 shrink-0 text-2xs font-semibold text-surface-500 uppercase tracking-wider">Priority</div>
-            <div className="hidden lg:block  w-28 shrink-0 text-2xs font-semibold text-surface-500 uppercase tracking-wider">Status</div>
-            <div className="hidden md:block  w-28 shrink-0 text-2xs font-semibold text-surface-500 uppercase tracking-wider text-right">Deadline</div>
+            <div className="flex-1 min-w-0">
+              <input
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Task"
+                className={cn(
+                  'w-full bg-transparent text-2xs font-semibold uppercase tracking-wider focus:outline-none',
+                  'placeholder:text-surface-500 placeholder:normal-case',
+                  search ? 'text-brand-400' : 'text-surface-500'
+                )}
+              />
+            </div>
+            <div className="hidden sm:block w-32 shrink-0">
+              <select
+                value={assigneeFilter}
+                onChange={e => setAssigneeFilter(e.target.value)}
+                className={cn(
+                  'w-full bg-transparent text-2xs font-semibold uppercase tracking-wider focus:outline-none cursor-pointer',
+                  assigneeFilter ? 'text-brand-400' : 'text-surface-500'
+                )}
+              >
+                <option value="" className="normal-case bg-surface-100 text-surface-900">Assigned To</option>
+                {employees.map(e => (
+                  <option key={e.id} value={e.id} className="normal-case bg-surface-100 text-surface-900">{e.full_name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="hidden md:block w-32 shrink-0">
+              <select
+                value={creatorFilter}
+                onChange={e => setCreatorFilter(e.target.value)}
+                className={cn(
+                  'w-full bg-transparent text-2xs font-semibold uppercase tracking-wider focus:outline-none cursor-pointer',
+                  creatorFilter ? 'text-brand-400' : 'text-surface-500'
+                )}
+              >
+                <option value="" className="normal-case bg-surface-100 text-surface-900">Assigned By</option>
+                {employees.map(e => (
+                  <option key={e.id} value={e.id} className="normal-case bg-surface-100 text-surface-900">{e.full_name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="hidden md:block w-20 shrink-0">
+              <select
+                value={priorityFilter}
+                onChange={e => setPriorityFilter(e.target.value)}
+                className={cn(
+                  'w-full bg-transparent text-2xs font-semibold uppercase tracking-wider focus:outline-none cursor-pointer',
+                  priorityFilter ? 'text-brand-400' : 'text-surface-500'
+                )}
+              >
+                <option value="" className="normal-case bg-surface-100 text-surface-900">Priority</option>
+                {PRIORITIES.filter(Boolean).map(p => (
+                  <option key={p} value={p} className="normal-case bg-surface-100 text-surface-900">{p.charAt(0).toUpperCase() + p.slice(1)}</option>
+                ))}
+              </select>
+            </div>
+            <div className="hidden lg:block w-28 shrink-0">
+              <select
+                value={statusFilter}
+                onChange={e => setStatusFilter(e.target.value)}
+                className={cn(
+                  'w-full bg-transparent text-2xs font-semibold uppercase tracking-wider focus:outline-none cursor-pointer',
+                  statusFilter ? 'text-brand-400' : 'text-surface-500'
+                )}
+              >
+                <option value="" className="normal-case bg-surface-100 text-surface-900">Status</option>
+                {STATUSES.filter(s => s.id).map(s => (
+                  <option key={s.id} value={s.id} className="normal-case bg-surface-100 text-surface-900">{s.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="hidden md:block w-28 shrink-0">
+              <select
+                value={deadlineFilter}
+                onChange={e => setDeadlineFilter(e.target.value)}
+                className={cn(
+                  'w-full bg-transparent text-2xs font-semibold uppercase tracking-wider text-right focus:outline-none cursor-pointer',
+                  deadlineFilter ? 'text-brand-400' : 'text-surface-500'
+                )}
+              >
+                <option value="" className="normal-case bg-surface-100 text-surface-900">Deadline</option>
+                {DEADLINE_PRESETS.filter(d => d.id).map(d => (
+                  <option key={d.id} value={d.id} className="normal-case bg-surface-100 text-surface-900">{d.label}</option>
+                ))}
+              </select>
+            </div>
             <div className="w-8 shrink-0" />
           </div>
 

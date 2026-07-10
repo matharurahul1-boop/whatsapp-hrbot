@@ -313,7 +313,7 @@ function ListRow({
       </div>
 
       {/* Assigned To */}
-      <div className="hidden sm:flex items-center gap-1.5 w-36 shrink-0">
+      <div className="flex items-center gap-1.5 w-36 shrink-0">
         {task.assignee ? (
           <>
             <Avatar src={task.assignee.avatar_url} name={task.assignee.full_name} size="xs" />
@@ -325,7 +325,7 @@ function ListRow({
       </div>
 
       {/* Assigned By */}
-      <div className="hidden md:flex items-center gap-1.5 w-36 shrink-0">
+      <div className="flex items-center gap-1.5 w-36 shrink-0">
         {task.creator ? (
           <>
             <Avatar src={task.creator.avatar_url} name={task.creator.full_name} size="xs" />
@@ -337,13 +337,13 @@ function ListRow({
       </div>
 
       {/* Priority */}
-      <div className="hidden md:flex items-center gap-1.5 w-28 shrink-0">
+      <div className="flex items-center gap-1.5 w-28 shrink-0">
         <span className={cn('h-2 w-2 rounded-full shrink-0', pri.dot)} />
         <span className={cn('text-xs font-medium capitalize', pri.text)}>{task.priority}</span>
       </div>
 
       {/* Status */}
-      <div className="hidden lg:block w-32 shrink-0">
+      <div className="w-32 shrink-0">
         <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-2xs font-semibold', stCfg.pill)}>
           {stCfg.icon}
           {stCfg.label}
@@ -351,7 +351,7 @@ function ListRow({
       </div>
 
       {/* Deadline */}
-      <div className="hidden md:block w-32 shrink-0 text-right">
+      <div className="w-32 shrink-0 text-right">
         {task.deadline ? (
           <span className={cn('flex items-center justify-end gap-1 text-xs font-medium', overdue ? 'text-danger' : 'text-surface-500')}>
             {overdue && <AlertTriangle className="h-3 w-3 shrink-0" />}
@@ -550,6 +550,12 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
       {/* ── List view ── */}
       {view === 'list' && (
         <div className="rounded-2xl border border-surface-300/50 bg-surface-100 overflow-hidden shadow-sm">
+          {/* All columns always render (no breakpoint-hidden columns) — on
+              narrow screens the row content is simply wider than the
+              viewport and this wrapper scrolls horizontally instead of
+              silently dropping columns. */}
+          <div className="overflow-x-auto">
+          <div className="min-w-[900px]">
           {/* List header — column titles double as inline filter controls */}
           <div className="flex items-center gap-2 px-4 py-3 bg-surface-200/60 border-b border-surface-300/50">
             <div className="w-5 shrink-0" />
@@ -594,7 +600,7 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
                 </button>
               )}
             </div>
-            <div className="hidden sm:block w-36 shrink-0">
+            <div className="w-36 shrink-0">
               <MultiSelectDropdown
                 label="Assigned To"
                 options={employees.map(e => ({ value: e.id, label: e.full_name }))}
@@ -602,7 +608,7 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
                 onChange={setAssigneeFilter}
               />
             </div>
-            <div className="hidden md:block w-36 shrink-0">
+            <div className="w-36 shrink-0">
               <MultiSelectDropdown
                 label="Assigned By"
                 options={employees.map(e => ({ value: e.id, label: e.full_name }))}
@@ -610,7 +616,7 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
                 onChange={setCreatorFilter}
               />
             </div>
-            <div className="hidden md:block w-28 shrink-0">
+            <div className="w-28 shrink-0">
               <MultiSelectDropdown
                 label="Priority"
                 options={PRIORITY_OPTIONS}
@@ -618,7 +624,7 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
                 onChange={setPriorityFilter}
               />
             </div>
-            <div className="hidden lg:block w-32 shrink-0">
+            <div className="w-32 shrink-0">
               <MultiSelectDropdown
                 label="Status"
                 options={STATUS_OPTIONS}
@@ -626,7 +632,7 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
                 onChange={setStatusFilter}
               />
             </div>
-            <div className="hidden md:block w-32 shrink-0">
+            <div className="w-32 shrink-0">
               <MultiSelectDropdown
                 label="Deadline"
                 options={DEADLINE_OPTIONS}
@@ -668,6 +674,8 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
               );
             })
           )}
+          </div>
+          </div>
         </div>
       )}
     </div>

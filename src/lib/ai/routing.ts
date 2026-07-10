@@ -38,7 +38,11 @@ function requestedTaskStatus(message: string): string | null {
   if (/\b(?:full|complete|total)\s+(?:task\s+)?list\b/i.test(message)) return null;
   if (/\b(?:cancelled|canceled|dropped|abandoned)\b/i.test(message)) return 'cancelled';
   if (/\b(?:in[\s_-]*progress|wip|ongoing|underway|started|working\s+on)\b/i.test(message)) return 'in_progress';
-  if (/\b(?:to[\s_-]*do|todo|pending|open|not\s+started|new)\b/i.test(message)) return 'todo';
+  if (/\b(?:to[\s_-]*do|todo|not\s+started|new)\b/i.test(message)) return 'todo';
+  // "pending"/"open" mean "not yet done" in everyday HR usage — broader than
+  // strictly not-started, so this covers both todo AND in_progress tasks
+  // (unlike "to do"/"todo" above, which means specifically not-started).
+  if (/\b(?:pending|open)\b/i.test(message)) return 'active';
   if (/\b(?:completed|complete|done|finished|closed)\b/i.test(message)) return 'done';
   if (/\bactive\b/i.test(message)) return 'active';
   return null;

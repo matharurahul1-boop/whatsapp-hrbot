@@ -49,7 +49,7 @@ test('routes self, team, person, typo, and completed task-list requests', () => 
   assert.deepEqual(routing.quickTaskListArgs('my completed taks'), { status_filter: 'done', assignee_name: 'mine' });
   assert.deepEqual(routing.quickTaskListArgs("show Mahima's completed tasks"), { status_filter: 'done', assignee_name: 'Mahima' });
   assert.deepEqual(routing.quickTaskListArgs("show Mahima's in progress tasks"), { status_filter: 'in_progress', assignee_name: 'Mahima' });
-  assert.deepEqual(routing.quickTaskListArgs('my pending tasks'), { status_filter: 'todo', assignee_name: 'mine' });
+  assert.deepEqual(routing.quickTaskListArgs('my pending tasks'), { status_filter: 'active', assignee_name: 'mine' });
   assert.deepEqual(routing.quickTaskListArgs('give me my tasks'), { assignee_name: 'mine' });
   assert.deepEqual(routing.quickTaskListArgs('give me list of his task'), { assignee_name: 'his' });
   assert.deepEqual(routing.quickTaskListArgs('please send me list of her tasks'), { assignee_name: 'her' });
@@ -60,7 +60,9 @@ test('bare "<name> <status> tasks" with no possessive/prefix resolves to the nam
   // because none of the personPatterns matched a bare name with no
   // possessive, verb prefix, or preposition — observed live: "Ashish pending
   // tasks" incorrectly returned the org-wide "All To Do tasks" list.
-  assert.deepEqual(routing.quickTaskListArgs('Ashish pending tasks'), { status_filter: 'todo', assignee_name: 'Ashish' });
+  // status_filter is 'active' (todo + in_progress) — "pending" means "not
+  // yet done" in everyday usage, broader than strictly not-started.
+  assert.deepEqual(routing.quickTaskListArgs('Ashish pending tasks'), { status_filter: 'active', assignee_name: 'Ashish' });
   assert.deepEqual(routing.quickTaskListArgs('Rashmi completed tasks'), { status_filter: 'done', assignee_name: 'Rashmi' });
   // "in progress" wasn't recognized by the old hardcoded trigger-word list
   // even though requestedTaskStatus() already understood it — this message
@@ -69,7 +71,15 @@ test('bare "<name> <status> tasks" with no possessive/prefix resolves to the nam
   // Bare command verbs must never be captured as a "name" by the new
   // catch-all bare-name pattern.
   assert.deepEqual(routing.quickTaskListArgs('show tasks'), { scope: 'all' });
-  assert.deepEqual(routing.quickTaskListArgs('pending tasks'), { status_filter: 'todo', scope: 'all' });
+  assert.deepEqual(routing.quickTaskListArgs('pending tasks'), { status_filter: 'active', scope: 'all' });
+});
+
+test('"pending"/"open" cover both To Do and In Progress tasks, unlike strict "to do"', () => {
+  assert.deepEqual(routing.quickTaskListArgs('open tasks'), { status_filter: 'active', scope: 'all' });
+  // "to do"/"todo" itself stays strictly not-started — only "pending"/"open"
+  // are treated as the broader "not yet done" category.
+  assert.deepEqual(routing.quickTaskListArgs('to do tasks'), { status_filter: 'todo', scope: 'all' });
+  assert.deepEqual(routing.quickTaskListArgs('todo tasks'), { status_filter: 'todo', scope: 'all' });
 });
 
 test('does not misroute task mutations as task-list requests', () => {

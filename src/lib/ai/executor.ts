@@ -504,7 +504,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     if (!tasks?.length) {
       const noTasksName = slots.assignee_name && !isSelfQuery ? (resolvedAssigneeName ?? slots.assignee_name) : null;
       if (statusFilter) {
-        const label = statusFilter === 'in_progress' ? 'in progress' : statusFilter === 'todo' ? 'to do' : statusFilter;
+        const label = statusFilter === 'in_progress' ? 'in progress' : statusFilter === 'todo' ? 'to do' : statusFilter === 'active' ? 'pending' : statusFilter;
         return { success: true, reply: noTasksName
           ? `📋 No ${label} tasks found for *${noTasksName}*.`
           : `📋 No ${label} tasks found.` };
@@ -547,7 +547,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       lines.push(header, '');
       (tasks as any[]).forEach((t, i) => lines.push(formatTask(t, i)));
     } else {
-      const filterLabel = statusFilter === 'in_progress' ? 'In Progress' : statusFilter === 'todo' ? 'To Do' : statusFilter === 'cancelled' ? 'Cancelled' : null;
+      const filterLabel = statusFilter === 'in_progress' ? 'In Progress' : statusFilter === 'todo' ? 'To Do' : statusFilter === 'cancelled' ? 'Cancelled' : statusFilter === 'active' ? 'Pending' : null;
       const header = headerName
         ? `📋 *${headerName}'s${filterLabel ? ` ${filterLabel}` : ''} tasks:*`
         : wantsAll

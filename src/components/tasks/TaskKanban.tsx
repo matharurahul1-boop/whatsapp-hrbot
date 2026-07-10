@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   LayoutGrid, List, Clock, AlertTriangle, CheckCircle2,
-  Circle, PlayCircle, XCircle, MoreHorizontal, Loader2,
+  Circle, PlayCircle, XCircle, MoreHorizontal, Loader2, ChevronDown, Check,
 } from 'lucide-react';
 import { Avatar } from '@/components/ui/Avatar';
 import TaskCard from './TaskCard';
@@ -65,20 +65,23 @@ interface TaskKanbanProps {
   employees: Employee[];
 }
 
-const PRIORITIES = ['', 'urgent', 'high', 'medium', 'low'];
-const STATUSES: { id: string; label: string }[] = [
-  { id: '',            label: 'All' },
-  { id: 'todo',        label: 'To Do' },
-  { id: 'in_progress', label: 'In Progress' },
-  { id: 'done',        label: 'Done' },
-  { id: 'cancelled',   label: 'Cancelled' },
+const PRIORITY_OPTIONS = [
+  { value: 'urgent', label: 'Urgent' },
+  { value: 'high',   label: 'High' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'low',    label: 'Low' },
 ];
-const DEADLINE_PRESETS: { id: string; label: string }[] = [
-  { id: '',        label: 'All' },
-  { id: 'overdue', label: 'Overdue' },
-  { id: 'today',   label: 'Due Today' },
-  { id: 'week',    label: 'Due This Week' },
-  { id: 'none',    label: 'No Deadline' },
+const STATUS_OPTIONS = [
+  { value: 'todo',        label: 'To Do' },
+  { value: 'in_progress', label: 'In Progress' },
+  { value: 'done',        label: 'Done' },
+  { value: 'cancelled',   label: 'Cancelled' },
+];
+const DEADLINE_OPTIONS = [
+  { value: 'overdue', label: 'Overdue' },
+  { value: 'today',   label: 'Due Today' },
+  { value: 'week',    label: 'Due This Week' },
+  { value: 'none',    label: 'No Deadline' },
 ];
 
 function matchesDeadlinePreset(task: Task, preset: string, now: Date): boolean {
@@ -99,6 +102,88 @@ function matchesDeadlinePreset(task: Task, preset: string, now: Date): boolean {
   return true;
 }
 
+/* ── Multi-select header filter dropdown (Assigned To/By, Priority, Status,
+   Deadline) — checkboxes so more than one value can be picked at once. ── */
+function MultiSelectDropdown({
+  label, options, selected, onChange, align = 'left',
+}: {
+  label:    string;
+  options:  { value: string; label: string }[];
+  selected: string[];
+  onChange: (v: string[]) => void;
+  align?:   'left' | 'right';
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, []);
+
+  function toggle(value: string) {
+    onChange(selected.includes(value) ? selected.filter(v => v !== value) : [...selected, value]);
+  }
+
+  const displayText = selected.length === 0
+    ? label
+    : selected.length === 1
+      ? (options.find(o => o.value === selected[0])?.label ?? label)
+      : `${selected.length} selected`;
+
+  return (
+    <div ref={ref} className="relative w-full">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className={cn(
+          'flex w-full items-center justify-between gap-1.5 rounded-lg border px-2.5 py-2 text-xs font-semibold uppercase tracking-wider transition-colors focus:outline-none',
+          selected.length > 0
+            ? 'border-brand-500/40 bg-brand-500/10 text-brand-400'
+            : 'border-surface-300/40 bg-surface-100/60 text-surface-500 hover:border-surface-300/70'
+        )}
+      >
+        <span className="truncate">{displayText}</span>
+        <ChevronDown className={cn('h-3 w-3 shrink-0 transition-transform', open && 'rotate-180')} />
+      </button>
+
+      {open && (
+        <div className={cn(
+          'absolute top-full z-50 mt-1.5 w-48 rounded-xl border border-surface-300/50 bg-surface-100 shadow-xl shadow-black/30 overflow-hidden animate-[fadeUp_0.15s_ease-out]',
+          align === 'right' ? 'right-0' : 'left-0'
+        )}>
+          <div className="max-h-56 overflow-y-auto py-1">
+            {options.map(opt => {
+              const checked = selected.includes(opt.value);
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => toggle(opt.value)}
+                  className={cn(
+                    'flex w-full items-center gap-2.5 px-3 py-2 text-xs normal-case transition-colors',
+                    checked ? 'bg-brand-500/10 text-brand-400' : 'text-surface-700 hover:bg-surface-200/60 hover:text-surface-900'
+                  )}
+                >
+                  <span className={cn(
+                    'flex h-4 w-4 items-center justify-center rounded border shrink-0',
+                    checked ? 'bg-brand-500 border-brand-500' : 'border-surface-400'
+                  )}>
+                    {checked && <Check className="h-3 w-3 text-white" />}
+                  </span>
+                  <span className="flex-1 text-left truncate">{opt.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /* ── Inline list-row quick toggle (mirrors TaskCard quickToggle) ── */
 function ListRow({
@@ -169,7 +254,7 @@ function ListRow({
       </div>
 
       {/* Assigned To */}
-      <div className="hidden sm:flex items-center gap-1.5 w-32 shrink-0">
+      <div className="hidden sm:flex items-center gap-1.5 w-36 shrink-0">
         {task.assignee ? (
           <>
             <Avatar src={task.assignee.avatar_url} name={task.assignee.full_name} size="xs" />
@@ -181,7 +266,7 @@ function ListRow({
       </div>
 
       {/* Assigned By */}
-      <div className="hidden md:flex items-center gap-1.5 w-32 shrink-0">
+      <div className="hidden md:flex items-center gap-1.5 w-36 shrink-0">
         {task.creator ? (
           <>
             <Avatar src={task.creator.avatar_url} name={task.creator.full_name} size="xs" />
@@ -193,13 +278,13 @@ function ListRow({
       </div>
 
       {/* Priority */}
-      <div className="hidden md:flex items-center gap-1.5 w-20 shrink-0">
+      <div className="hidden md:flex items-center gap-1.5 w-28 shrink-0">
         <span className={cn('h-2 w-2 rounded-full shrink-0', pri.dot)} />
         <span className={cn('text-xs font-medium capitalize', pri.text)}>{task.priority}</span>
       </div>
 
       {/* Status */}
-      <div className="hidden lg:block w-28 shrink-0">
+      <div className="hidden lg:block w-32 shrink-0">
         <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-2xs font-semibold', stCfg.pill)}>
           {stCfg.icon}
           {stCfg.label}
@@ -207,7 +292,7 @@ function ListRow({
       </div>
 
       {/* Deadline */}
-      <div className="hidden md:block w-28 shrink-0 text-right">
+      <div className="hidden md:block w-32 shrink-0 text-right">
         {task.deadline ? (
           <span className={cn('flex items-center justify-end gap-1 text-xs font-medium', overdue ? 'text-danger' : 'text-surface-500')}>
             {overdue && <AlertTriangle className="h-3 w-3 shrink-0" />}
@@ -232,11 +317,11 @@ function ListRow({
 export default function TaskKanban({ tasks, userId, userRole, employees }: TaskKanbanProps) {
   const router = useRouter();
   const [search,         setSearch]         = useState('');
-  const [priorityFilter, setPriorityFilter] = useState('');
-  const [assigneeFilter, setAssigneeFilter] = useState('');
-  const [creatorFilter,  setCreatorFilter]  = useState('');
-  const [statusFilter,   setStatusFilter]   = useState('');
-  const [deadlineFilter, setDeadlineFilter] = useState('');
+  const [priorityFilter, setPriorityFilter] = useState<string[]>([]);
+  const [assigneeFilter, setAssigneeFilter] = useState<string[]>([]);
+  const [creatorFilter,  setCreatorFilter]  = useState<string[]>([]);
+  const [statusFilter,   setStatusFilter]   = useState<string[]>([]);
+  const [deadlineFilter, setDeadlineFilter] = useState<string[]>([]);
   const [view,           setView]           = useState<ViewMode>('list');
   const [localTasks,     setLocalTasks]     = useState(tasks);
 
@@ -259,12 +344,12 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
 
   const filtered = useMemo(() => {
     let r = localTasks;
-    if (search)         r = r.filter(t => t.title.toLowerCase().includes(search.toLowerCase()));
-    if (priorityFilter) r = r.filter(t => t.priority === priorityFilter);
-    if (assigneeFilter) r = r.filter(t => t.assignee?.id === assigneeFilter);
-    if (creatorFilter)  r = r.filter(t => t.creator?.id === creatorFilter);
-    if (statusFilter)   r = r.filter(t => t.status === statusFilter);
-    if (deadlineFilter) r = r.filter(t => matchesDeadlinePreset(t, deadlineFilter, now));
+    if (search)               r = r.filter(t => t.title.toLowerCase().includes(search.toLowerCase()));
+    if (priorityFilter.length) r = r.filter(t => priorityFilter.includes(t.priority));
+    if (assigneeFilter.length) r = r.filter(t => !!t.assignee && assigneeFilter.includes(t.assignee.id));
+    if (creatorFilter.length)  r = r.filter(t => !!t.creator && creatorFilter.includes(t.creator.id));
+    if (statusFilter.length)   r = r.filter(t => statusFilter.includes(t.status));
+    if (deadlineFilter.length) r = r.filter(t => deadlineFilter.some(preset => matchesDeadlinePreset(t, preset, now)));
     return r;
   }, [localTasks, search, priorityFilter, assigneeFilter, creatorFilter, statusFilter, deadlineFilter, now]);
 
@@ -272,7 +357,7 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
   const total    = localTasks.length;
   const active   = filtered.length;
 
-  const hasFilter = !!(assigneeFilter || priorityFilter || creatorFilter || statusFilter || deadlineFilter || search);
+  const hasFilter = !!(assigneeFilter.length || priorityFilter.length || creatorFilter.length || statusFilter.length || deadlineFilter.length || search);
 
   return (
     <div className="space-y-4">
@@ -325,8 +410,8 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
           {hasFilter && (
             <button
               onClick={() => {
-                setAssigneeFilter(''); setPriorityFilter(''); setCreatorFilter('');
-                setStatusFilter(''); setDeadlineFilter(''); setSearch('');
+                setAssigneeFilter([]); setPriorityFilter([]); setCreatorFilter([]);
+                setStatusFilter([]); setDeadlineFilter([]); setSearch('');
               }}
               className="text-2xs text-brand-400 hover:text-brand-300 transition-colors underline underline-offset-2"
             >
@@ -407,7 +492,7 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
       {view === 'list' && (
         <div className="rounded-2xl border border-surface-300/50 bg-surface-100 overflow-hidden shadow-sm">
           {/* List header — column titles double as inline filter controls */}
-          <div className="flex items-center gap-3 px-4 py-2.5 bg-surface-200/60 border-b border-surface-300/50">
+          <div className="flex items-center gap-2 px-4 py-3 bg-surface-200/60 border-b border-surface-300/50">
             <div className="w-5 shrink-0" />
             <div className="flex-1 min-w-0">
               <input
@@ -416,86 +501,54 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
                 onChange={e => setSearch(e.target.value)}
                 placeholder="Task"
                 className={cn(
-                  'w-full bg-transparent text-2xs font-semibold uppercase tracking-wider focus:outline-none',
+                  'w-full rounded-lg border px-2.5 py-2 text-xs font-semibold uppercase tracking-wider transition-colors focus:outline-none',
                   'placeholder:text-surface-500 placeholder:normal-case',
-                  search ? 'text-brand-400' : 'text-surface-500'
+                  search
+                    ? 'border-brand-500/40 bg-brand-500/10 text-brand-400'
+                    : 'border-surface-300/40 bg-surface-100/60 text-surface-500 hover:border-surface-300/70 focus:border-brand-500/40'
                 )}
               />
             </div>
-            <div className="hidden sm:block w-32 shrink-0">
-              <select
-                value={assigneeFilter}
-                onChange={e => setAssigneeFilter(e.target.value)}
-                className={cn(
-                  'w-full bg-transparent text-2xs font-semibold uppercase tracking-wider focus:outline-none cursor-pointer',
-                  assigneeFilter ? 'text-brand-400' : 'text-surface-500'
-                )}
-              >
-                <option value="" className="normal-case bg-surface-100 text-surface-900">Assigned To</option>
-                {employees.map(e => (
-                  <option key={e.id} value={e.id} className="normal-case bg-surface-100 text-surface-900">{e.full_name}</option>
-                ))}
-              </select>
+            <div className="hidden sm:block w-36 shrink-0">
+              <MultiSelectDropdown
+                label="Assigned To"
+                options={employees.map(e => ({ value: e.id, label: e.full_name }))}
+                selected={assigneeFilter}
+                onChange={setAssigneeFilter}
+              />
             </div>
-            <div className="hidden md:block w-32 shrink-0">
-              <select
-                value={creatorFilter}
-                onChange={e => setCreatorFilter(e.target.value)}
-                className={cn(
-                  'w-full bg-transparent text-2xs font-semibold uppercase tracking-wider focus:outline-none cursor-pointer',
-                  creatorFilter ? 'text-brand-400' : 'text-surface-500'
-                )}
-              >
-                <option value="" className="normal-case bg-surface-100 text-surface-900">Assigned By</option>
-                {employees.map(e => (
-                  <option key={e.id} value={e.id} className="normal-case bg-surface-100 text-surface-900">{e.full_name}</option>
-                ))}
-              </select>
-            </div>
-            <div className="hidden md:block w-20 shrink-0">
-              <select
-                value={priorityFilter}
-                onChange={e => setPriorityFilter(e.target.value)}
-                className={cn(
-                  'w-full bg-transparent text-2xs font-semibold uppercase tracking-wider focus:outline-none cursor-pointer',
-                  priorityFilter ? 'text-brand-400' : 'text-surface-500'
-                )}
-              >
-                <option value="" className="normal-case bg-surface-100 text-surface-900">Priority</option>
-                {PRIORITIES.filter(Boolean).map(p => (
-                  <option key={p} value={p} className="normal-case bg-surface-100 text-surface-900">{p.charAt(0).toUpperCase() + p.slice(1)}</option>
-                ))}
-              </select>
-            </div>
-            <div className="hidden lg:block w-28 shrink-0">
-              <select
-                value={statusFilter}
-                onChange={e => setStatusFilter(e.target.value)}
-                className={cn(
-                  'w-full bg-transparent text-2xs font-semibold uppercase tracking-wider focus:outline-none cursor-pointer',
-                  statusFilter ? 'text-brand-400' : 'text-surface-500'
-                )}
-              >
-                <option value="" className="normal-case bg-surface-100 text-surface-900">Status</option>
-                {STATUSES.filter(s => s.id).map(s => (
-                  <option key={s.id} value={s.id} className="normal-case bg-surface-100 text-surface-900">{s.label}</option>
-                ))}
-              </select>
+            <div className="hidden md:block w-36 shrink-0">
+              <MultiSelectDropdown
+                label="Assigned By"
+                options={employees.map(e => ({ value: e.id, label: e.full_name }))}
+                selected={creatorFilter}
+                onChange={setCreatorFilter}
+              />
             </div>
             <div className="hidden md:block w-28 shrink-0">
-              <select
-                value={deadlineFilter}
-                onChange={e => setDeadlineFilter(e.target.value)}
-                className={cn(
-                  'w-full bg-transparent text-2xs font-semibold uppercase tracking-wider text-right focus:outline-none cursor-pointer',
-                  deadlineFilter ? 'text-brand-400' : 'text-surface-500'
-                )}
-              >
-                <option value="" className="normal-case bg-surface-100 text-surface-900">Deadline</option>
-                {DEADLINE_PRESETS.filter(d => d.id).map(d => (
-                  <option key={d.id} value={d.id} className="normal-case bg-surface-100 text-surface-900">{d.label}</option>
-                ))}
-              </select>
+              <MultiSelectDropdown
+                label="Priority"
+                options={PRIORITY_OPTIONS}
+                selected={priorityFilter}
+                onChange={setPriorityFilter}
+              />
+            </div>
+            <div className="hidden lg:block w-32 shrink-0">
+              <MultiSelectDropdown
+                label="Status"
+                options={STATUS_OPTIONS}
+                selected={statusFilter}
+                onChange={setStatusFilter}
+              />
+            </div>
+            <div className="hidden md:block w-32 shrink-0">
+              <MultiSelectDropdown
+                label="Deadline"
+                options={DEADLINE_OPTIONS}
+                selected={deadlineFilter}
+                onChange={setDeadlineFilter}
+                align="right"
+              />
             </div>
             <div className="w-8 shrink-0" />
           </div>

@@ -7,7 +7,7 @@ import { sendSmartText }       from '@/lib/whatsapp/client';
 import { parseDeadlineString, formatDateTime } from '@/lib/utils/date';
 import { EMPTY_CONTEXT }       from './types';
 import type { AgentTurn, AgentUser, ConversationContext, SupportedLanguage, ToolResult } from './types';
-import { normalizeCommandText, quickTaskListArgs, resolveTaskListPronoun } from './routing';
+import { normalizeCommandText, quickTaskListArgs, resolveTaskListPronoun, resolveTaskListScope } from './routing';
 
 // ── AI backend ────────────────────────────────────────────────────────────────
 // Controlled at runtime via organizations.settings.ai_backend (set from /settings page).
@@ -2186,7 +2186,9 @@ async function runGroqLoop(
 
   // ── 1. Quick-route deterministic patterns — bypass AI for unambiguous commands ─
   const parsedTaskListArgs = quickTaskListArgs(message);
-  const taskListArgs = parsedTaskListArgs ? resolveTaskListPronoun(parsedTaskListArgs, history) : null;
+  const taskListArgs = parsedTaskListArgs
+    ? resolveTaskListScope(resolveTaskListPronoun(parsedTaskListArgs, history), lastBotMessage(history))
+    : null;
   if (taskListArgs) {
     console.log(`[Agent] Quick task-list route: "${message}"`, taskListArgs);
     return dispatchTool('list_tasks', taskListArgs, user, orgId);

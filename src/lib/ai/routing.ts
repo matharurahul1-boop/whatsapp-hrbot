@@ -104,10 +104,16 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
     args.scope = 'all';
     return args;
   }
-  // Generic requests such as "list of tasks" always mean the caller's own
+  // Generic requests such as "list of tasks" default to the caller's own
   // tasks. Expand scope only when the user explicitly asks for all/team tasks.
+  // `implicit_self` flags this as a *guessed* default (not an explicit "my"),
+  // so resolveTaskListScope can override it back to "all" when the
+  // conversation was already browsing org-wide (e.g. "list of completed
+  // tasks" right after "list of all tasks" should stay org-wide, not
+  // silently narrow to the caller's own zero completed tasks).
   if (!args.assignee_name && !/\b(all|team|everyone|everybody|organisation|organization|company)\b/i.test(t)) {
     args.assignee_name = 'mine';
+    args.implicit_self = 'true';
   } else if (!args.assignee_name) {
     args.scope = 'all';
   }
@@ -137,4 +143,24 @@ export function resolveTaskListPronoun(
     }
   }
   return args;
+}
+
+// If quickTaskListArgs guessed "mine" only because no scope word was said
+// (flagged via implicit_self, not an explicit "my"/"mine"), and the bot's
+// immediately preceding reply was itself an org-wide task list ("Team"/"All
+// tasks"), carry that scope forward instead of silently narrowing to the
+// caller's own tasks — e.g. "list of completed tasks" right after "list of
+// all tasks" should stay org-wide, not report the caller's own (possibly
+// zero) completed tasks as if nothing existed.
+export function resolveTaskListScope(
+  args: Record<string, string>,
+  lastBotMessage: string,
+): Record<string, string> {
+  const { implicit_self, ...withoutFlag } = args;
+  if (implicit_self !== 'true') return withoutFlag;
+  if (/^📋 \*(?:Team|All)\b/i.test(lastBotMessage.trim())) {
+    const { assignee_name, ...withoutSelf } = withoutFlag;
+    return { ...withoutSelf, scope: 'all' };
+  }
+  return withoutFlag;
 }

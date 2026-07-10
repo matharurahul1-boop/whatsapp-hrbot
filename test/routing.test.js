@@ -14,8 +14,8 @@ test('normalizes common action spelling mistakes without changing names', () => 
 
 test('routes self, team, person, typo, and completed task-list requests', () => {
   assert.deepEqual(routing.quickTaskListArgs('my tasks'), { assignee_name: 'mine' });
-  assert.deepEqual(routing.quickTaskListArgs('list of tasks'), { assignee_name: 'mine' });
-  assert.deepEqual(routing.quickTaskListArgs('show tasks'), { assignee_name: 'mine' });
+  assert.deepEqual(routing.quickTaskListArgs('list of tasks'), { assignee_name: 'mine', implicit_self: 'true' });
+  assert.deepEqual(routing.quickTaskListArgs('show tasks'), { assignee_name: 'mine', implicit_self: 'true' });
   assert.deepEqual(routing.quickTaskListArgs('list all tasks'), { scope: 'all' });
   assert.deepEqual(routing.quickTaskListArgs('list of all tasks'), { scope: 'all' });
   assert.deepEqual(routing.quickTaskListArgs('list of all completed tasks'), { status_filter: 'done', scope: 'all' });
@@ -83,5 +83,28 @@ test('"give me list of his task" resolves to the person named earlier, not the c
       { role: 'assistant', content: 'Sure! Which task of Tushar Bali would you like to update? Please tell me the task title.' },
     ]),
     { assignee_name: 'Tushar Bali' },
+  );
+});
+
+test('an implicit "mine" default carries forward org-wide scope from the prior turn', () => {
+  const args = routing.quickTaskListArgs('list of completed tasks');
+  assert.deepEqual(args, { status_filter: 'done', assignee_name: 'mine', implicit_self: 'true' });
+  // Prior bot turn was an org-wide list ("All tasks") -> carry scope=all forward.
+  assert.deepEqual(
+    routing.resolveTaskListScope(args, '📋 *All tasks:*\n\n🔴 *Overdue:*\n1. ...'),
+    { status_filter: 'done', scope: 'all' },
+  );
+  // Prior bot turn was NOT an org-wide list -> stay self-scoped as before.
+  assert.deepEqual(
+    routing.resolveTaskListScope(args, '📋 *Your tasks:*\n\n1. ...'),
+    { status_filter: 'done', assignee_name: 'mine' },
+  );
+});
+
+test('an explicit "my tasks" request never gets overridden to org-wide scope', () => {
+  const args = routing.quickTaskListArgs('my tasks');
+  assert.deepEqual(
+    routing.resolveTaskListScope(args, '📋 *All tasks:*\n\n1. ...'),
+    { assignee_name: 'mine' },
   );
 });

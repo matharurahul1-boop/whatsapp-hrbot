@@ -50,11 +50,50 @@ function requestedTaskPriority(message: string): string | null {
  * it were a person's name).
  */
 function requestedTaskDeadline(message: string): string | null {
+  // Negation must be checked BEFORE the bare "overdue" check below — e.g.
+  // "tasks without overdue" contains the word "overdue" too, and without
+  // this ordering it would be misread as a request FOR overdue tasks
+  // instead of a request to EXCLUDE them. Observed live: "All tushar's
+  // tasks without overdue" returned the org-wide overdue list — the exact
+  // opposite of what was asked, and it also dropped "tushar" entirely.
+  if (/\b(?:without|excluding|except|not)\s+(?:the\s+)?overdue\b/i.test(message)) return 'not_overdue';
   if (/\boverdue\b/i.test(message)) return 'overdue';
   if (/\bdue\s+today\b/i.test(message)) return 'today';
   if (/\bdue\s+this\s+week\b/i.test(message) || /\bdue\s+(?:with)?in\s+(?:a|the\s+next)?\s*week\b/i.test(message)) return 'week';
   if (/\bno\s+deadline\b/i.test(message) || /\bwithout\s+(?:a\s+)?deadline\b/i.test(message)) return 'none';
   return null;
+}
+
+/**
+ * Strip every recognized filter-descriptor phrase (priority level, deadline
+ * bucket including negation, status word) from the message, wherever it
+ * occurs — not just directly adjacent to "tasks". These words are never
+ * legitimately part of a real person's name, so unconditional stripping is
+ * safe, and using ONE shared implementation for both the possessive-name
+ * check and the personPatterns loop below (previously two separate,
+ * drifting copies) means a filter word taught to one can't be silently
+ * missed by the other. The result is used purely for name-extraction — the
+ * actual filter values themselves come from requestedTaskPriority/
+ * requestedTaskStatus/requestedTaskDeadline above, run on the original text.
+ */
+function stripFilterModifiers(text: string): string {
+  return text
+    .replace(/\b(?:without|excluding|except|not)\s+(?:the\s+)?overdue\b/ig, '')
+    .replace(/\boverdue\b/ig, '')
+    .replace(/\bdue\s+today\b/ig, '')
+    .replace(/\bdue\s+this\s+week\b/ig, '')
+    .replace(/\bno\s+deadline\b/ig, '')
+    .replace(/\bwithout\s+(?:a\s+)?deadline\b/ig, '')
+    .replace(/\b(?:urgent|high|medium|low)\s+priority\b/ig, '')
+    // Bare level word with no "priority" suffix — e.g. "Medium tasks
+    // assigned to rashmi" (requestedTaskPriority() already recognizes a
+    // bare level word as a real priority filter; this strip needs to match
+    // that same recognition, or the leading modifier is left in place and
+    // breaks name-matching patterns anchored on "tasks" being first/last).
+    .replace(/\b(?:urgent|high|medium|low)\b/ig, '')
+    .replace(/\b(?:completed|complete|done|finished|closed|cancelled|canceled|dropped|abandoned|in[\s_-]*progress|wip|ongoing|underway|started|working\s+on|to[\s_-]*do|todo|pending|open|not\s+started|active)\b/ig, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function requestedTaskStatus(message: string): string | null {
@@ -104,16 +143,26 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
   // own tasks, not every task in the org — self-reference always wins over
   // the generic all-scope keyword.
   const isSelfRef = /\b(my|mine|me)\b/i.test(t);
-  // "NAME's all tasks" / "NAME's tasks" names a specific person — "all" here
-  // means "every status for that person," not "everyone in the org." Checked
-  // up front so a named possessive always wins over a bare "all" keyword
-  // (observed live: "Rashmi's all tasks" returned the org-wide list instead
-  // of Rashmi's own tasks). Excludes the same generic/scope words the
-  // all-scope check itself matches, so "team's tasks"/"everyone's tasks"
-  // still correctly fall through to org-wide scope below.
-  const possessiveName = t.match(/^(.+?)[’']s\s+(?:all\s+)?(?:completed|done|finished\s+)?tasks?$/i)?.[1]
+  // Name-extraction runs against the modifier-stripped text so trailing or
+  // leading filter phrases never break the anchors below or get captured as
+  // part of the name — e.g. "tushar's tasks without overdue" (trailing) and
+  // "All tushar's tasks" (a leading "all" that means "every one of tushar's
+  // tasks," not org-wide scope — see hasValidPossessiveName below) both need
+  // this to resolve to a bare "tushar".
+  const tClean = stripFilterModifiers(t);
+  // "NAME's all tasks" / "NAME's tasks" / "All NAME's tasks" names a
+  // specific person — "all" here means "every status for that person," not
+  // "everyone in the org," regardless of which side of "'s" it sits on.
+  // Checked up front so a named possessive always wins over a bare "all"
+  // keyword (observed live: "Rashmi's all tasks" and "All tushar's tasks"
+  // both returned the org-wide list instead of that person's own tasks).
+  // Excludes the same generic/scope words the all-scope check itself
+  // matches, so "team's tasks"/"everyone's tasks" still correctly fall
+  // through to org-wide scope below.
+  const possessiveName = tClean.match(/^(.+?)[’']s\s+(?:all\s+)?tasks?$/i)?.[1]
     ?.replace(/^(?:list|show|get|display)(?:\s+me)?(?:\s+the)?\s+/i, '')
     .replace(/^of\s+/i, '')
+    .replace(/^all\s+/i, '')
     .trim();
   const hasValidPossessiveName = !!possessiveName
     && !/^(?:all|every|each|entire|whole|everyone|everybody|team|staff|workforce|company|org|organisation|organization|the|of|a|an|my|mine|today|tomorrow|week|overdue)$/i.test(possessiveName);
@@ -181,38 +230,18 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
     /^(.+?)\s+tasks?$/i,
   ];
   for (const pattern of personPatterns) {
-    const taskOwnerText = t
-      // Strip filter-descriptor phrases (priority level, deadline bucket,
-      // status word) wherever they appear in the message — not just directly
-      // before "tasks" — so stacked modifiers (e.g. "high priority overdue
-      // tasks") all get removed, not just whichever one happens to sit
-      // adjacent to "tasks". These words are never legitimately part of a
-      // real person's name, so unconditional stripping is safe. Without this,
-      // "Rashmi's high priority tasks" would fail to match the possessive
-      // patterns (the words sit between 's and "tasks"), bare "high priority
-      // tasks" would get "high priority" read back as if it were a person's
-      // name by the catch-all pattern at the end of this list, and combined
-      // phrases like "high priority overdue tasks" would leave the
-      // non-adjacent modifier ("high priority") uncaptured and misread as a name.
-      .replace(/\b(?:urgent|high|medium|low)\s+priority\b/ig, '')
-      // Bare level word with no "priority" suffix — e.g. "Medium tasks
-      // assigned to rashmi" (requestedTaskPriority() already recognizes a
-      // bare level word as a real priority filter; this strip needs to match
-      // that same recognition, or the leading modifier is left in place and
-      // breaks the "tasks (of|for|assigned to) NAME" pattern below, which
-      // requires "tasks" to be the very first word. Observed live: "Medium
-      // tasks assigned to rashmi" silently dropped "assigned to rashmi" and
-      // returned the org-wide medium-priority list instead.
-      .replace(/\b(?:urgent|high|medium|low)\b/ig, '')
-      .replace(/\boverdue\b/ig, '')
-      .replace(/\bdue\s+today\b/ig, '')
-      .replace(/\bdue\s+this\s+week\b/ig, '')
-      .replace(/\b(?:completed|complete|done|finished|closed|cancelled|canceled|dropped|abandoned|in[\s_-]*progress|wip|ongoing|underway|started|working\s+on|to[\s_-]*do|todo|pending|open|not\s+started|active)\b/ig, '')
-      .replace(/\s+/g, ' ').trim();
+    // Reuse the same modifier-stripped text computed above for the
+    // possessive-name check, instead of a second, independently-maintained
+    // stripping chain — a filter word taught to one used to be able to drift
+    // out of sync with the other (see stripFilterModifiers for the shared
+    // reasoning, including why this must be unconditional, not just
+    // adjacent-to-"tasks").
+    const taskOwnerText = tClean;
     const match = taskOwnerText.match(pattern);
     const name = match?.[1]
       ?.replace(/^(?:list|show|get|display)(?:\s+me)?(?:\s+the)?\s+/i, '')
       ?.replace(/^of\s+/i, '')
+      ?.replace(/^all\s+/i, '')
       .replace(/(?:[’']s)$/i, '')
       .trim();
     if (name && !/^(?:all|team|everyone|everybody|organisation|organization|company|pending|open|completed|done|finished|the|of|a|an|my|mine|list|show|get|display|find|give|send|tell|pull|fetch|check|urgent|high|medium|low|priority|overdue|deadline|today|tomorrow|week)$/i.test(name)) {

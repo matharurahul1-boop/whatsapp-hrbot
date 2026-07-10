@@ -158,6 +158,32 @@ test('combined filters ("<priority/status/deadline> tasks assigned to/for/of <na
   assert.deepEqual(routing.quickTaskListArgs('medium tasks'), { priority_filter: 'medium', scope: 'all' });
 });
 
+test('"All <name>\'s tasks" (leading "all") names a specific person, not the whole org', () => {
+  // Same class of bug as "<name>'s all tasks" (trailing "all") but with the
+  // word order flipped — "all" sitting before the possessive name instead
+  // of after it. Observed live: "All tushar's tasks without overdue"
+  // returned the org-wide overdue list, dropping "tushar" entirely.
+  assert.deepEqual(routing.quickTaskListArgs("All tushar's tasks"), { assignee_name: 'tushar' });
+  assert.deepEqual(routing.quickTaskListArgs("all Rashmi's completed tasks"), { status_filter: 'done', assignee_name: 'Rashmi' });
+  // Genuine org-wide possessives (no real person named) must still resolve
+  // to org-wide scope, not be misread as a person named "everyone"/"team".
+  assert.deepEqual(routing.quickTaskListArgs("all everyone's tasks"), { scope: 'all' });
+});
+
+test('negated deadline filter ("without overdue"/"not overdue"/"excluding overdue") is the opposite of "overdue", never confused with it', () => {
+  // Observed live: "All tushar's tasks without overdue" returned the
+  // org-wide OVERDUE list — the literal opposite of what was asked, because
+  // requestedTaskDeadline() only recognized the bare word "overdue" and had
+  // no way to notice it was being negated.
+  assert.deepEqual(routing.quickTaskListArgs("All tushar's tasks without overdue"), { deadline_filter: 'not_overdue', assignee_name: 'tushar' });
+  assert.deepEqual(routing.quickTaskListArgs("tushar's tasks without overdue"), { deadline_filter: 'not_overdue', assignee_name: 'tushar' });
+  assert.deepEqual(routing.quickTaskListArgs('tasks not overdue'), { deadline_filter: 'not_overdue', scope: 'all' });
+  assert.deepEqual(routing.quickTaskListArgs('tasks excluding overdue'), { deadline_filter: 'not_overdue', scope: 'all' });
+  assert.deepEqual(routing.quickTaskListArgs('tasks except overdue'), { deadline_filter: 'not_overdue', scope: 'all' });
+  // Un-negated "overdue" must still resolve to the plain filter, unaffected.
+  assert.deepEqual(routing.quickTaskListArgs('overdue tasks'), { deadline_filter: 'overdue', scope: 'all' });
+});
+
 test('does not misroute task mutations as task-list requests', () => {
   for (const message of ['create a task', 'delete task Payroll', 'update task Payroll', 'assign task Payroll to Mahima', 'show details of task Payroll', 'show task status']) {
     assert.equal(routing.quickTaskListArgs(message), null, message);

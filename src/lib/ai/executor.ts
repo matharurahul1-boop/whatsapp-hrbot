@@ -431,7 +431,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     // which was observed fabricating/mislabeling results (e.g. listing an
     // already-completed task as overdue).
     const deadlineFilter = (slots.deadline_filter as string | null)?.toLowerCase();
-    const validDeadline = deadlineFilter && ['overdue', 'today', 'week', 'none'].includes(deadlineFilter) ? deadlineFilter : null;
+    const validDeadline = deadlineFilter && ['overdue', 'today', 'week', 'none', 'not_overdue'].includes(deadlineFilter) ? deadlineFilter : null;
     const nowMs        = Date.now();
     const todayStartMs = new Date(`${today}T00:00:00+05:30`).getTime();
     const todayEndMs   = new Date(`${today}T23:59:59+05:30`).getTime();
@@ -456,6 +456,15 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       query = (query as any).gte('deadline', new Date(nowMs).toISOString()).lte('deadline', new Date(weekEndMs).toISOString());
     } else if (validDeadline === 'none') {
       query = (query as any).is('deadline', null);
+    } else if (validDeadline === 'not_overdue') {
+      // Everything that is NOT overdue, by the exact inverse of the 'overdue'
+      // definition above: no deadline, deadline hasn't passed yet, or the
+      // task is already done/cancelled (a finished task is never "overdue"
+      // regardless of its deadline). Combined with the status branch below
+      // via AND — when no explicit status_filter is given, that branch
+      // already excludes done/cancelled, so the two together correctly
+      // resolve to "active tasks whose deadline hasn't passed."
+      query = (query as any).or(`deadline.is.null,deadline.gte.${new Date(nowMs).toISOString()},status.eq.done,status.eq.cancelled`);
     }
 
     if (showDone) {
@@ -533,7 +542,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const { data: tasks, error: taskListError } = await query;
     if (taskListError) throw taskListError;
 
-    const deadlineLabelMap: Record<string, string> = { overdue: 'overdue', today: 'due today', week: 'due this week', none: 'no-deadline' };
+    const deadlineLabelMap: Record<string, string> = { overdue: 'overdue', today: 'due today', week: 'due this week', none: 'no-deadline', not_overdue: 'non-overdue' };
     const deadlineLabel = validDeadline ? deadlineLabelMap[validDeadline] : null;
 
     if (!tasks?.length) {
@@ -570,7 +579,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       : null;
 
     const priorityLabel = validPriority ? `${validPriority.charAt(0).toUpperCase()}${validPriority.slice(1)} Priority` : null;
-    const deadlineHeaderLabelMap: Record<string, string> = { overdue: 'Overdue', today: 'Due Today', week: 'Due This Week', none: 'No-Deadline' };
+    const deadlineHeaderLabelMap: Record<string, string> = { overdue: 'Overdue', today: 'Due Today', week: 'Due This Week', none: 'No-Deadline', not_overdue: 'Non-Overdue' };
     const deadlineHeaderLabel = validDeadline ? deadlineHeaderLabelMap[validDeadline] : null;
 
     if (showDone) {

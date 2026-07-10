@@ -616,7 +616,7 @@ const HRBOT_TOOLS: any[] = [
         scope: { type: 'STRING', enum: ['all'], description: "Use 'all' only when the user explicitly asks for all/team/company tasks." },
         status_filter: { type: 'STRING', description: "todo | in_progress | done | cancelled | active. Omit for all unfinished tasks." },
         priority_filter: { type: 'STRING', description: "urgent | high | medium | low. Omit for all priorities. Independent of status_filter — both can be set together." },
-        deadline_filter: { type: 'STRING', description: "overdue | today | week | none. 'overdue' = past deadline and not done/cancelled. 'today' = due today. 'week' = due within the next 7 days. 'none' = no deadline set. Independent of status_filter/priority_filter — any combination can be set together." },
+        deadline_filter: { type: 'STRING', description: "overdue | today | week | none | not_overdue. 'overdue' = past deadline and not done/cancelled. 'today' = due today. 'week' = due within the next 7 days. 'none' = no deadline set. 'not_overdue' = the exact opposite of 'overdue' (use for 'without overdue'/'excluding overdue'/'not overdue' phrasing). Independent of status_filter/priority_filter — any combination can be set together." },
       },
     },
   },
@@ -995,7 +995,8 @@ Deadline filter — pass deadline_filter (independent of status_filter/priority_
 - "tasks due this week" → deadline_filter="week"
 - "tasks with no deadline" → deadline_filter="none"
 - "my overdue tasks" → list_tasks(assignee_name="mine", deadline_filter="overdue")
-RULE: NEVER compute "overdue" yourself from a task list you already have in context — deadlines change and stale context will misclassify a task (e.g. calling an already-completed task "overdue"). ALWAYS call list_tasks(deadline_filter="overdue") fresh and return the result verbatim.
+- "tushar's tasks without overdue" / "tasks not overdue" / "excluding overdue tasks" → deadline_filter="not_overdue" (the exact opposite of "overdue" — NEVER pass deadline_filter="overdue" for a negated request, that returns the opposite of what was asked)
+RULE: NEVER compute "overdue" yourself from a task list you already have in context — deadlines change and stale context will misclassify a task (e.g. calling an already-completed task "overdue"). ALWAYS call list_tasks(deadline_filter=...) fresh and return the result verbatim.
 
 RULE: NEVER pass assignee_name="my" or assignee_name="me". Use assignee_name="mine" for self-queries.
 RULE: NEVER return task data as text. ALWAYS call list_tasks and return the result verbatim.

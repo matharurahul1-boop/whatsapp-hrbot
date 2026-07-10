@@ -69,16 +69,29 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
   // own tasks, not every task in the org — self-reference always wins over
   // the generic all-scope keyword.
   const isSelfRef = /\b(my|mine|me)\b/i.test(t);
+  // "NAME's all tasks" / "NAME's tasks" names a specific person — "all" here
+  // means "every status for that person," not "everyone in the org." Checked
+  // up front so a named possessive always wins over a bare "all" keyword
+  // (observed live: "Rashmi's all tasks" returned the org-wide list instead
+  // of Rashmi's own tasks). Excludes the same generic/scope words the
+  // all-scope check itself matches, so "team's tasks"/"everyone's tasks"
+  // still correctly fall through to org-wide scope below.
+  const possessiveName = t.match(/^(.+?)[’']s\s+(?:all\s+)?(?:completed|done|finished\s+)?tasks?$/i)?.[1]
+    ?.replace(/^(?:list|show|get|display)(?:\s+me)?(?:\s+the)?\s+/i, '')
+    .replace(/^of\s+/i, '')
+    .trim();
+  const hasValidPossessiveName = !!possessiveName
+    && !/^(?:all|every|each|entire|whole|everyone|everybody|team|staff|workforce|company|org|organisation|organization|the|of|a|an|my|mine)$/i.test(possessiveName);
   if (!/\btasks?\b/i.test(t)) return null;
   if (/\b(details?|info|status|deadline|priority|assignee|update|change|delete|remove|complete|finish|assign|create|add|note)\b/i.test(t) && !/\b(completed|complete|done|finished|closed)\s+tasks?\b/i.test(t) && !/\b(?:full|complete|total)\s+(?:task\s+)?list\b/i.test(t)) {
     return null;
   }
-  if (isAllScope && !isSelfRef) return { ...(statusFilter ? { status_filter: statusFilter } : {}), scope: 'all' };
+  if (isAllScope && !isSelfRef && !hasValidPossessiveName) return { ...(statusFilter ? { status_filter: statusFilter } : {}), scope: 'all' };
   // Gate on statusFilter (not a separate hardcoded word list) so every status
   // requestedTaskStatus recognizes — including "in progress"/"cancelled",
   // which a previous, narrower version of this list omitted and caused
   // "<name> in progress tasks" to bypass the deterministic route entirely.
-  if (!/\b(list|show|get|display)\b/i.test(t) && !statusFilter && !isSelfRef && !/[’']s\s+tasks?$/i.test(t)) {
+  if (!/\b(list|show|get|display)\b/i.test(t) && !statusFilter && !isSelfRef && !hasValidPossessiveName && !/[’']s\s+tasks?$/i.test(t)) {
     return null;
   }
 
@@ -86,6 +99,10 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
   if (statusFilter) args.status_filter = statusFilter;
   if (/\b(my|mine|me)\b/i.test(t)) {
     args.assignee_name = 'mine';
+    return args;
+  }
+  if (hasValidPossessiveName) {
+    args.assignee_name = possessiveName;
     return args;
   }
 

@@ -82,6 +82,20 @@ test('"pending"/"open" cover both To Do and In Progress tasks, unlike strict "to
   assert.deepEqual(routing.quickTaskListArgs('todo tasks'), { status_filter: 'todo', scope: 'all' });
 });
 
+test('"<name>\'s all tasks" names a specific person, not the whole org', () => {
+  // Observed live: "Rashmi's all tasks" returned the org-wide "All tasks"
+  // list instead of Rashmi's own tasks — the bare "all" keyword was
+  // short-circuiting to org-wide scope before the possessive name ("Rashmi")
+  // ever got a chance to be extracted.
+  assert.deepEqual(routing.quickTaskListArgs("Rashmi's all tasks"), { assignee_name: 'Rashmi' });
+  assert.deepEqual(routing.quickTaskListArgs("rashmi's all tasks"), { assignee_name: 'rashmi' });
+  // Generic all-scope possessives (no real person named) must still resolve
+  // to org-wide scope, not be misread as a person named "everyone"/"team".
+  assert.deepEqual(routing.quickTaskListArgs("everyone's tasks"), { scope: 'all' });
+  assert.deepEqual(routing.quickTaskListArgs("show everyone's tasks"), { scope: 'all' });
+  assert.deepEqual(routing.quickTaskListArgs("team's tasks"), { scope: 'all' });
+});
+
 test('does not misroute task mutations as task-list requests', () => {
   for (const message of ['create a task', 'delete task Payroll', 'update task Payroll', 'assign task Payroll to Mahima', 'show details of task Payroll', 'show task status']) {
     assert.equal(routing.quickTaskListArgs(message), null, message);

@@ -422,7 +422,12 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       query = (query as any).neq('status', 'done').neq('status', 'cancelled').order('deadline', { ascending: true, nullsFirst: false });
     }
 
-    query = (query as any).limit(10);
+    // 50 comfortably covers a single org's active task list in one WhatsApp
+    // message; if it's ever hit, the reply below says so instead of silently
+    // dropping tasks past the cap (previously capped at 10 — an org with 13
+    // active tasks would lose 3 with no indication anything was missing).
+    const TASK_QUERY_LIMIT = 50;
+    query = (query as any).limit(TASK_QUERY_LIMIT);
 
     if (isSelfQuery || (!slots.assignee_name && !wantsAll)) {
       // Generic task lists default to the caller. Named/all requests expand scope.
@@ -542,10 +547,21 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
         lines.push(lang === 'hi' ? `📅 *आज देय:*` : `📅 *Due today:*`);
         dueToday.forEach((t, i) => lines.push(formatTask(t, i)));
       }
+      const REST_DISPLAY_CAP = 10;
       if (rest.length > 0) {
         lines.push('');
         lines.push(lang === 'hi' ? `⏳ *आगामी:*` : `⏳ *Upcoming:*`);
-        rest.slice(0, 4).forEach((t, i) => lines.push(formatTask(t, i)));
+        rest.slice(0, REST_DISPLAY_CAP).forEach((t, i) => lines.push(formatTask(t, i)));
+        if (rest.length > REST_DISPLAY_CAP) {
+          const more = rest.length - REST_DISPLAY_CAP;
+          lines.push(lang === 'hi' ? `_...और ${more} टास्क_` : `_...and ${more} more_`);
+        }
+      }
+      if (tasks.length === TASK_QUERY_LIMIT) {
+        lines.push('');
+        lines.push(lang === 'hi'
+          ? `_सिर्फ पहले ${TASK_QUERY_LIMIT} दिखाए गए — पूरी लिस्ट के लिए dashboard देखें।_`
+          : `_Showing the first ${TASK_QUERY_LIMIT} — check the dashboard for the complete list._`);
       }
       lines.push('');
       lines.push(lang === 'hi' ? `_टास्क पूरा करने के लिए: "टास्क का नाम complete किया"_` : `_To complete: "mark [task name] complete"_`);

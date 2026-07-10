@@ -419,12 +419,18 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     // status_filter: 'done' → show completed tasks; 'all' → show everything; default → active only
     const statusFilter = (slots.status_filter as string | null)?.toLowerCase();
     const showDone = statusFilter === 'done' || statusFilter === 'completed';
+    // priority_filter: 'urgent'|'high'|'medium'|'low' — e.g. "high priority
+    // tasks". Independent of status_filter; both can apply together.
+    const priorityFilter = (slots.priority_filter as string | null)?.toLowerCase();
+    const validPriority = priorityFilter && ['urgent', 'high', 'medium', 'low'].includes(priorityFilter) ? priorityFilter : null;
 
     let query = db
       .from('tasks')
       .select(`id, title, status, deadline, priority, assignee:users!tasks_assignee_id_fkey(full_name)`)
       .eq('organization_id', org_id)
       .is('deleted_at', null);
+
+    if (validPriority) query = (query as any).eq('priority', validPriority);
 
     if (showDone) {
       query = (query as any).eq('status', 'done').order('completed_at', { ascending: false, nullsFirst: false });
@@ -503,11 +509,12 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     if (!tasks?.length) {
       const noTasksName = slots.assignee_name && !isSelfQuery ? (resolvedAssigneeName ?? slots.assignee_name) : null;
-      if (statusFilter) {
-        const label = statusFilter === 'in_progress' ? 'in progress' : statusFilter === 'todo' ? 'to do' : statusFilter === 'active' ? 'pending' : statusFilter;
+      const statusLabel_ = statusFilter === 'in_progress' ? 'in progress' : statusFilter === 'todo' ? 'to do' : statusFilter === 'active' ? 'pending' : statusFilter;
+      const noTasksLabel = [validPriority, statusLabel_].filter(Boolean).join(' ');
+      if (noTasksLabel) {
         return { success: true, reply: noTasksName
-          ? `📋 No ${label} tasks found for *${noTasksName}*.`
-          : `📋 No ${label} tasks found.` };
+          ? `📋 No ${noTasksLabel} tasks found for *${noTasksName}*.`
+          : `📋 No ${noTasksLabel} tasks found.` };
       }
       return {
         success: true,
@@ -536,18 +543,22 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       ? (tasks as any[])[0]?.assignee?.full_name ?? slots.assignee_name
       : null;
 
+    const priorityLabel = validPriority ? `${validPriority.charAt(0).toUpperCase()}${validPriority.slice(1)} Priority` : null;
+
     if (showDone) {
       // Completed tasks: list flat in completion order — no time bucketing
       // (bucketing by deadline makes no sense for already-done tasks)
+      const doneFilterLabel = priorityLabel ? ` ${priorityLabel}` : '';
       const header = headerName
-        ? `✅ *${headerName}'s completed tasks (${tasks.length}):*`
+        ? `✅ *${headerName}'s${doneFilterLabel} completed tasks (${tasks.length}):*`
         : wantsAll
-          ? `✅ *${user_role === 'manager' ? 'Team' : 'All'} completed tasks (${tasks.length}):*`
-          : `✅ *Your completed tasks (${tasks.length}):*`;
+          ? `✅ *${user_role === 'manager' ? 'Team' : 'All'}${doneFilterLabel} completed tasks (${tasks.length}):*`
+          : `✅ *Your${doneFilterLabel} completed tasks (${tasks.length}):*`;
       lines.push(header, '');
       (tasks as any[]).forEach((t, i) => lines.push(formatTask(t, i)));
     } else {
-      const filterLabel = statusFilter === 'in_progress' ? 'In Progress' : statusFilter === 'todo' ? 'To Do' : statusFilter === 'cancelled' ? 'Cancelled' : statusFilter === 'active' ? 'Pending' : null;
+      const statusLabelText = statusFilter === 'in_progress' ? 'In Progress' : statusFilter === 'todo' ? 'To Do' : statusFilter === 'cancelled' ? 'Cancelled' : statusFilter === 'active' ? 'Pending' : null;
+      const filterLabel = [priorityLabel, statusLabelText].filter(Boolean).join(' ') || null;
       const header = headerName
         ? `📋 *${headerName}'s${filterLabel ? ` ${filterLabel}` : ''} tasks:*`
         : wantsAll

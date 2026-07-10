@@ -615,6 +615,7 @@ const HRBOT_TOOLS: any[] = [
         assignee_name: { type: 'STRING', description: "'mine' = caller's own tasks. First/full name = that person's tasks. Omit for generic requests, which default to the caller's own tasks." },
         scope: { type: 'STRING', enum: ['all'], description: "Use 'all' only when the user explicitly asks for all/team/company tasks." },
         status_filter: { type: 'STRING', description: "todo | in_progress | done | cancelled | active. Omit for all unfinished tasks." },
+        priority_filter: { type: 'STRING', description: "urgent | high | medium | low. Omit for all priorities. Independent of status_filter — both can be set together." },
       },
     },
   },
@@ -975,9 +976,17 @@ Completed-tasks listing — pass status_filter="done":
   [combine with assignee_name="mine" for own completed tasks]
 
 Other status filters:
-- "to do" / "todo" / "pending" / "open" tasks → status_filter="todo"
+- "to do" / "todo" tasks → status_filter="todo" (strictly not-started only)
+- "pending" / "open" tasks → status_filter="active" (broader — covers todo AND in_progress, since "pending" means "not yet done" in everyday usage)
 - "in progress" / "ongoing" / "WIP" / "started" tasks → status_filter="in_progress"
 - "cancelled" / "canceled" / "dropped" tasks → status_filter="cancelled"
+
+Priority filter — pass priority_filter (independent of status_filter, both may be set together):
+- "urgent tasks" → priority_filter="urgent"
+- "high priority tasks" → priority_filter="high"
+- "medium priority tasks" → priority_filter="medium"
+- "low priority tasks" → priority_filter="low"
+- "high priority all tasks" → list_tasks(priority_filter="high", scope="all")
 
 RULE: NEVER pass assignee_name="my" or assignee_name="me". Use assignee_name="mine" for self-queries.
 RULE: NEVER return task data as text. ALWAYS call list_tasks and return the result verbatim.
@@ -2904,6 +2913,7 @@ async function dispatchToolResult(
       channel:       input.channel                             ?? null,
       description:   input.description                         ?? null,
       status_filter: input.status_filter                       ?? null,
+      priority_filter: input.priority_filter                   ?? null,
       scope:         input.scope                               ?? null,
       note:          input.note                                ?? null,
     };

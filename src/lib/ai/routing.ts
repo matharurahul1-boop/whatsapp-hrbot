@@ -33,6 +33,14 @@ function requestsAllTasks(message: string): boolean {
     || /\bacross\s+(?:the\s+)?(?:team|company|org|organisation|organization|workforce)\b/i.test(message);
 }
 
+function requestedTaskPriority(message: string): string | null {
+  if (/\burgent\b/i.test(message)) return 'urgent';
+  if (/\bhigh\b/i.test(message)) return 'high';
+  if (/\bmedium\b/i.test(message)) return 'medium';
+  if (/\blow\b/i.test(message)) return 'low';
+  return null;
+}
+
 function requestedTaskStatus(message: string): string | null {
   // "complete task list" means the full list, not only completed tasks.
   if (/\b(?:full|complete|total)\s+(?:task\s+)?list\b/i.test(message)) return null;
@@ -65,6 +73,12 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
   if (/\bmark\s+.{1,60}\s+(?:as\s+)?(?:complete|completed|done)\b/i.test(t)) return null;
   const isAllScope = requestsAllTasks(t);
   const statusFilter = requestedTaskStatus(t);
+  // Only treated as a real priority FILTER when it's the "<level> priority"
+  // shape (or "priority tasks" with no level, which just means "sort of
+  // priority" and doesn't set a filter on its own) — a bare "priority"
+  // elsewhere (e.g. "what is the priority of task X", "update priority")
+  // is a field query/mutation, not a list filter. See hasNonFilterPriorityMention below.
+  const priorityFilter = requestedTaskPriority(t);
   // "all my tasks" / "list all of my tasks" means every one of the caller's
   // own tasks, not every task in the org — self-reference always wins over
   // the generic all-scope keyword.
@@ -83,20 +97,38 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
   const hasValidPossessiveName = !!possessiveName
     && !/^(?:all|every|each|entire|whole|everyone|everybody|team|staff|workforce|company|org|organisation|organization|the|of|a|an|my|mine)$/i.test(possessiveName);
   if (!/\btasks?\b/i.test(t)) return null;
-  if (/\b(details?|info|status|deadline|priority|assignee|update|change|delete|remove|complete|finish|assign|create|add|note)\b/i.test(t) && !/\b(completed|complete|done|finished|closed)\s+tasks?\b/i.test(t) && !/\b(?:full|complete|total)\s+(?:task\s+)?list\b/i.test(t)) {
+  // "priority" alone used to be a blanket exclusion trigger (assumed to mean
+  // a field query/mutation like "what is the priority of task X" or "update
+  // priority to high") — but that also silently blocked genuine filter
+  // phrasing like "high priority tasks" from ever reaching this router
+  // (observed live: it fell through to the AI, which answered from the
+  // caller's own — often empty — task list instead of a real priority
+  // filter). Only still excludes "priority" when it's NOT part of the
+  // "<level> priority" filter shape this function itself now recognizes.
+  const hasNonFilterPriorityMention = /\bpriority\b/i.test(t) && !priorityFilter;
+  if ((/\b(details?|info|status|deadline|assignee|update|change|delete|remove|complete|finish|assign|create|add|note)\b/i.test(t) || hasNonFilterPriorityMention)
+    && !/\b(completed|complete|done|finished|closed)\s+tasks?\b/i.test(t) && !/\b(?:full|complete|total)\s+(?:task\s+)?list\b/i.test(t)) {
     return null;
   }
-  if (isAllScope && !isSelfRef && !hasValidPossessiveName) return { ...(statusFilter ? { status_filter: statusFilter } : {}), scope: 'all' };
-  // Gate on statusFilter (not a separate hardcoded word list) so every status
-  // requestedTaskStatus recognizes — including "in progress"/"cancelled",
-  // which a previous, narrower version of this list omitted and caused
-  // "<name> in progress tasks" to bypass the deterministic route entirely.
-  if (!/\b(list|show|get|display)\b/i.test(t) && !statusFilter && !isSelfRef && !hasValidPossessiveName && !/[’']s\s+tasks?$/i.test(t)) {
+  if (isAllScope && !isSelfRef && !hasValidPossessiveName) {
+    return {
+      ...(statusFilter ? { status_filter: statusFilter } : {}),
+      ...(priorityFilter ? { priority_filter: priorityFilter } : {}),
+      scope: 'all',
+    };
+  }
+  // Gate on statusFilter/priorityFilter (not a separate hardcoded word list)
+  // so every status requestedTaskStatus recognizes — including "in
+  // progress"/"cancelled", which a previous, narrower version of this list
+  // omitted and caused "<name> in progress tasks" to bypass the
+  // deterministic route entirely.
+  if (!/\b(list|show|get|display)\b/i.test(t) && !statusFilter && !priorityFilter && !isSelfRef && !hasValidPossessiveName && !/[’']s\s+tasks?$/i.test(t)) {
     return null;
   }
 
   const args: Record<string, string> = {};
   if (statusFilter) args.status_filter = statusFilter;
+  if (priorityFilter) args.priority_filter = priorityFilter;
   if (/\b(my|mine|me)\b/i.test(t)) {
     args.assignee_name = 'mine';
     return args;
@@ -122,14 +154,23 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
     /^(.+?)\s+tasks?$/i,
   ];
   for (const pattern of personPatterns) {
-    const taskOwnerText = t.replace(/\b(?:completed|complete|done|finished|closed|cancelled|canceled|dropped|abandoned|in[\s_-]*progress|wip|ongoing|underway|started|working\s+on|to[\s_-]*do|todo|pending|open|not\s+started|active)\b(?=\s+tasks?\b)/ig, '').replace(/\s+/g, ' ').trim();
+    const taskOwnerText = t
+      // Strip a "<level> priority" filter phrase directly before "tasks" —
+      // same reasoning as the status-word stripping below: without this,
+      // "Rashmi's high priority tasks" would fail to match the possessive
+      // patterns (the words sit between 's and "tasks"), and bare "high
+      // priority tasks" would get "high priority" read back as if it were
+      // a person's name by the catch-all pattern at the end of this list.
+      .replace(/\b(?:urgent|high|medium|low)\s+priority\b(?=\s+tasks?\b)/ig, '')
+      .replace(/\b(?:completed|complete|done|finished|closed|cancelled|canceled|dropped|abandoned|in[\s_-]*progress|wip|ongoing|underway|started|working\s+on|to[\s_-]*do|todo|pending|open|not\s+started|active)\b(?=\s+tasks?\b)/ig, '')
+      .replace(/\s+/g, ' ').trim();
     const match = taskOwnerText.match(pattern);
     const name = match?.[1]
       ?.replace(/^(?:list|show|get|display)(?:\s+me)?(?:\s+the)?\s+/i, '')
       ?.replace(/^of\s+/i, '')
       .replace(/(?:[’']s)$/i, '')
       .trim();
-    if (name && !/^(?:all|team|everyone|everybody|organisation|organization|company|pending|open|completed|done|finished|the|of|a|an|my|mine|list|show|get|display|find|give|send|tell|pull|fetch|check)$/i.test(name)) {
+    if (name && !/^(?:all|team|everyone|everybody|organisation|organization|company|pending|open|completed|done|finished|the|of|a|an|my|mine|list|show|get|display|find|give|send|tell|pull|fetch|check|urgent|high|medium|low|priority)$/i.test(name)) {
       args.assignee_name = name;
       break;
     }

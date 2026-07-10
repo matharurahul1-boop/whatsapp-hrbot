@@ -96,6 +96,23 @@ test('"<name>\'s all tasks" names a specific person, not the whole org', () => {
   assert.deepEqual(routing.quickTaskListArgs("team's tasks"), { scope: 'all' });
 });
 
+test('priority filter ("<level> priority tasks") is recognized and never blocked', () => {
+  // Observed live: "high priority tasks" and "high priority all tasks" both
+  // fell through to the AI instead of the deterministic route, because the
+  // bare word "priority" was an unconditional exclusion trigger — the AI
+  // then answered from the caller's own (often empty) task list instead of
+  // a real priority filter.
+  assert.deepEqual(routing.quickTaskListArgs('high priority tasks'), { priority_filter: 'high', scope: 'all' });
+  assert.deepEqual(routing.quickTaskListArgs('high priority all tasks'), { priority_filter: 'high', scope: 'all' });
+  assert.deepEqual(routing.quickTaskListArgs('urgent tasks'), { priority_filter: 'urgent', scope: 'all' });
+  assert.deepEqual(routing.quickTaskListArgs('low priority tasks'), { priority_filter: 'low', scope: 'all' });
+  // Combines correctly with a named person.
+  assert.deepEqual(routing.quickTaskListArgs("Rashmi's high priority tasks"), { priority_filter: 'high', assignee_name: 'Rashmi' });
+  // Genuine field queries/mutations about priority must still be excluded.
+  assert.equal(routing.quickTaskListArgs('what is the priority of task Payroll'), null);
+  assert.equal(routing.quickTaskListArgs('update task Payroll priority to high'), null);
+});
+
 test('does not misroute task mutations as task-list requests', () => {
   for (const message of ['create a task', 'delete task Payroll', 'update task Payroll', 'assign task Payroll to Mahima', 'show details of task Payroll', 'show task status']) {
     assert.equal(routing.quickTaskListArgs(message), null, message);

@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useMemo, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import {
   LayoutGrid, List, Clock, AlertTriangle, CheckCircle2,
-  Circle, PlayCircle, XCircle, MoreHorizontal, Loader2, ChevronDown, Check,
+  Circle, PlayCircle, XCircle, MoreHorizontal, Loader2, ChevronDown, Check, X,
 } from 'lucide-react';
 import { Avatar } from '@/components/ui/Avatar';
 import TaskCard from './TaskCard';
@@ -104,6 +105,10 @@ function matchesDeadlinePreset(task: Task, preset: string, now: Date): boolean {
 
 /* ── Multi-select header filter dropdown (Assigned To/By, Priority, Status,
    Deadline) — checkboxes so more than one value can be picked at once. ── */
+// Popover height budget used for the auto-flip decision below — matches
+// max-h-56 (14rem = 224px) plus a little chrome (padding/shadow room).
+const POPOVER_HEIGHT_BUDGET = 240;
+
 function MultiSelectDropdown({
   label, options, selected, onChange, align = 'left',
 }: {
@@ -114,15 +119,49 @@ function MultiSelectDropdown({
   align?:   'left' | 'right';
 }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  // Rendered via a portal (see below) so the popover can never be clipped by
+  // the table's `overflow-hidden` — position is computed from the trigger's
+  // actual screen coordinates instead of relying on CSS `absolute` inside a
+  // clipped ancestor. Flips to open upward when there isn't enough room
+  // below (e.g. the table is short or the row is near the bottom).
+  const [pos, setPos] = useState<{ top?: number; bottom?: number; left?: number; right?: number } | null>(null);
+  const triggerRef  = useRef<HTMLButtonElement>(null);
+  const popoverRef  = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (!open) return;
     function onClickOutside(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (triggerRef.current?.contains(target)) return;
+      if (popoverRef.current?.contains(target)) return;
+      setOpen(false);
     }
+    // Scrolling (the table body, or the page) would leave a `position:
+    // fixed` popover visually detached from its trigger — closing is
+    // simpler and safer than tracking every scrollable ancestor.
+    function onScrollOrResize() { setOpen(false); }
     document.addEventListener('mousedown', onClickOutside);
-    return () => document.removeEventListener('mousedown', onClickOutside);
-  }, []);
+    window.addEventListener('scroll', onScrollOrResize, true);
+    window.addEventListener('resize', onScrollOrResize);
+    return () => {
+      document.removeEventListener('mousedown', onClickOutside);
+      window.removeEventListener('scroll', onScrollOrResize, true);
+      window.removeEventListener('resize', onScrollOrResize);
+    };
+  }, [open]);
+
+  function handleTriggerClick() {
+    if (!open && triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const openUpward = spaceBelow < POPOVER_HEIGHT_BUDGET && rect.top > spaceBelow;
+      const horizontal = align === 'right' ? { right: window.innerWidth - rect.right } : { left: rect.left };
+      setPos(openUpward
+        ? { bottom: window.innerHeight - rect.top + 6, ...horizontal }
+        : { top: rect.bottom + 6, ...horizontal });
+    }
+    setOpen(o => !o);
+  }
 
   function toggle(value: string) {
     onChange(selected.includes(value) ? selected.filter(v => v !== value) : [...selected, value]);
@@ -135,26 +174,45 @@ function MultiSelectDropdown({
       : `${selected.length} selected`;
 
   return (
-    <div ref={ref} className="relative w-full">
+    <div className="relative w-full">
       <button
+        ref={triggerRef}
         type="button"
-        onClick={() => setOpen(o => !o)}
+        onClick={handleTriggerClick}
         className={cn(
-          'flex w-full items-center justify-between gap-1.5 rounded-lg border px-2.5 py-2 text-xs font-semibold uppercase tracking-wider transition-colors focus:outline-none',
+          'flex w-full items-center justify-between gap-1.5 rounded-lg border px-2.5 py-2 text-xs font-semibold uppercase tracking-wider transition-colors',
+          'focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0',
           selected.length > 0
             ? 'border-brand-500/40 bg-brand-500/10 text-brand-400'
-            : 'border-surface-300/40 bg-surface-100/60 text-surface-500 hover:border-surface-300/70'
+            // surface-600 (not -500) — -500 is the "muted element" shade
+            // (~2.4:1 contrast), too low for readable label text; -600 is
+            // this codebase's established fix for exactly this (~5.2:1).
+            : 'border-surface-300/40 bg-surface-100/60 text-surface-600 hover:border-surface-300/70 hover:text-surface-700'
         )}
       >
         <span className="truncate">{displayText}</span>
-        <ChevronDown className={cn('h-3 w-3 shrink-0 transition-transform', open && 'rotate-180')} />
+        {selected.length > 0 ? (
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={e => { e.stopPropagation(); onChange([]); }}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); e.preventDefault(); onChange([]); } }}
+            className="shrink-0 rounded-full p-0.5 hover:bg-brand-500/20 transition-colors"
+            aria-label={`Clear ${label} filter`}
+          >
+            <X className="h-3 w-3" />
+          </span>
+        ) : (
+          <ChevronDown className="h-3 w-3 shrink-0 transition-transform" />
+        )}
       </button>
 
-      {open && (
-        <div className={cn(
-          'absolute top-full z-50 mt-1.5 w-48 rounded-xl border border-surface-300/50 bg-surface-100 shadow-xl shadow-black/30 overflow-hidden animate-[fadeUp_0.15s_ease-out]',
-          align === 'right' ? 'right-0' : 'left-0'
-        )}>
+      {open && pos && createPortal(
+        <div
+          ref={popoverRef}
+          style={{ position: 'fixed', ...pos }}
+          className="z-50 w-48 rounded-xl border border-surface-300/50 bg-surface-100 shadow-xl shadow-black/30 overflow-hidden animate-[fadeUp_0.15s_ease-out]"
+        >
           <div className="max-h-56 overflow-y-auto py-1">
             {options.map(opt => {
               const checked = selected.includes(opt.value);
@@ -179,7 +237,8 @@ function MultiSelectDropdown({
               );
             })}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -494,20 +553,46 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
           {/* List header — column titles double as inline filter controls */}
           <div className="flex items-center gap-2 px-4 py-3 bg-surface-200/60 border-b border-surface-300/50">
             <div className="w-5 shrink-0" />
-            <div className="flex-1 min-w-0">
+            <div className="relative flex-1 min-w-0">
               <input
                 type="text"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder="Task"
                 className={cn(
-                  'w-full rounded-lg border px-2.5 py-2 text-xs font-semibold uppercase tracking-wider transition-colors focus:outline-none',
-                  'placeholder:text-surface-500 placeholder:normal-case',
+                  // normal-case for the typed value — only the empty-state
+                  // placeholder should render uppercase to match the other
+                  // column headers; a bare `uppercase` class here would
+                  // visually (not just cosmetically) transform whatever the
+                  // user types, e.g. "tes" rendering as "TES".
+                  'w-full rounded-lg border px-2.5 py-2 text-xs font-semibold normal-case tracking-wider transition-colors',
+                  search && 'pr-7',
+                  // surface-600 (not -500) — -500 is the "muted element"
+                  // shade (~2.4:1 contrast), too low for readable label
+                  // text; -600 is this codebase's established fix (~5.2:1).
+                  'placeholder:text-surface-600 placeholder:uppercase',
+                  // The app-wide :focus-visible rule (globals.css) adds its
+                  // own ring + ring-offset on top of any element's own
+                  // border, which doubled up with this input's border-color
+                  // focus state into a visible outer box. This input already
+                  // has its own focus treatment, so cancel the global ring
+                  // here instead of fighting it with a border color alone.
+                  'focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0',
                   search
                     ? 'border-brand-500/40 bg-brand-500/10 text-brand-400'
-                    : 'border-surface-300/40 bg-surface-100/60 text-surface-500 hover:border-surface-300/70 focus:border-brand-500/40'
+                    : 'border-surface-300/40 bg-surface-100/60 text-surface-600 hover:border-surface-300/70 hover:text-surface-700 focus:border-brand-500/40'
                 )}
               />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch('')}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-full p-0.5 text-brand-400 hover:bg-brand-500/20 transition-colors"
+                  aria-label="Clear Task filter"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
             </div>
             <div className="hidden sm:block w-36 shrink-0">
               <MultiSelectDropdown

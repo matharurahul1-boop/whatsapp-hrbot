@@ -615,7 +615,9 @@ const HRBOT_TOOLS: any[] = [
         assignee_name: { type: 'STRING', description: "'mine' = caller's own tasks. First/full name = that person's tasks. Omit for generic requests, which default to the caller's own tasks." },
         scope: { type: 'STRING', enum: ['all'], description: "Use 'all' only when the user explicitly asks for all/team/company tasks." },
         status_filter: { type: 'STRING', description: "todo | in_progress | done | cancelled | active. Omit for all unfinished tasks." },
+        exclude_status_filter: { type: 'STRING', description: "todo | in_progress | done | cancelled | active. Use for negated status phrasing ('tasks excluding done', 'tasks that are not cancelled', 'without pending ones') — the exact opposite of status_filter. NEVER pass status_filter for a negated request, that returns the opposite of what was asked." },
         priority_filter: { type: 'STRING', description: "urgent | high | medium | low. Omit for all priorities. Independent of status_filter — both can be set together." },
+        exclude_priority_filter: { type: 'STRING', description: "urgent | high | medium | low. Use for negated priority phrasing ('tasks without high priority', 'excluding urgent ones', 'not low priority'). NEVER pass priority_filter for a negated request." },
         deadline_filter: { type: 'STRING', description: "overdue | today | week | none | not_overdue. 'overdue' = past deadline and not done/cancelled. 'today' = due today. 'week' = due within the next 7 days. 'none' = no deadline set. 'not_overdue' = the exact opposite of 'overdue' (use for 'without overdue'/'excluding overdue'/'not overdue' phrasing). Independent of status_filter/priority_filter — any combination can be set together." },
       },
     },
@@ -997,6 +999,12 @@ Deadline filter — pass deadline_filter (independent of status_filter/priority_
 - "my overdue tasks" → list_tasks(assignee_name="mine", deadline_filter="overdue")
 - "tushar's tasks without overdue" / "tasks not overdue" / "excluding overdue tasks" → deadline_filter="not_overdue" (the exact opposite of "overdue" — NEVER pass deadline_filter="overdue" for a negated request, that returns the opposite of what was asked)
 RULE: NEVER compute "overdue" yourself from a task list you already have in context — deadlines change and stale context will misclassify a task (e.g. calling an already-completed task "overdue"). ALWAYS call list_tasks(deadline_filter=...) fresh and return the result verbatim.
+
+Negation, generally — this applies to EVERY filter, not just deadline. Whenever the user's phrasing excludes something ("without", "excluding", "except", "not", "besides", "other than", "leave out", etc.), use the matching exclude_* parameter instead of the positive one:
+- "tasks excluding done" / "tasks that are not cancelled" → exclude_status_filter="done"/"cancelled" (NEVER status_filter="done" — that asks for the opposite)
+- "tasks without high priority" / "not urgent tasks" → exclude_priority_filter="high"/"urgent" (NEVER priority_filter — same reasoning)
+- "tasks without overdue" → deadline_filter="not_overdue" (see above)
+RULE: Read negation carefully before choosing a parameter — inverting the user's actual request is worse than asking a clarifying question. If a message negates something list_tasks has no parameter for at all (e.g. excluding a specific person, or a concept with no filter), say so plainly rather than guessing at a filter that doesn't capture it.
 
 RULE: NEVER pass assignee_name="my" or assignee_name="me". Use assignee_name="mine" for self-queries.
 RULE: NEVER return task data as text. ALWAYS call list_tasks and return the result verbatim.
@@ -2923,7 +2931,9 @@ async function dispatchToolResult(
       channel:       input.channel                             ?? null,
       description:   input.description                         ?? null,
       status_filter: input.status_filter                       ?? null,
+      exclude_status_filter: input.exclude_status_filter       ?? null,
       priority_filter: input.priority_filter                   ?? null,
+      exclude_priority_filter: input.exclude_priority_filter   ?? null,
       deadline_filter: input.deadline_filter                   ?? null,
       scope:         input.scope                               ?? null,
       note:          input.note                                ?? null,

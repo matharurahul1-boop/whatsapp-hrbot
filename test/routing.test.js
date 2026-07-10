@@ -184,6 +184,39 @@ test('negated deadline filter ("without overdue"/"not overdue"/"excluding overdu
   assert.deepEqual(routing.quickTaskListArgs('overdue tasks'), { deadline_filter: 'overdue', scope: 'all' });
 });
 
+test('negation generalizes to status and priority filters too, not just deadline', () => {
+  // The "without overdue" fix was deadline-specific — but the same inversion
+  // risk exists for status/priority: "tasks excluding done" naively matches
+  // "done" as a positive status filter unless negation is checked first.
+  assert.deepEqual(routing.quickTaskListArgs('tasks excluding done'), { exclude_status_filter: 'done', scope: 'all' });
+  assert.deepEqual(routing.quickTaskListArgs('tasks not cancelled'), { exclude_status_filter: 'cancelled', scope: 'all' });
+  assert.deepEqual(routing.quickTaskListArgs('tasks without pending ones'), { exclude_status_filter: 'active', scope: 'all' });
+  assert.deepEqual(routing.quickTaskListArgs('tasks without high priority'), { exclude_priority_filter: 'high', scope: 'all' });
+  assert.deepEqual(routing.quickTaskListArgs('not urgent tasks'), { exclude_priority_filter: 'urgent', scope: 'all' });
+  // Combines correctly with a named person, same as the deadline case.
+  assert.deepEqual(routing.quickTaskListArgs("tushar's tasks without high priority"), { exclude_priority_filter: 'high', assignee_name: 'tushar' });
+  assert.deepEqual(routing.quickTaskListArgs("All rashmi's tasks excluding done"), { exclude_status_filter: 'done', assignee_name: 'rashmi' });
+  // Un-negated phrasing must still resolve to the plain positive filter.
+  assert.deepEqual(routing.quickTaskListArgs('done tasks'), { status_filter: 'done', scope: 'all' });
+  assert.deepEqual(routing.quickTaskListArgs('high priority tasks'), { priority_filter: 'high', scope: 'all' });
+  // "not started" is a fixed idiom for todo, not a negation of anything —
+  // must not be misread as "everything except in-progress".
+  assert.deepEqual(routing.quickTaskListArgs('not started tasks'), { status_filter: 'todo', scope: 'all' });
+});
+
+test('bails out to the AI (returns null) on negation phrasing it is not specifically taught, instead of guessing wrong', () => {
+  // Rather than hand-coding an ever-growing list of negation phrasings, the
+  // router recognizes its own blind spots: any negation word left over after
+  // stripping every filter phrase it knows how to resolve means something in
+  // the message wasn't accounted for — silently guessing here risks the
+  // exact inversion bug this whole feature was built to prevent, so it defers
+  // to the AI (which still calls the same real list_tasks tool) instead.
+  assert.equal(routing.quickTaskListArgs('tushar tasks besides the urgent ones'), null);
+  assert.equal(routing.quickTaskListArgs('tasks other than done ones'), null);
+  assert.equal(routing.quickTaskListArgs('list tasks, leave out cancelled'), null);
+  assert.equal(routing.quickTaskListArgs('tasks not assigned to anyone'), null);
+});
+
 test('does not misroute task mutations as task-list requests', () => {
   for (const message of ['create a task', 'delete task Payroll', 'update task Payroll', 'assign task Payroll to Mahima', 'show details of task Payroll', 'show task status']) {
     assert.equal(routing.quickTaskListArgs(message), null, message);

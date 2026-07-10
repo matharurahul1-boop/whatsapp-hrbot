@@ -423,6 +423,16 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     // tasks". Independent of status_filter; both can apply together.
     const priorityFilter = (slots.priority_filter as string | null)?.toLowerCase();
     const validPriority = priorityFilter && ['urgent', 'high', 'medium', 'low'].includes(priorityFilter) ? priorityFilter : null;
+    // exclude_priority_filter / exclude_status_filter: negated counterparts
+    // of the above — e.g. "tasks without high priority" / "tasks excluding
+    // done". Generalizes the same real-DB-query approach used for
+    // deadline_filter="not_overdue" to every filter type, so a negated
+    // request is never satisfied by silently ignoring the negation or (worse)
+    // querying for the positive filter instead.
+    const excludePriorityFilter = (slots.exclude_priority_filter as string | null)?.toLowerCase();
+    const validExcludePriority = excludePriorityFilter && ['urgent', 'high', 'medium', 'low'].includes(excludePriorityFilter) ? excludePriorityFilter : null;
+    const excludeStatusFilter = (slots.exclude_status_filter as string | null)?.toLowerCase();
+    const validExcludeStatus = excludeStatusFilter && ['todo', 'in_progress', 'done', 'cancelled', 'active'].includes(excludeStatusFilter) ? excludeStatusFilter : null;
     // deadline_filter: 'overdue'|'today'|'week'|'none' — mirrors the
     // dashboard's DEADLINE_OPTIONS (TaskKanban.tsx). Applied as a real
     // DB-level filter (not just a display label) so the reply is always
@@ -444,6 +454,14 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       .is('deleted_at', null);
 
     if (validPriority) query = (query as any).eq('priority', validPriority);
+    if (validExcludePriority) query = (query as any).neq('priority', validExcludePriority);
+    if (validExcludeStatus === 'active') {
+      // 'active' is a virtual aggregate of todo+in_progress (matches the
+      // status_filter="active" meaning used elsewhere), not a real DB value.
+      query = (query as any).not('status', 'in', '(todo,in_progress)');
+    } else if (validExcludeStatus) {
+      query = (query as any).neq('status', validExcludeStatus);
+    }
 
     if (validDeadline === 'overdue') {
       // Matches the dashboard's overdue definition exactly (matchesDeadlinePreset
@@ -544,11 +562,17 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     const deadlineLabelMap: Record<string, string> = { overdue: 'overdue', today: 'due today', week: 'due this week', none: 'no-deadline', not_overdue: 'non-overdue' };
     const deadlineLabel = validDeadline ? deadlineLabelMap[validDeadline] : null;
+    const excludeStatusWordMap: Record<string, string> = { in_progress: 'in progress', todo: 'to do', active: 'pending' };
+    const excludeLabelParts = [
+      ...(validExcludePriority ? [`${validExcludePriority} priority`] : []),
+      ...(validExcludeStatus ? [excludeStatusWordMap[validExcludeStatus] ?? validExcludeStatus] : []),
+    ];
+    const excludeLabel = excludeLabelParts.length ? `excluding ${excludeLabelParts.join(', ')}` : null;
 
     if (!tasks?.length) {
       const noTasksName = slots.assignee_name && !isSelfQuery ? (resolvedAssigneeName ?? slots.assignee_name) : null;
       const statusLabel_ = statusFilter === 'in_progress' ? 'in progress' : statusFilter === 'todo' ? 'to do' : statusFilter === 'active' ? 'pending' : statusFilter;
-      const noTasksLabel = [validPriority, deadlineLabel, statusLabel_].filter(Boolean).join(' ');
+      const noTasksLabel = [validPriority, deadlineLabel, statusLabel_, excludeLabel].filter(Boolean).join(' ');
       if (noTasksLabel) {
         return { success: true, reply: noTasksName
           ? `📋 No ${noTasksLabel} tasks found for *${noTasksName}*.`
@@ -581,6 +605,15 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const priorityLabel = validPriority ? `${validPriority.charAt(0).toUpperCase()}${validPriority.slice(1)} Priority` : null;
     const deadlineHeaderLabelMap: Record<string, string> = { overdue: 'Overdue', today: 'Due Today', week: 'Due This Week', none: 'No-Deadline', not_overdue: 'Non-Overdue' };
     const deadlineHeaderLabel = validDeadline ? deadlineHeaderLabelMap[validDeadline] : null;
+    const excludeStatusHeaderMap: Record<string, string> = { in_progress: 'In Progress', todo: 'To Do', active: 'Pending', done: 'Done', cancelled: 'Cancelled' };
+    const excludeHeaderParts = [
+      ...(validExcludePriority ? [`${validExcludePriority.charAt(0).toUpperCase()}${validExcludePriority.slice(1)} Priority`] : []),
+      ...(validExcludeStatus ? [excludeStatusHeaderMap[validExcludeStatus] ?? validExcludeStatus] : []),
+    ];
+    // Rendered as a trailing parenthetical rather than folded into
+    // filterLabel's space-joined adjectives — "excluding X" reads naturally
+    // after "tasks:", not as a prefix modifier like "High Priority".
+    const excludeHeaderSuffix = excludeHeaderParts.length ? ` (excluding ${excludeHeaderParts.join(', ')})` : '';
 
     if (showDone) {
       // Completed tasks: list flat in completion order — no time bucketing
@@ -588,20 +621,20 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       const doneFilterLabelText = [priorityLabel, deadlineHeaderLabel].filter(Boolean).join(' ');
       const doneFilterLabel = doneFilterLabelText ? ` ${doneFilterLabelText}` : '';
       const header = headerName
-        ? `✅ *${headerName}'s${doneFilterLabel} completed tasks (${tasks.length}):*`
+        ? `✅ *${headerName}'s${doneFilterLabel} completed tasks (${tasks.length})${excludeHeaderSuffix}:*`
         : wantsAll
-          ? `✅ *${user_role === 'manager' ? 'Team' : 'All'}${doneFilterLabel} completed tasks (${tasks.length}):*`
-          : `✅ *Your${doneFilterLabel} completed tasks (${tasks.length}):*`;
+          ? `✅ *${user_role === 'manager' ? 'Team' : 'All'}${doneFilterLabel} completed tasks (${tasks.length})${excludeHeaderSuffix}:*`
+          : `✅ *Your${doneFilterLabel} completed tasks (${tasks.length})${excludeHeaderSuffix}:*`;
       lines.push(header, '');
       (tasks as any[]).forEach((t, i) => lines.push(formatTask(t, i)));
     } else {
       const statusLabelText = statusFilter === 'in_progress' ? 'In Progress' : statusFilter === 'todo' ? 'To Do' : statusFilter === 'cancelled' ? 'Cancelled' : statusFilter === 'active' ? 'Pending' : null;
       const filterLabel = [priorityLabel, deadlineHeaderLabel, statusLabelText].filter(Boolean).join(' ') || null;
       const header = headerName
-        ? `📋 *${headerName}'s${filterLabel ? ` ${filterLabel}` : ''} tasks:*`
+        ? `📋 *${headerName}'s${filterLabel ? ` ${filterLabel}` : ''} tasks${excludeHeaderSuffix}:*`
         : wantsAll
-          ? `📋 *${user_role === 'manager' ? 'Team' : 'All'}${filterLabel ? ` ${filterLabel}` : ''} tasks:*`
-          : (lang === 'hi' ? `📋 *आपके टास्क:*` : `📋 *Your${filterLabel ? ` ${filterLabel}` : ''} tasks:*`);
+          ? `📋 *${user_role === 'manager' ? 'Team' : 'All'}${filterLabel ? ` ${filterLabel}` : ''} tasks${excludeHeaderSuffix}:*`
+          : (lang === 'hi' ? `📋 *आपके टास्क:*` : `📋 *Your${filterLabel ? ` ${filterLabel}` : ''} tasks${excludeHeaderSuffix}:*`);
       lines.push(header);
 
       const overdue  = (tasks as any[]).filter((t) => t.deadline && new Date(t.deadline).getTime() < todayStartMs);

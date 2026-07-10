@@ -33,11 +33,23 @@ function requestsAllTasks(message: string): boolean {
     || /\bacross\s+(?:the\s+)?(?:team|company|org|organisation|organization|workforce)\b/i.test(message);
 }
 
-function requestedTaskPriority(message: string): string | null {
-  if (/\burgent\b/i.test(message)) return 'urgent';
-  if (/\bhigh\b/i.test(message)) return 'high';
-  if (/\bmedium\b/i.test(message)) return 'medium';
-  if (/\blow\b/i.test(message)) return 'low';
+// Negation words this router knows how to correctly resolve into the
+// opposite of a positive filter, rather than misreading them as a positive
+// filter (the bug behind "All tushar's tasks without overdue" returning the
+// org-wide OVERDUE list). Kept as one shared list so priority/status/
+// deadline negation detection can't drift out of sync with each other.
+const NEGATION_PREFIX = '\\b(?:without|excluding|except|not|never)\\s+(?:any\\s+)?';
+
+type FilterMatch = { value: string; negated: boolean };
+
+function requestedTaskPriority(message: string): FilterMatch | null {
+  const negRe = new RegExp(NEGATION_PREFIX + '(?:(urgent|high|medium|low)\\s+priority|(urgent|high|medium|low))\\b', 'i');
+  const negMatch = message.match(negRe);
+  if (negMatch) return { value: (negMatch[1] ?? negMatch[2]).toLowerCase(), negated: true };
+  if (/\burgent\b/i.test(message)) return { value: 'urgent', negated: false };
+  if (/\bhigh\b/i.test(message)) return { value: 'high', negated: false };
+  if (/\bmedium\b/i.test(message)) return { value: 'medium', negated: false };
+  if (/\blow\b/i.test(message)) return { value: 'low', negated: false };
   return null;
 }
 
@@ -56,7 +68,10 @@ function requestedTaskDeadline(message: string): string | null {
   // instead of a request to EXCLUDE them. Observed live: "All tushar's
   // tasks without overdue" returned the org-wide overdue list — the exact
   // opposite of what was asked, and it also dropped "tushar" entirely.
-  if (/\b(?:without|excluding|except|not)\s+(?:the\s+)?overdue\b/i.test(message)) return 'not_overdue';
+  // (deadline stays a plain string, not a FilterMatch, since 'not_overdue'
+  // is already its own distinct value rather than {value:'overdue',negated}
+  // — the executor treats it as a genuinely different query shape.)
+  if (new RegExp(NEGATION_PREFIX + '(?:the\\s+)?overdue\\b', 'i').test(message)) return 'not_overdue';
   if (/\boverdue\b/i.test(message)) return 'overdue';
   if (/\bdue\s+today\b/i.test(message)) return 'today';
   if (/\bdue\s+this\s+week\b/i.test(message) || /\bdue\s+(?:with)?in\s+(?:a|the\s+next)?\s*week\b/i.test(message)) return 'week';
@@ -77,8 +92,20 @@ function requestedTaskDeadline(message: string): string | null {
  * requestedTaskStatus/requestedTaskDeadline above, run on the original text.
  */
 function stripFilterModifiers(text: string): string {
-  return text
-    .replace(/\b(?:without|excluding|except|not)\s+(?:the\s+)?overdue\b/ig, '')
+  let out = text
+    // Negated phrases stripped FIRST, whole phrase at once (negation word +
+    // filter word together) — so a recognized negation leaves no leftover
+    // "without"/"not"/etc. behind for the unhandled-negation guard further
+    // down in quickTaskListArgs to trip over. Order matches
+    // requestedTaskPriority/requestedTaskStatus/requestedTaskDeadline's own
+    // negation handling so this strip never disagrees with what was
+    // actually extracted as a filter.
+    .replace(new RegExp(NEGATION_PREFIX + '(?:the\\s+)?overdue\\b', 'ig'), '')
+    .replace(new RegExp(NEGATION_PREFIX + '(?:(?:urgent|high|medium|low)\\s+priority|urgent|high|medium|low)\\b', 'ig'), '');
+  for (const [, wordRe] of STATUS_WORD_GROUPS) {
+    out = out.replace(new RegExp(NEGATION_PREFIX + wordRe + '\\b', 'ig'), '');
+  }
+  return out
     .replace(/\boverdue\b/ig, '')
     .replace(/\bdue\s+today\b/ig, '')
     .replace(/\bdue\s+this\s+week\b/ig, '')
@@ -96,18 +123,36 @@ function stripFilterModifiers(text: string): string {
     .trim();
 }
 
-function requestedTaskStatus(message: string): string | null {
-  // "complete task list" means the full list, not only completed tasks.
-  if (/\b(?:full|complete|total)\s+(?:task\s+)?list\b/i.test(message)) return null;
-  if (/\b(?:cancelled|canceled|dropped|abandoned)\b/i.test(message)) return 'cancelled';
-  if (/\b(?:in[\s_-]*progress|wip|ongoing|underway|started|working\s+on)\b/i.test(message)) return 'in_progress';
-  if (/\b(?:to[\s_-]*do|todo|not\s+started|new)\b/i.test(message)) return 'todo';
+// Ordered so more specific phrasings win over broader ones — unchanged from
+// the original if-chain's precedence (cancelled > in_progress > todo >
+// pending/open/active > done), just expressed as data so the same list can
+// drive both the negated and non-negated lookups below without drifting.
+const STATUS_WORD_GROUPS: Array<[string, string]> = [
+  ['cancelled', '(?:cancelled|canceled|dropped|abandoned)'],
+  ['in_progress', '(?:in[\\s_-]*progress|wip|ongoing|underway|started|working\\s+on)'],
+  ['todo', '(?:to[\\s_-]*do|todo|new)'],
   // "pending"/"open" mean "not yet done" in everyday HR usage — broader than
   // strictly not-started, so this covers both todo AND in_progress tasks
   // (unlike "to do"/"todo" above, which means specifically not-started).
-  if (/\b(?:pending|open)\b/i.test(message)) return 'active';
-  if (/\b(?:completed|complete|done|finished|closed)\b/i.test(message)) return 'done';
-  if (/\bactive\b/i.test(message)) return 'active';
+  ['active', '(?:pending|open|active)'],
+  ['done', '(?:completed|complete|done|finished|closed)'],
+];
+
+function requestedTaskStatus(message: string): FilterMatch | null {
+  // "complete task list" means the full list, not only completed tasks.
+  if (/\b(?:full|complete|total)\s+(?:task\s+)?list\b/i.test(message)) return null;
+  // "not started" is a fixed idiom meaning todo (not-yet-begun), not a
+  // negation of anything — handled before the generic negation loop below
+  // so it isn't misread as "everything except in-progress" (bare "started"
+  // is also a synonym for in_progress, checked further down, and would
+  // otherwise win because in_progress is checked before todo).
+  if (/\bnot\s+started\b/i.test(message)) return { value: 'todo', negated: false };
+  for (const [value, wordRe] of STATUS_WORD_GROUPS) {
+    if (new RegExp(NEGATION_PREFIX + wordRe + '\\b', 'i').test(message)) return { value, negated: true };
+  }
+  for (const [value, wordRe] of STATUS_WORD_GROUPS) {
+    if (new RegExp('\\b' + wordRe + '\\b', 'i').test(message)) return { value, negated: false };
+  }
   return null;
 }
 
@@ -127,13 +172,21 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
   // as completed" returned "All To Do tasks" instead of completing it).
   if (/\bmark\s+.{1,60}\s+(?:as\s+)?(?:complete|completed|done)\b/i.test(t)) return null;
   const isAllScope = requestsAllTasks(t);
-  const statusFilter = requestedTaskStatus(t);
+  const statusResult = requestedTaskStatus(t);
+  const statusFilter = statusResult && !statusResult.negated ? statusResult.value : null;
+  // e.g. "tasks excluding done" / "tasks not cancelled" — the exact same
+  // inversion risk that "without overdue" had, generalized: EVERY status
+  // word this function recognizes can be negated, not just deadline's
+  // "overdue", so this is handled the same way rather than one-off.
+  const excludeStatusFilter = statusResult?.negated ? statusResult.value : null;
   // Only treated as a real priority FILTER when it's the "<level> priority"
   // shape (or "priority tasks" with no level, which just means "sort of
   // priority" and doesn't set a filter on its own) — a bare "priority"
   // elsewhere (e.g. "what is the priority of task X", "update priority")
   // is a field query/mutation, not a list filter. See hasNonFilterPriorityMention below.
-  const priorityFilter = requestedTaskPriority(t);
+  const priorityResult = requestedTaskPriority(t);
+  const priorityFilter = priorityResult && !priorityResult.negated ? priorityResult.value : null;
+  const excludePriorityFilter = priorityResult?.negated ? priorityResult.value : null;
   // Same reasoning as priorityFilter above — only a real filter shape
   // ("overdue"/"due today"/"due this week"/"no deadline") counts; a bare
   // "deadline" elsewhere (e.g. "what is the deadline of task X", "update
@@ -150,6 +203,21 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
   // tasks," not org-wide scope — see hasValidPossessiveName below) both need
   // this to resolve to a bare "tushar".
   const tClean = stripFilterModifiers(t);
+  // Safety net: if a negation word survives modifier-stripping, it wasn't
+  // consumed as part of a filter phrase this function specifically knows how
+  // to resolve — e.g. "tasks not assigned to anyone", or a negation word
+  // used in some other phrasing this function has never been taught. Rather
+  // than risk silently ignoring the negation (or worse, a positive filter
+  // word elsewhere in the same message flipping the meaning, as happened
+  // live with "All tushar's tasks without overdue" before that specific
+  // phrase was hand-taught), bail out and let the AI parse it instead: it
+  // still calls the same real list_tasks tool against the same real
+  // database — actual language understanding of arbitrary phrasing, backed
+  // by real data and the fabrication guard, instead of an ever-growing list
+  // of hand-coded exceptions that can never cover everything a user might type.
+  if (/\b(?:without|excluding|except|not|never|besides|apart\s+from|other\s+than|leave\s+out|leaving\s+out|skip(?:ping)?)\b/i.test(tClean)) {
+    return null;
+  }
   // "NAME's all tasks" / "NAME's tasks" / "All NAME's tasks" names a
   // specific person — "all" here means "every status for that person," not
   // "everyone in the org," regardless of which side of "'s" it sits on.
@@ -175,7 +243,7 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
   // caller's own — often empty — task list instead of a real priority
   // filter). Only still excludes "priority" when it's NOT part of the
   // "<level> priority" filter shape this function itself now recognizes.
-  const hasNonFilterPriorityMention = /\bpriority\b/i.test(t) && !priorityFilter;
+  const hasNonFilterPriorityMention = /\bpriority\b/i.test(t) && !priorityFilter && !excludePriorityFilter;
   const hasNonFilterDeadlineMention = /\bdeadline\b/i.test(t) && !deadlineFilter;
   if ((/\b(details?|info|status|assignee|update|change|delete|remove|complete|finish|assign|create|add|note)\b/i.test(t) || hasNonFilterPriorityMention || hasNonFilterDeadlineMention)
     && !/\b(completed|complete|done|finished|closed)\s+tasks?\b/i.test(t) && !/\b(?:full|complete|total)\s+(?:task\s+)?list\b/i.test(t)) {
@@ -184,7 +252,9 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
   if (isAllScope && !isSelfRef && !hasValidPossessiveName) {
     return {
       ...(statusFilter ? { status_filter: statusFilter } : {}),
+      ...(excludeStatusFilter ? { exclude_status_filter: excludeStatusFilter } : {}),
       ...(priorityFilter ? { priority_filter: priorityFilter } : {}),
+      ...(excludePriorityFilter ? { exclude_priority_filter: excludePriorityFilter } : {}),
       ...(deadlineFilter ? { deadline_filter: deadlineFilter } : {}),
       scope: 'all',
     };
@@ -196,14 +266,19 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
   // deterministic route entirely. Same reasoning applies to deadlineFilter:
   // without it, a bare "overdue tasks" (no list/show/status/name keyword)
   // fell through to the AI, which was observed fabricating/mislabeling
-  // overdue results (e.g. including an already-completed task).
-  if (!/\b(list|show|get|display)\b/i.test(t) && !statusFilter && !priorityFilter && !deadlineFilter && !isSelfRef && !hasValidPossessiveName && !/[’']s\s+tasks?$/i.test(t)) {
+  // overdue results (e.g. including an already-completed task). The exclude_*
+  // variants gate the same way — a negated-only filter (e.g. "tasks
+  // excluding done") must not fall through to null just because
+  // statusFilter/priorityFilter themselves are unset.
+  if (!/\b(list|show|get|display)\b/i.test(t) && !statusFilter && !excludeStatusFilter && !priorityFilter && !excludePriorityFilter && !deadlineFilter && !isSelfRef && !hasValidPossessiveName && !/[’']s\s+tasks?$/i.test(t)) {
     return null;
   }
 
   const args: Record<string, string> = {};
   if (statusFilter) args.status_filter = statusFilter;
+  if (excludeStatusFilter) args.exclude_status_filter = excludeStatusFilter;
   if (priorityFilter) args.priority_filter = priorityFilter;
+  if (excludePriorityFilter) args.exclude_priority_filter = excludePriorityFilter;
   if (deadlineFilter) args.deadline_filter = deadlineFilter;
   if (/\b(my|mine|me)\b/i.test(t)) {
     args.assignee_name = 'mine';

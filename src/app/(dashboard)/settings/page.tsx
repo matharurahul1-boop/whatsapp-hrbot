@@ -12,6 +12,13 @@ import { cn } from '@/lib/utils/cn';
 import { normalizeWaNumber } from '@/lib/utils/phone';
 import { useToast } from '@/components/ui/Toast';
 
+// Hard-disabled 2026-07-10 at the org's request — only paid Claude should
+// power the bot now. Flip back to true to re-enable the free Groq toggle;
+// keep in sync with the matching flag in src/lib/ai/agent.ts, which is what
+// actually enforces this on the backend (this flag only locks the UI so it
+// can't show a selection that wouldn't take effect).
+const GROQ_BACKEND_ENABLED = false;
+
 // ── tiny helpers ─────────────────────────────────────────────────────────────
 function Section({ title, description, icon, children }: {
   title: string; description: string;
@@ -194,7 +201,7 @@ export default function SettingsPage() {
         setWaMsgTemplate(snapshot.waMsgTemplate);
         setWaTemplateLang(snapshot.waTemplateLang);
         setWaTemplateVars(snapshot.waTemplateVars);
-        setAiBackend((org as any).settings?.ai_backend === 'claude' ? 'claude' : 'groq');
+        setAiBackend(GROQ_BACKEND_ENABLED ? ((org as any).settings?.ai_backend === 'claude' ? 'claude' : 'groq') : 'claude');
         setGroqKeysCount(org.groq_api_keys_count ?? 0);
         setGroqKeys(Array.isArray(org.groq_api_keys) && org.groq_api_keys.length > 0 ? org.groq_api_keys : ['']);
         setGroqKeysSource(org.groq_api_keys_source === 'org' ? 'org' : 'server');
@@ -593,10 +600,12 @@ export default function SettingsPage() {
               </div>
               <button
                 type="button"
-                onClick={() => setAiBackend(v => v === 'claude' ? 'groq' : 'claude')}
+                onClick={() => GROQ_BACKEND_ENABLED && setAiBackend(v => v === 'claude' ? 'groq' : 'claude')}
+                disabled={!GROQ_BACKEND_ENABLED}
                 className={cn(
                   'relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500/50',
-                  aiBackend === 'claude' ? 'bg-brand-500' : 'bg-surface-300'
+                  aiBackend === 'claude' ? 'bg-brand-500' : 'bg-surface-300',
+                  !GROQ_BACKEND_ENABLED && 'opacity-50 cursor-not-allowed'
                 )}
                 aria-label="Toggle AI backend"
               >
@@ -606,6 +615,12 @@ export default function SettingsPage() {
                 )} />
               </button>
             </div>
+
+            {!GROQ_BACKEND_ENABLED && (
+              <p className="text-xs text-surface-500 bg-surface-200/60 border border-surface-300 rounded-lg px-3 py-2">
+                🔒 The free Groq option is currently disabled — this org runs on Claude only.
+              </p>
+            )}
 
             <div className="flex items-center justify-between gap-3 rounded-lg bg-surface-200/60 px-3 py-2.5 text-xs text-surface-500">
               <span className={cn('font-medium', aiBackend === 'groq' ? 'text-surface-900' : '')}>

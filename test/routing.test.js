@@ -55,6 +55,23 @@ test('routes self, team, person, typo, and completed task-list requests', () => 
   assert.deepEqual(routing.quickTaskListArgs('please send me list of her tasks'), { assignee_name: 'her' });
 });
 
+test('bare "<name> <status> tasks" with no possessive/prefix resolves to the named person', () => {
+  // Previously fell through this quick-route (returned scope:'all' or null)
+  // because none of the personPatterns matched a bare name with no
+  // possessive, verb prefix, or preposition — observed live: "Ashish pending
+  // tasks" incorrectly returned the org-wide "All To Do tasks" list.
+  assert.deepEqual(routing.quickTaskListArgs('Ashish pending tasks'), { status_filter: 'todo', assignee_name: 'Ashish' });
+  assert.deepEqual(routing.quickTaskListArgs('Rashmi completed tasks'), { status_filter: 'done', assignee_name: 'Rashmi' });
+  // "in progress" wasn't recognized by the old hardcoded trigger-word list
+  // even though requestedTaskStatus() already understood it — this message
+  // used to bypass the deterministic route entirely (returned null).
+  assert.deepEqual(routing.quickTaskListArgs('Tushar in progress tasks'), { status_filter: 'in_progress', assignee_name: 'Tushar' });
+  // Bare command verbs must never be captured as a "name" by the new
+  // catch-all bare-name pattern.
+  assert.deepEqual(routing.quickTaskListArgs('show tasks'), { scope: 'all' });
+  assert.deepEqual(routing.quickTaskListArgs('pending tasks'), { status_filter: 'todo', scope: 'all' });
+});
+
 test('does not misroute task mutations as task-list requests', () => {
   for (const message of ['create a task', 'delete task Payroll', 'update task Payroll', 'assign task Payroll to Mahima', 'show details of task Payroll', 'show task status']) {
     assert.equal(routing.quickTaskListArgs(message), null, message);

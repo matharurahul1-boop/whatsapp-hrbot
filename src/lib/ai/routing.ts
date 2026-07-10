@@ -70,7 +70,11 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
     return null;
   }
   if (isAllScope && !isSelfRef) return { ...(statusFilter ? { status_filter: statusFilter } : {}), scope: 'all' };
-  if (!/\b(list|show|get|display|pending|open|completed|done|finished|all|my|mine)\b/i.test(t) && !/[’']s\s+tasks?$/i.test(t)) {
+  // Gate on statusFilter (not a separate hardcoded word list) so every status
+  // requestedTaskStatus recognizes — including "in progress"/"cancelled",
+  // which a previous, narrower version of this list omitted and caused
+  // "<name> in progress tasks" to bypass the deterministic route entirely.
+  if (!/\b(list|show|get|display)\b/i.test(t) && !statusFilter && !isSelfRef && !/[’']s\s+tasks?$/i.test(t)) {
     return null;
   }
 
@@ -88,6 +92,13 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
     /^(.+?)[’']s\s+tasks?$/i,
     /^(?:list|show|get|display)(?:\s+me)?(?:\s+the)?\s+(.+?)\s+tasks?$/i,
     /^(?:(?:list|show|get|display)(?:\s+me)?(?:\s+the)?(?:\s+of)?\s+)?tasks?\s+(?:of|for|assigned\s+to)\s+(.+)$/i,
+    // Bare "<name> tasks" with no possessive, verb prefix, or preposition at
+    // all — e.g. "Ashish tasks" or "Ashish pending tasks" (the status word
+    // is already stripped from taskOwnerText above). Lowest priority: only
+    // reached when none of the more specific shapes above matched. Command
+    // verbs are excluded below so "show tasks" doesn't get "show" read back
+    // as a person's name.
+    /^(.+?)\s+tasks?$/i,
   ];
   for (const pattern of personPatterns) {
     const taskOwnerText = t.replace(/\b(?:completed|complete|done|finished|closed|cancelled|canceled|dropped|abandoned|in[\s_-]*progress|wip|ongoing|underway|started|working\s+on|to[\s_-]*do|todo|pending|open|not\s+started|active)\b(?=\s+tasks?\b)/ig, '').replace(/\s+/g, ' ').trim();
@@ -97,7 +108,7 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
       ?.replace(/^of\s+/i, '')
       .replace(/(?:[’']s)$/i, '')
       .trim();
-    if (name && !/^(?:all|team|everyone|everybody|organisation|organization|company|pending|open|completed|done|finished|the|of|a|an|my|mine)$/i.test(name)) {
+    if (name && !/^(?:all|team|everyone|everybody|organisation|organization|company|pending|open|completed|done|finished|the|of|a|an|my|mine|list|show|get|display|find|give|send|tell|pull|fetch|check)$/i.test(name)) {
       args.assignee_name = name;
       break;
     }

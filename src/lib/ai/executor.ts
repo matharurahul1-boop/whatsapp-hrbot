@@ -58,11 +58,7 @@ function statusLabel(s: string | null): string {
   return map[(s ?? '').toLowerCase()] ?? (s ?? '');
 }
 
-// Normalized edit-distance similarity. Unlike sorted-character overlap, this
-// does not treat unrelated anagrams as the same employee.
-function nameSimilarity(a: string, b: string): number {
-  const al = a.toLocaleLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
-  const bl = b.toLocaleLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+function levenshteinSimilarity(al: string, bl: string): number {
   if (!al || !bl) return 0;
   if (al === bl) return 1;
   if (bl.includes(al) || al.includes(bl)) return 0.92;
@@ -79,6 +75,26 @@ function nameSimilarity(a: string, b: string): number {
     previous.splice(0, previous.length, ...current);
   }
   return 1 - previous[bl.length] / Math.max(al.length, bl.length);
+}
+
+// Collapses consecutive repeated letters ("maheemaa" -> "mahema") — WhatsApp
+// typing commonly doubles vowels/consonants for phonetic emphasis, which
+// inflates raw edit distance against the real spelling ("Mahima") enough to
+// miss the 0.65 threshold despite being an obvious match to a human reader.
+function collapseRepeats(s: string): string {
+  return s.replace(/(.)\1+/g, '$1');
+}
+
+// Normalized edit-distance similarity. Unlike sorted-character overlap, this
+// does not treat unrelated anagrams as the same employee. Takes the better of
+// the raw score and the repeat-collapsed score so phonetic misspellings still
+// resolve without loosening the threshold for genuinely different names.
+function nameSimilarity(a: string, b: string): number {
+  const al = a.toLocaleLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+  const bl = b.toLocaleLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+  const raw       = levenshteinSimilarity(al, bl);
+  const collapsed = levenshteinSimilarity(collapseRepeats(al), collapseRepeats(bl));
+  return Math.max(raw, collapsed);
 }
 
 async function managerTeamIds(orgId: string, managerId: string): Promise<string[]> {
@@ -429,6 +445,11 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const TASK_QUERY_LIMIT = 50;
     query = (query as any).limit(TASK_QUERY_LIMIT);
 
+    // Set once a name is resolved to a real user (exact or fuzzy match) so the
+    // empty-result branch below can report the corrected name instead of
+    // echoing back the raw, possibly-misspelled input.
+    let resolvedAssigneeName: string | null = null;
+
     if (isSelfQuery || (!slots.assignee_name && !wantsAll)) {
       // Generic task lists default to the caller. Named/all requests expand scope.
       query = query.eq('assignee_id', user_id);
@@ -472,6 +493,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
           };
         }
       }
+      resolvedAssigneeName = target!.full_name;
       query = query.eq('assignee_id', target!.id);
     }
     // Explicit all/team requests show all organization tasks for every role.
@@ -480,7 +502,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     if (taskListError) throw taskListError;
 
     if (!tasks?.length) {
-      const noTasksName = slots.assignee_name && !isSelfQuery ? slots.assignee_name : null;
+      const noTasksName = slots.assignee_name && !isSelfQuery ? (resolvedAssigneeName ?? slots.assignee_name) : null;
       if (statusFilter) {
         const label = statusFilter === 'in_progress' ? 'in progress' : statusFilter === 'todo' ? 'to do' : statusFilter;
         return { success: true, reply: noTasksName

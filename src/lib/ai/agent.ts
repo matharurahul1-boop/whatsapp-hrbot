@@ -2146,21 +2146,34 @@ async function runGroqLoop(
   }
 
   // ── 0f. Bare-name follow-up after a task-list-shaped bot reply ───────────────
-  // Covers two situations that both leave Groq to free-generate a reply — and
-  // it has been observed fabricating a task list wholesale (blending in its own
+  // Covers situations that all leave Groq to free-generate a reply — and it
+  // has been observed fabricating a task list wholesale (blending in its own
   // few-shot example content, e.g. "Design mockups"/"Sample Task" for a made-up
-  // person) instead of admitting it has no real tool result:
+  // person, or a made-up surname) instead of admitting it has no real tool
+  // result:
   //   a) bot's last reply was list_tasks's own "No user found matching X.
   //      Available: ..." failure (executor.ts LIST_TASKS)
-  //   b) bot's last reply was ITSELF a real task list (e.g. "Due today: ...")
-  //      and the user follows up with just a bare name — clearly asking to see
-  //      that person's tasks next, not naming a new field value.
+  //   b) bot's last reply was ITSELF a real (or empty) task list (e.g. "Due
+  //      today: ..." or "No pending tasks found for X") and the user follows
+  //      up with just a bare name — clearly asking to see that person's
+  //      tasks next, not naming a new field value.
   // Either way, a bare name here means "show that person's tasks" — resolve it
   // through the real list_tasks tool (fuzzy DB match included) instead of Groq.
+  //
+  // The task-list shape check is intentionally narrow (requires "tasks:"/
+  // "टास्क:" in the bold header, or the "No ... tasks" empty-result phrasing)
+  // so it never matches unrelated "📋 *...*" confirmation headers — e.g.
+  // CREATE_TASK's "📋 *Create this task?*" or TASK_DETAILS' "📋 *Show details
+  // for this task?*" (see slots.ts) — which would otherwise hijack a bare-name
+  // reply meant to correct a pending confirmation's assignee field.
   {
-    const lastBot = lastBotMessage(history);
+    const lastBot = lastBotMessage(history).trim();
     const NO_MATCH_RE = /No user found matching|नाम का कोई user नहीं मिला/;
-    const looksLikeTaskListReply = /^📋 \*[^*]+\*/.test(lastBot.trim()) || /^✅ \*.*completed tasks/.test(lastBot.trim());
+    const looksLikeTaskListReply =
+      /^📋 \*.*(?:tasks?|टास्क):\*/i.test(lastBot)
+      || /^✅ \*.*completed tasks/i.test(lastBot)
+      || /^📋 No .*tasks?/i.test(lastBot)
+      || /^📋 कोई.*टास्क/.test(lastBot);
     const bareNameMatch = message.trim().match(/^(?:no,?\s+)?(?:i\s+mean\s+|actually\s+)?([\p{L}][\p{L} .'-]{1,40})$/iu);
     const looksLikeBareName = !!bareNameMatch
       && !/\b(task|tasks|create|update|delete|leave|check|assign|list|show)\b/i.test(message);

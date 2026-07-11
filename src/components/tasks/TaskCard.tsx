@@ -74,7 +74,7 @@ export default function TaskCard({ task, canEdit, canDelete = false, employees, 
   // Track saved deadline locally so re-opening edit immediately
   // shows the latest saved value without waiting for router.refresh().
   const [savedDeadline,  setSavedDeadline]  = useState<string | null>(task.deadline);
-  const [savedReminders, setSavedReminders] = useState<string[]>(task.reminders?.length ? task.reminders : ['1_hour']);
+  const [savedReminders, setSavedReminders] = useState<string[]>(task.reminders?.length ? task.reminders : ['1_day']);
 
   const [form, setForm] = useState({
     title:       task.title,
@@ -84,7 +84,7 @@ export default function TaskCard({ task, canEdit, canDelete = false, employees, 
     deadline:    task.deadline ? toISTInputValue(task.deadline) : '',
     priority:    task.priority,
     status:      task.status as TaskStatus,
-    reminders:   task.reminders?.length ? task.reminders : ['1_hour'],
+    reminders:   task.reminders?.length ? task.reminders : ['1_day'],
   });
 
   const overdue = savedDeadline && status !== 'done' && deadlineToUTCDate(savedDeadline) < new Date();

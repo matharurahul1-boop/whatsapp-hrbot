@@ -47,7 +47,7 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
     assignee_id: '',
     deadline:    '',   // datetime-local format: YYYY-MM-DDTHH:MM
     priority:    'medium',
-    reminders:   ['1_hour'] as string[],
+    reminders:   ['1_day'] as string[],
   });
 
   function set(field: string, value: string) {
@@ -92,7 +92,7 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
       }
 
       setOpen(false);
-      setForm({ title: '', description: '', assignee_id: '', deadline: '', priority: 'medium', reminders: ['1_hour'] });
+      setForm({ title: '', description: '', assignee_id: '', deadline: '', priority: 'medium', reminders: ['1_day'] });
       setErrors({});
       router.refresh();
     } finally {

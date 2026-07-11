@@ -887,6 +887,19 @@ function buildSystemPrompt(user: AgentUser): string {
   }
   const tmr  = exampleDate(1);  // tomorrow
   const dat2 = exampleDate(2);  // day after tomorrow
+
+  // Pre-computed "next <weekday>" dates — models are unreliable at doing this
+  // day-of-week arithmetic themselves (e.g. once claiming "19 Jul" was a
+  // Friday when it's actually a Sunday), so hand them the answer instead of
+  // asking them to calculate it.
+  const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+  const upcomingWeekdays = WEEKDAY_NAMES.map((name, dow) => {
+    const diff = ((dow - nowIST.getDay()) + 7) % 7 || 7; // next occurrence, never today
+    const d = new Date(nowIST);
+    d.setDate(d.getDate() + diff);
+    return `${name}: ${exampleDate(diff).iso}`;
+  }).join(', ');
   const role        = user.role;
   const isEmployee  = role === 'employee';
   const isManager   = role === 'manager';
@@ -929,6 +942,7 @@ function buildSystemPrompt(user: AgentUser): string {
 - Role: ${role}
 - Department: ${user.department ?? 'Not specified'}
 - Today: ${today}, ${time} IST
+- Next occurrence of each weekday (use these exact dates — do NOT calculate weekdays yourself, you will get them wrong): ${upcomingWeekdays}
 
 ${permissionsBlock}
 

@@ -100,6 +100,12 @@ function matchesDeadlinePreset(task: Task, preset: string, now: Date): boolean {
     const weekFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
     return d >= now && d <= weekFromNow;
   }
+  if (preset.startsWith('custom:')) {
+    const [y, m, dd] = preset.slice(7).split('-').map(Number);
+    const startOfDay = new Date(y, m - 1, dd);
+    const endOfDay    = new Date(y, m - 1, dd, 23, 59, 59, 999);
+    return d >= startOfDay && d <= endOfDay;
+  }
   return true;
 }
 
@@ -110,13 +116,14 @@ function matchesDeadlinePreset(task: Task, preset: string, now: Date): boolean {
 const POPOVER_HEIGHT_BUDGET = 240;
 
 function MultiSelectDropdown({
-  label, options, selected, onChange, align = 'left',
+  label, options, selected, onChange, align = 'left', footer,
 }: {
   label:    string;
   options:  { value: string; label: string }[];
   selected: string[];
   onChange: (v: string[]) => void;
   align?:   'left' | 'right';
+  footer?:  React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   // Rendered via a portal (see below) so the popover can never be clipped by
@@ -278,6 +285,7 @@ function MultiSelectDropdown({
               );
             })}
           </div>
+          {footer}
         </div>,
         document.body
       )}
@@ -316,27 +324,36 @@ function ListRow({
 
   return (
     <div className={cn(
-      'group flex items-center gap-3 px-4 py-3 border-b border-surface-200/60 last:border-0',
+      // gap-2 (not -3) — must match the header row's own gap exactly, or
+      // every column after the first drifts a little further right of its
+      // header on each successive gap. The per-column pl-2.5 below only
+      // compensates for the header buttons' own internal padding; it can't
+      // fix a gap mismatch between the two rows.
+      'group flex items-center gap-2 px-4 py-3 border-b border-surface-200/60 last:border-0',
       'hover:bg-surface-200/40 transition-colors',
       'border-l-2',
       pri.border,
     )}>
-      {/* Check toggle */}
-      <button
-        onClick={quickToggle}
-        disabled={updating || !canEdit}
-        className={cn(
-          'shrink-0 transition-colors disabled:opacity-30',
-          status === 'done' ? 'text-success hover:text-surface-500' : 'text-surface-400 hover:text-success'
-        )}
-      >
-        {updating
-          ? <Loader2      className="h-4 w-4 animate-spin text-brand-400" />
-          : status === 'done'
-            ? <CheckCircle2 className="h-4 w-4" />
-            : <Circle       className="h-4 w-4" />
-        }
-      </button>
+      {/* Check toggle — wrapped in the same w-5 box as the header's checkbox
+          spacer so this column starts at the exact same width, instead of
+          the button's own (browser-default) size deciding it. */}
+      <div className="w-5 shrink-0 flex items-center">
+        <button
+          onClick={quickToggle}
+          disabled={updating || !canEdit}
+          className={cn(
+            'transition-colors disabled:opacity-30',
+            status === 'done' ? 'text-success hover:text-surface-500' : 'text-surface-400 hover:text-success'
+          )}
+        >
+          {updating
+            ? <Loader2      className="h-4 w-4 animate-spin text-brand-400" />
+            : status === 'done'
+              ? <CheckCircle2 className="h-4 w-4" />
+              : <Circle       className="h-4 w-4" />
+          }
+        </button>
+      </div>
 
       {/* Title + description */}
       <div className="flex-1 min-w-0">
@@ -427,8 +444,18 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
   const [creatorFilter,  setCreatorFilter]  = useState<string[]>([]);
   const [statusFilter,   setStatusFilter]   = useState<string[]>([]);
   const [deadlineFilter, setDeadlineFilter] = useState<string[]>([]);
+  const [customDeadlineDate, setCustomDeadlineDate] = useState('');
   const [view,           setView]           = useState<ViewMode>('list');
   const [localTasks,     setLocalTasks]     = useState(tasks);
+
+  // Append the picked custom date as a selectable option, labelled with its
+  // actual date, so it shows up in the dropdown list/chip like any preset.
+  const deadlineOptions = useMemo(() => {
+    if (!customDeadlineDate) return DEADLINE_OPTIONS;
+    const [y, m, d] = customDeadlineDate.split('-').map(Number);
+    const label = new Date(y, m - 1, d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    return [...DEADLINE_OPTIONS, { value: `custom:${customDeadlineDate}`, label }];
+  }, [customDeadlineDate]);
 
   // Sync when server re-fetches new task data
   useEffect(() => { setLocalTasks(tasks); }, [tasks]);
@@ -681,10 +708,30 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
             <div className="w-32 shrink-0">
               <MultiSelectDropdown
                 label="Deadline"
-                options={DEADLINE_OPTIONS}
+                options={deadlineOptions}
                 selected={deadlineFilter}
                 onChange={setDeadlineFilter}
                 align="right"
+                footer={
+                  <div className="border-t border-surface-300/40 p-2">
+                    <label className="block px-1 pb-1 text-2xs font-semibold uppercase tracking-wider text-surface-500">
+                      Custom date
+                    </label>
+                    <input
+                      type="date"
+                      value={customDeadlineDate}
+                      onChange={e => {
+                        const v = e.target.value;
+                        setCustomDeadlineDate(v);
+                        setDeadlineFilter(prev => {
+                          const withoutCustom = prev.filter(x => !x.startsWith('custom:'));
+                          return v ? [...withoutCustom, `custom:${v}`] : withoutCustom;
+                        });
+                      }}
+                      className="w-full rounded-md border border-surface-300/40 bg-surface-200/60 px-2 py-1.5 text-xs normal-case text-surface-900 focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                    />
+                  </div>
+                }
               />
             </div>
             <div className="w-8 shrink-0" />

@@ -12,12 +12,11 @@ import { cn } from '@/lib/utils/cn';
 import { normalizeWaNumber } from '@/lib/utils/phone';
 import { useToast } from '@/components/ui/Toast';
 
-// Hard-disabled 2026-07-10 at the org's request — only paid Claude should
-// power the bot now. Flip back to true to re-enable the free Groq toggle;
-// keep in sync with the matching flag in src/lib/ai/agent.ts, which is what
+// Re-enabled 2026-07-11 at the org's request (was hard-disabled 2026-07-10).
+// Keep in sync with the matching flag in src/lib/ai/agent.ts, which is what
 // actually enforces this on the backend (this flag only locks the UI so it
 // can't show a selection that wouldn't take effect).
-const GROQ_BACKEND_ENABLED = false;
+const GROQ_BACKEND_ENABLED = true;
 
 // ── tiny helpers ─────────────────────────────────────────────────────────────
 function Section({ title, description, icon, children }: {

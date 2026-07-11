@@ -20,12 +20,10 @@ import { normalizeCommandText, quickTaskListArgs, resolveTaskListPronoun, looksL
 // re-fetched on the next request after expiry.
 const _backendCache = new Map<string, { v: 'groq' | 'claude'; t: number }>();
 
-// Hard-disabled 2026-07-10 at the org's request — only paid Claude should
-// run the conversational backend now. Flip back to true to re-enable the
-// free Groq option; nothing else in this file needs to change to do so.
+// Re-enabled 2026-07-11 at the org's request (was hard-disabled 2026-07-10).
 // Keep in sync with the matching flag in
 // src/app/(dashboard)/settings/page.tsx, which locks the UI toggle to match.
-const GROQ_BACKEND_ENABLED = false;
+const GROQ_BACKEND_ENABLED = true;
 
 async function resolveBackend(orgId: string): Promise<'groq' | 'claude'> {
   if (!GROQ_BACKEND_ENABLED) return 'claude';

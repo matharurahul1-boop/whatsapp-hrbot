@@ -5,6 +5,7 @@ import LeaveBalanceCards from '@/components/leave/LeaveBalanceCards';
 import LeaveRequestsTable from '@/components/leave/LeaveRequestsTable';
 import ApplyLeaveModal from '@/components/leave/ApplyLeaveModal';
 import RefreshButton from '@/components/ui/RefreshButton';
+import { canApplyForLeave, canApproveLeaveFor } from '@/lib/rbac';
 
 export const metadata = { title: 'Leave — HRBot' };
 export const revalidate = 0;
@@ -25,18 +26,20 @@ export default async function LeavePage() {
 
   const { organization_id: orgId, role } = profile;
   const year        = new Date().getFullYear();
-  // Viewing everyone's requests stays a manager+ privilege; approving is now
-  // narrower (HR/admin only — managers can see the queue but not act on it).
-  const canViewAll  = ['super_admin', 'admin', 'hr', 'manager'].includes(role);
-  const canApprove  = ['super_admin', 'admin', 'hr'].includes(role);
-  const canApply    = role === 'employee';
+  // Viewing everyone's requests is a manager+ privilege (hr_assistant included,
+  // since it sits above manager in rank). Approving is per-row, hierarchy-based
+  // (see canApproveLeaveFor) — canApprove here just decides whether to show the
+  // action column / pending-count subtitle at all.
+  const canViewAll  = ['super_admin', 'admin', 'hr', 'hr_assistant', 'manager'].includes(role);
+  const canApprove  = ['super_admin', 'admin', 'hr', 'hr_assistant'].includes(role);
+  const canApply    = canApplyForLeave(role);
 
   // Parallel fetches
   let requestQuery = db
     .from('leave_requests')
     .select(`
       id, start_date, end_date, duration_days, status, reason, created_at,
-      employee:users!leave_requests_employee_id_fkey(id, full_name, avatar_url, department),
+      employee:users!leave_requests_employee_id_fkey(id, full_name, avatar_url, department, role),
       leave_type:leave_types(name, color)
     `)
     .eq('organization_id', orgId)
@@ -97,7 +100,7 @@ export default async function LeavePage() {
         <p className="section-title">
           {canViewAll ? 'All Requests' : 'My Requests'}
         </p>
-        <LeaveRequestsTable requests={requests} canApprove={canApprove} />
+        <LeaveRequestsTable requests={requests} canApprove={canApprove} viewerRole={role} />
       </section>
     </div>
   );

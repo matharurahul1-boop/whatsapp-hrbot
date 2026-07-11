@@ -7,6 +7,7 @@ import { StatusBadge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/Modal';
 import { formatDate } from '@/lib/utils/date';
+import { canApproveLeaveFor } from '@/lib/rbac';
 import { CheckCircle2, XCircle, Clock } from 'lucide-react';
 
 interface LeaveRequest {
@@ -22,6 +23,7 @@ interface LeaveRequest {
     full_name:  string;
     avatar_url: string | null;
     department: string | null;
+    role:       string;
   } | null;
   leave_type: {
     name:  string;
@@ -30,11 +32,12 @@ interface LeaveRequest {
 }
 
 interface LeaveRequestsTableProps {
-  requests:  LeaveRequest[];
+  requests:   LeaveRequest[];
   canApprove: boolean;
+  viewerRole: string;
 }
 
-export default function LeaveRequestsTable({ requests, canApprove }: LeaveRequestsTableProps) {
+export default function LeaveRequestsTable({ requests, canApprove, viewerRole }: LeaveRequestsTableProps) {
   const router = useRouter();
   const [confirm, setConfirm]   = useState<{ id: string; action: 'approved' | 'rejected' } | null>(null);
   const [loading, setLoading]   = useState(false);
@@ -117,7 +120,11 @@ export default function LeaveRequestsTable({ requests, canApprove }: LeaveReques
                   <td className="text-xs text-surface-600">{formatDate(r.created_at)}</td>
                   {canApprove && (
                     <td>
-                      {r.status === 'pending' && (
+                      {/* Approval is per-row hierarchy-based, not a flat
+                          role gate — an hr_assistant sees the column but
+                          only gets buttons on employee/manager rows, not on
+                          an hr peer's request. */}
+                      {r.status === 'pending' && emp && canApproveLeaveFor(viewerRole, emp.role) && (
                         <div className="flex items-center gap-1.5">
                           <button
                             onClick={() => setConfirm({ id: r.id, action: 'approved' })}

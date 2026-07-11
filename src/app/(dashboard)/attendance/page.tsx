@@ -25,7 +25,7 @@ export default async function AttendancePage() {
   if (!profile) redirect('/login');
 
   const { organization_id: orgId, role } = profile;
-  const isManager  = ['super_admin', 'admin', 'hr', 'manager'].includes(role);
+  const isManager  = ['super_admin', 'admin', 'hr', 'hr_assistant', 'manager'].includes(role);
   const today      = todayISO();
   const since      = new Date(Date.now() - 30 * 86400000).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   const firstName  = profile.full_name?.split(' ')[0] ?? 'there';

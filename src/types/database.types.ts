@@ -1,5 +1,5 @@
 export type OrgPlan = 'free' | 'pro' | 'enterprise';
-export type UserRole = 'super_admin' | 'admin' | 'hr' | 'manager' | 'employee';
+export type UserRole = 'super_admin' | 'admin' | 'hr' | 'hr_assistant' | 'manager' | 'employee';
 export type OnboardingStatus = 'pending' | 'in_progress' | 'completed';
 export type MessageDirection = 'inbound' | 'outbound';
 export type MessageRole = 'user' | 'assistant' | 'system';

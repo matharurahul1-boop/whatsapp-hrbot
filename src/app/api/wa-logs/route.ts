@@ -19,7 +19,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient }              from '@/lib/supabase/server';
 import { createAdminClient }         from '@/lib/supabase/admin';
 
-const ALLOWED_ROLES = ['super_admin', 'admin', 'hr', 'manager', 'employee'];
+const ALLOWED_ROLES = ['super_admin', 'admin', 'hr', 'hr_assistant', 'manager', 'employee'];
 
 export async function GET(req: NextRequest) {
   try {

@@ -11,8 +11,8 @@ import {
 import { cn } from '@/lib/utils/cn';
 import type { UserRole } from '@/types/database.types';
 
-const ALL: UserRole[] = ['super_admin', 'admin', 'hr', 'manager', 'employee'];
-const MGR: UserRole[] = ['super_admin', 'admin', 'hr', 'manager'];
+const ALL: UserRole[] = ['super_admin', 'admin', 'hr', 'hr_assistant', 'manager', 'employee'];
+const MGR: UserRole[] = ['super_admin', 'admin', 'hr', 'hr_assistant', 'manager'];
 const HR:  UserRole[] = ['super_admin', 'admin', 'hr'];
 
 const PRIMARY = [

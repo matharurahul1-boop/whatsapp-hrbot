@@ -6,7 +6,7 @@ import { signInvite, type InviteRole } from '@/lib/utils/invite-token';
 import { z } from 'zod';
 
 const InviteSchema = z.object({
-  role: z.enum(['employee', 'manager', 'hr']),
+  role: z.enum(['employee', 'manager', 'hr_assistant', 'hr']),
 });
 
 // POST /api/organizations/invite — mint a signed invite link for the

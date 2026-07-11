@@ -8,6 +8,7 @@ import { parseDeadlineString, formatDateTime } from '@/lib/utils/date';
 import { EMPTY_CONTEXT }       from './types';
 import type { AgentTurn, AgentUser, ConversationContext, SupportedLanguage, ToolResult } from './types';
 import { normalizeCommandText, quickTaskListArgs, resolveTaskListPronoun, looksLikeRealPersonName } from './routing';
+import { canApplyForLeave, canApproveLeaveFor } from '@/lib/rbac';
 
 // ── AI backend ────────────────────────────────────────────────────────────────
 // Controlled at runtime via organizations.settings.ai_backend (set from /settings page).
@@ -915,28 +916,42 @@ function buildSystemPrompt(user: AgentUser): string {
     d.setDate(d.getDate() + diff);
     return `${name}: ${exampleDate(diff).iso}`;
   }).join(', ');
-  const role        = user.role;
-  const isEmployee  = role === 'employee';
-  const isManager   = role === 'manager';
+  const role         = user.role;
+  const isEmployee   = role === 'employee';
+  const isManager    = role === 'manager';
   const isPrivileged = !isEmployee;
+  // Leave is a hierarchy, not a flat "privileged vs not" split: who applies
+  // and who approves both depend on the caller's exact role (see rbac.ts).
+  const userCanApplyForLeave = canApplyForLeave(role);
+  const rolesThatApprove = (['employee','manager','hr_assistant','hr','admin','super_admin'] as const)
+    .filter(r => canApproveLeaveFor(role, r));
+  const leaveApprovalScope = rolesThatApprove.length
+    ? `approve / reject leave for: ${rolesThatApprove.join(', ')}`
+    : 'cannot approve/reject leave';
 
   let permissionsBlock: string;
   if (['admin', 'super_admin'].includes(role)) {
     permissionsBlock = `## Your permissions (${role})
 - Tasks: create for anyone, update any field, delete any task, assign to anyone, view all org tasks
-- Leave: approve / reject leave for any employee in the org — but you CANNOT apply for leave yourself; only employees apply for leave
+- Leave: ${leaveApprovalScope} — but you CANNOT apply for leave yourself (admin/super_admin never apply)
 - Attendance: view full org attendance and team reports
 - Users: list all org members`;
   } else if (role === 'hr') {
     permissionsBlock = `## Your permissions (hr)
 - Tasks: create for anyone, update any field, delete any task, assign to anyone, view all org tasks
-- Leave: approve / reject leave for any employee in the org — but you CANNOT apply for leave yourself; only employees apply for leave
+- Leave: apply for your own leave (only admin/super_admin can approve it); ${leaveApprovalScope}
 - Attendance: view full org attendance and team reports
+- Users: list all org members`;
+  } else if (role === 'hr_assistant') {
+    permissionsBlock = `## Your permissions (hr_assistant)
+- Tasks: create for anyone, update any field, delete any task, assign to anyone, view all org tasks
+- Leave: apply for your own leave (only hr/admin/super_admin can approve it); ${leaveApprovalScope}
+- Attendance: view your team's attendance
 - Users: list all org members`;
   } else if (isManager) {
     permissionsBlock = `## Your permissions (manager)
 - Tasks: create for anyone, update any field, delete any task, assign to anyone, view all org tasks
-- Leave: you CANNOT apply for leave, and CANNOT approve/reject leave either — only HR/admin approve, and only employees apply
+- Leave: apply for your own leave (only hr_assistant/hr/admin/super_admin can approve it) — you CANNOT approve/reject anyone else's leave
 - Attendance: view your team's attendance
 - Users: list all org members`;
   } else {
@@ -1105,7 +1120,7 @@ Read-only (call IMMEDIATELY, no confirmation):
 - "leave balance" / "my leave balance" / "leaves left" / "how many leaves" / "kitni leave bachi" / "remaining leaves" → check_leave_balance()
 - "my leaves" / "list my leaves" / "leave history" / "leave requests" / "show my leave" / "meri leaves" → list_leaves()
 
-${isEmployee ? `Action — apply leave (collect missing details, one at a time, THEN call apply_leave() directly — see Confirmation rule above, do not write your own "Go ahead?" text):
+${userCanApplyForLeave ? `Action — apply leave (collect missing details, one at a time, THEN call apply_leave() directly — see Confirmation rule above, do not write your own "Go ahead?" text):
 - "apply leave" / "take leave" / "I want a day off" / "I'm sick tomorrow" / "sick leave" / "I'll be absent" / "leave lena hai" / "leave chahiye"
 - Required: leave_type (casual/sick/annual), start_date, and end_date or duration. Ask one at a time if missing.
 - Half day: "half day" / "1st half" / "first half" / "2nd half" / "second half" / "morning off" / "afternoon off" → pass half_day="first" (9:00 AM–1:00 PM) or half_day="second" (2:00 PM–6:00 PM) instead of end_date/duration_days. A half day is always exactly one day — never combine half_day with an end_date or a multi-day duration.
@@ -1113,9 +1128,9 @@ ${isEmployee ? `Action — apply leave (collect missing details, one at a time, 
 
 Action — cancel leave (confirm first):
 - "cancel my leave" / "I don't want leave" / "leave cancel karo"
-→ ask which date if unclear, confirm: "Cancel your leave on *[date]*? (Yes / No)" → cancel_leave()` : `Leave applications are employee-only — if ${user.first_name} asks to apply for leave, tell them only employees can apply for leave through this bot; approvals are handled by HR/admin.`}
-${['hr', 'admin', 'super_admin'].includes(role) ? `
-Action — approve/reject leave (HR/admin only, confirm first):
+→ ask which date if unclear, confirm: "Cancel your leave on *[date]*? (Yes / No)" → cancel_leave()` : `Leave applications are not available to your role (admin/super_admin never apply for leave) — if ${user.first_name} asks to apply for leave, tell them plainly that admins/super admins don't apply for leave through this bot.`}
+${rolesThatApprove.length > 0 ? `
+Action — approve/reject leave (confirm first — you may only act on requests from: ${rolesThatApprove.join(', ')}; if the named person's role isn't in that list, the tool will refuse):
 - "approve [Name]'s leave" / "[Name] ki leave approve karo" / "approve leave for [Name]"
 → confirm: "Approve leave for *[Name]*? (Yes / No)" → approve_leave(employee_name="[Name]")
 - "reject [Name]'s leave" / "don't approve [Name]'s leave"

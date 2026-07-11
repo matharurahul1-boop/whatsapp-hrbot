@@ -163,7 +163,7 @@ export const REPLIES = {
       : `Hey *${firstName}*! 👋 I'm your AI HR assistant.\n\nI can help with:\n📋 Tasks — create, assign, track\n📅 Leave — apply, balance, approvals\n⏰ Attendance — check-in/out, reports\n👤 Onboarding — add new employees\n\nJust tell me what you need!`,
 
   help: (role: string, lang: SupportedLanguage) => {
-    const isManager = ['manager', 'hr', 'admin', 'super_admin'].includes(role);
+    const isManager = ['manager', 'hr_assistant', 'hr', 'admin', 'super_admin'].includes(role);
     if (lang === 'hi') {
       return `📖 *मैं क्या कर सकता हूं:*\n\n` +
         `*टास्क:*\n"call client का टास्क बनाओ"\n"Rahul को website टास्क दो"\n"मेरे पेंडिंग टास्क दिखाओ"\n"टास्क पूरा हो गया"\n\n` +

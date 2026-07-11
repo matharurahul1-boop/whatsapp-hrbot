@@ -19,7 +19,7 @@ const UpdateProfileSchema = z.object({
   manager_id:  z.string().uuid().nullable().optional(),
   joined_at:   z.string().datetime().optional(),
   is_active:   z.boolean().optional(),
-  role:        z.enum(['super_admin','admin','hr','manager','employee']).optional(),
+  role:        z.enum(['super_admin','admin','hr','hr_assistant','manager','employee']).optional(),
   onboarding_status: z.enum(['pending', 'in_progress', 'completed']).optional(),
 });
 
@@ -28,7 +28,7 @@ const CreateAccountSchema = z.object({
   email:       z.string().email(),
   wa_number:   z.string().min(6).max(20),
   password:    z.string().min(6).max(72),
-  role:        z.enum(['super_admin','admin','hr','manager','employee']).default('employee'),
+  role:        z.enum(['super_admin','admin','hr','hr_assistant','manager','employee']).default('employee'),
   department:  z.string().min(1).max(100),
   designation: z.string().min(1).max(100),
 });

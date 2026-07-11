@@ -19,11 +19,12 @@ interface Employee {
 }
 
 const roleColors: Record<UserRole, string> = {
-  super_admin: 'badge-red',
-  admin:       'badge-red',
-  hr:          'badge-blue',
-  manager:     'badge-yellow',
-  employee:    'badge-slate',
+  super_admin:  'badge-red',
+  admin:        'badge-red',
+  hr:           'badge-blue',
+  hr_assistant: 'badge-blue',
+  manager:      'badge-yellow',
+  employee:     'badge-slate',
 };
 
 const onboardColors: Record<OnboardingStatus, string> = {

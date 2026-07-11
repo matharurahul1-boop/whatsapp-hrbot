@@ -10,7 +10,7 @@ import { ROLE_LABEL, isAdminOrAbove, isSuperAdmin, type UserRole } from '@/lib/r
 import { DEPARTMENT_OPTIONS, JOB_TITLE_OPTIONS } from '@/lib/constants/org-fields';
 import { useToast } from '@/components/ui/Toast';
 
-const ALL_ROLES: UserRole[] = ['employee', 'manager', 'hr', 'admin', 'super_admin'];
+const ALL_ROLES: UserRole[] = ['employee', 'manager', 'hr_assistant', 'hr', 'admin', 'super_admin'];
 
 interface FormState {
   full_name: string;

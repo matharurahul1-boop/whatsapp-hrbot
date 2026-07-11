@@ -4,12 +4,13 @@ import { useState, useEffect } from 'react';
 import { UserPlus, Copy, Check, X, Link2, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 
-type InviteRole = 'employee' | 'manager' | 'hr';
+type InviteRole = 'employee' | 'manager' | 'hr_assistant' | 'hr';
 
 const ROLE_OPTIONS: { value: InviteRole; label: string; desc: string; color: string }[] = [
-  { value: 'employee', label: 'Team Member', desc: 'Tasks, leave, attendance',      color: 'text-cyan-400   border-cyan-500/30   bg-cyan-500/[0.06]'   },
-  { value: 'manager',  label: 'Manager',     desc: 'Approve leaves, manage tasks',  color: 'text-amber-400  border-amber-500/30  bg-amber-500/[0.06]'  },
-  { value: 'hr',       label: 'HR Staff',    desc: 'Full HR + onboarding access',   color: 'text-violet-400 border-violet-500/30 bg-violet-500/[0.06]' },
+  { value: 'employee',     label: 'Team Member',  desc: 'Tasks, leave, attendance',           color: 'text-cyan-400   border-cyan-500/30   bg-cyan-500/[0.06]'   },
+  { value: 'manager',      label: 'Manager',      desc: 'Manage tasks, view team attendance',  color: 'text-amber-400  border-amber-500/30  bg-amber-500/[0.06]'  },
+  { value: 'hr_assistant', label: 'HR Assistant', desc: 'Approve leave for employees/managers', color: 'text-teal-400   border-teal-500/30   bg-teal-500/[0.06]'   },
+  { value: 'hr',           label: 'HR Staff',     desc: 'Full HR + onboarding access',          color: 'text-violet-400 border-violet-500/30 bg-violet-500/[0.06]' },
 ];
 
 export default function InvitePanel() {

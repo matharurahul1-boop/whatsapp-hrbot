@@ -3,6 +3,7 @@ import { createClient }        from '@/lib/supabase/server';
 import { createAdminClient }   from '@/lib/supabase/admin';
 import { writeAuditLog }       from '@/lib/utils/audit';
 import { notifyLeaveDecision } from '@/lib/whatsapp/notify';
+import { canApproveLeaveFor }  from '@/lib/rbac';
 import { z } from 'zod';
 
 const ActionSchema = z.object({
@@ -26,15 +27,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { data: profile } = await db.from('users').select('organization_id, role').eq('id', user.id).single();
   if (!profile) return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
 
-  // Leave approval is HR/admin only — managers can view the request queue
-  // but no longer act on it.
-  if (!['super_admin','admin','hr'].includes(profile.role)) {
+  // Broad early gate — managers can view the request queue but never act on
+  // it. The precise "can THIS approver act on THIS applicant's tier" check
+  // happens below once the applicant's role is known.
+  if (!['super_admin','admin','hr','hr_assistant'].includes(profile.role)) {
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
   }
 
   const { data: request, error: fetchErr } = await db
     .from('leave_requests')
-    .select('*, leave_type:leave_types(name), employee:users!leave_requests_employee_id_fkey(id,full_name,manager_id)')
+    .select('*, leave_type:leave_types(name), employee:users!leave_requests_employee_id_fkey(id,full_name,manager_id,role)')
     .eq('id', id)
     .eq('organization_id', profile.organization_id)
     .single();
@@ -42,7 +44,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (fetchErr || !request) return NextResponse.json({ error: 'Leave request not found' }, { status: 404 });
   if (request.status !== 'pending') return NextResponse.json({ error: `Request is already ${request.status}` }, { status: 409 });
 
-  const employee = request.employee as { id: string; full_name: string; manager_id: string | null } | null;
+  const employee = request.employee as { id: string; full_name: string; manager_id: string | null; role: string } | null;
+
+  if (!employee || !canApproveLeaveFor(profile.role, employee.role)) {
+    return NextResponse.json({ error: 'You cannot approve leave for this role' }, { status: 403 });
+  }
 
   if (parsed.data.action === 'approved') {
     const leaveYear = new Date(request.start_date).getFullYear();

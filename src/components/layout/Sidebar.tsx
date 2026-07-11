@@ -22,13 +22,13 @@ interface NavItem {
 }
 
 const NAV: NavItem[] = [
-  { href: '/dashboard',  label: 'Dashboard',  icon: <LayoutDashboard className="h-[18px] w-[18px]" />, roles: ['super_admin','admin','hr','manager','employee'], color: 'text-brand-400'  },
-  { href: '/tasks',      label: 'Tasks',       icon: <CheckSquare     className="h-[18px] w-[18px]" />, roles: ['super_admin','admin','hr','manager','employee'], color: 'text-violet-400' },
-  { href: '/leave',      label: 'Leave',       icon: <Calendar        className="h-[18px] w-[18px]" />, roles: ['super_admin','admin','hr','manager','employee'], color: 'text-amber-400'  },
-  { href: '/attendance', label: 'Attendance',  icon: <Clock           className="h-[18px] w-[18px]" />, roles: ['super_admin','admin','hr','manager','employee'], color: 'text-cyan-400'   },
-  { href: '/employees',  label: 'Team',        icon: <Users           className="h-[18px] w-[18px]" />, roles: ['super_admin','admin','hr','manager'],           color: 'text-pink-400'   },
-  { href: '/whatsapp',   label: 'WA Logs',     icon: <MessageSquare   className="h-[18px] w-[18px]" />, roles: ['super_admin','admin','hr','manager','employee'], color: 'text-green-400'  },
-  { href: '/policy',     label: 'Policy Bot',  icon: <FileText        className="h-[18px] w-[18px]" />, roles: ['super_admin','admin','hr'],                     color: 'text-blue-400'   },
+  { href: '/dashboard',  label: 'Dashboard',  icon: <LayoutDashboard className="h-[18px] w-[18px]" />, roles: ['super_admin','admin','hr','hr_assistant','manager','employee'], color: 'text-brand-400'  },
+  { href: '/tasks',      label: 'Tasks',       icon: <CheckSquare     className="h-[18px] w-[18px]" />, roles: ['super_admin','admin','hr','hr_assistant','manager','employee'], color: 'text-violet-400' },
+  { href: '/leave',      label: 'Leave',       icon: <Calendar        className="h-[18px] w-[18px]" />, roles: ['super_admin','admin','hr','hr_assistant','manager','employee'], color: 'text-amber-400'  },
+  { href: '/attendance', label: 'Attendance',  icon: <Clock           className="h-[18px] w-[18px]" />, roles: ['super_admin','admin','hr','hr_assistant','manager','employee'], color: 'text-cyan-400'   },
+  { href: '/employees',  label: 'Team',        icon: <Users           className="h-[18px] w-[18px]" />, roles: ['super_admin','admin','hr','hr_assistant','manager'],           color: 'text-pink-400'   },
+  { href: '/whatsapp',   label: 'WA Logs',     icon: <MessageSquare   className="h-[18px] w-[18px]" />, roles: ['super_admin','admin','hr','hr_assistant','manager','employee'], color: 'text-green-400'  },
+  { href: '/policy',     label: 'Policy Bot',  icon: <FileText        className="h-[18px] w-[18px]" />, roles: ['super_admin','admin','hr'],                                     color: 'text-blue-400'   },
 ];
 
 const MODE_OPTIONS: { key: SidebarMode; label: string }[] = [

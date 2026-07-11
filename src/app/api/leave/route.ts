@@ -3,7 +3,7 @@ import { createClient }         from '@/lib/supabase/server';
 import { createAdminClient }    from '@/lib/supabase/admin';
 import { writeAuditLog }        from '@/lib/utils/audit';
 import { notifyLeaveSubmitted, notifyLeaveCancelled } from '@/lib/whatsapp/notify';
-import { isHrOrAbove, isEmployee } from '@/lib/rbac';
+import { isHrOrAbove, isEmployee, canApplyForLeave } from '@/lib/rbac';
 import { z } from 'zod';
 
 const ApplyLeaveSchema = z.object({
@@ -76,9 +76,8 @@ export async function POST(req: NextRequest) {
   const { data: profile } = await db.from('users').select('organization_id, role, manager_id, full_name').eq('id', user.id).single();
   if (!profile) return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
 
-  // ── RBAC: only employees have leave applied for them — either by
-  // themselves, or by HR+ filing on their behalf. Managers/HR/admins no
-  // longer apply for their own leave through this route. ───────────────────
+  // ── RBAC: everyone except admin/super_admin can have leave applied for
+  // them — either by themselves, or by HR+ filing on their behalf. ─────────
   let targetEmployeeId = user.id;
   let targetProfile: typeof profile = profile;
 
@@ -95,12 +94,12 @@ export async function POST(req: NextRequest) {
     if (!emp) return NextResponse.json({ error: 'Employee not found' }, { status: 404 });
     targetEmployeeId = emp.id;
     targetProfile    = emp as typeof profile;
-  } else if (!isEmployee(profile.role)) {
-    return NextResponse.json({ error: 'Only employees can apply for their own leave.' }, { status: 403 });
+  } else if (!canApplyForLeave(profile.role)) {
+    return NextResponse.json({ error: 'Admins and super admins cannot apply for their own leave.' }, { status: 403 });
   }
 
-  if (!isEmployee(targetProfile.role)) {
-    return NextResponse.json({ error: 'Leave can only be applied for employees.' }, { status: 422 });
+  if (!canApplyForLeave(targetProfile.role)) {
+    return NextResponse.json({ error: 'Leave cannot be applied for admins or super admins.' }, { status: 422 });
   }
 
   // Calculate duration

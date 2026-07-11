@@ -3,7 +3,7 @@ import { writeAuditLog }       from '@/lib/utils/audit';
 import { formatDate, formatDateTime, calcBusinessDays, todayISO, parseDeadlineToUTC, parseDeadlineString } from '@/lib/utils/date';
 import { generateEmployeeId }  from '@/lib/utils/employee-id';
 import { n8n }                 from '@/lib/n8n/trigger';
-import { isManagerOrAbove }    from '@/lib/rbac';
+import { isManagerOrAbove, canApplyForLeave, canApproveLeaveFor } from '@/lib/rbac';
 import { REPLIES, NOTIFICATIONS } from './prompts/responses';
 import {
   notifyTaskAssigned,
@@ -1363,7 +1363,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
   async APPLY_LEAVE({ slots, org_id, user_id, user_role }): Promise<ToolResult> {
     const db   = createAdminClient();
     const lang = (slots._lang as 'en' | 'hi') ?? 'en';
-    if (user_role !== 'employee') {
+    if (!canApplyForLeave(user_role)) {
       return { success: false, reply: REPLIES.permissionDenied('apply for leave', lang) };
     }
     if (!slots.leave_type?.trim() || !slots.start_date?.trim()) {
@@ -1632,7 +1632,9 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const db   = createAdminClient();
     const lang = (slots._lang as 'en' | 'hi') ?? 'en';
 
-    if (!['hr', 'admin', 'super_admin'].includes(user_role)) {
+    // Broad early gate — the precise "can THIS approver approve THIS
+    // applicant's tier" check happens below once the employee is resolved.
+    if (!['hr_assistant', 'hr', 'admin', 'super_admin'].includes(user_role)) {
       return { success: false, reply: REPLIES.permissionDenied('approve leave', lang) };
     }
 
@@ -1642,7 +1644,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
         : '❌ Which employee\'s leave would you like to approve? Please provide their name.' };
     }
 
-    const { data: empRows } = await db.from('users').select('id, full_name, manager_id')
+    const { data: empRows } = await db.from('users').select('id, full_name, manager_id, role')
       .eq('organization_id', org_id)
       .ilike('full_name', `%${slots.employee_name}%`)
       .limit(5);
@@ -1652,10 +1654,10 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     }
 
     // Fuzzy fallback when ilike finds nothing
-    type EmpRecord = { id: string; full_name: string; manager_id: string | null };
+    type EmpRecord = { id: string; full_name: string; manager_id: string | null; role: string };
     let employee: EmpRecord | null = (empRows?.[0] as EmpRecord) ?? null;
     if (!employee) {
-      const { data: allUsers } = await db.from('users').select('id, full_name, manager_id')
+      const { data: allUsers } = await db.from('users').select('id, full_name, manager_id, role')
         .eq('organization_id', org_id).eq('is_active', true).limit(50);
       let best: EmpRecord | null = null, bestScore = 0;
       for (const u of (allUsers ?? []) as EmpRecord[]) {
@@ -1666,6 +1668,10 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     }
 
     if (!employee) return { success: false, reply: REPLIES.notFound(slots.employee_name!, lang) };
+
+    if (!canApproveLeaveFor(user_role, employee.role)) {
+      return { success: false, reply: REPLIES.permissionDenied('approve leave', lang) };
+    }
 
     const { data: pendingLeaves } = await db
       .from('leave_requests')
@@ -1732,7 +1738,9 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const db   = createAdminClient();
     const lang = (slots._lang as 'en' | 'hi') ?? 'en';
 
-    if (!['hr', 'admin', 'super_admin'].includes(user_role)) {
+    // Broad early gate — the precise "can THIS approver reject THIS
+    // applicant's tier" check happens below once the employee is resolved.
+    if (!['hr_assistant', 'hr', 'admin', 'super_admin'].includes(user_role)) {
       return { success: false, reply: REPLIES.permissionDenied('reject leave', lang) };
     }
 
@@ -1742,7 +1750,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
         : '❌ Which employee\'s leave would you like to reject? Please provide their name.' };
     }
 
-    const { data: empRowsR } = await db.from('users').select('id, full_name, manager_id')
+    const { data: empRowsR } = await db.from('users').select('id, full_name, manager_id, role')
       .eq('organization_id', org_id)
       .ilike('full_name', `%${slots.employee_name}%`)
       .limit(5);
@@ -1752,10 +1760,10 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     }
 
     // Fuzzy fallback when ilike finds nothing
-    type EmpRec = { id: string; full_name: string; manager_id: string | null };
+    type EmpRec = { id: string; full_name: string; manager_id: string | null; role: string };
     let employee: EmpRec | null = (empRowsR?.[0] as EmpRec) ?? null;
     if (!employee) {
-      const { data: allUsers } = await db.from('users').select('id, full_name, manager_id')
+      const { data: allUsers } = await db.from('users').select('id, full_name, manager_id, role')
         .eq('organization_id', org_id).eq('is_active', true).limit(50);
       let best: EmpRec | null = null, bestScore = 0;
       for (const u of (allUsers ?? []) as EmpRec[]) {
@@ -1766,6 +1774,10 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     }
 
     if (!employee) return { success: false, reply: REPLIES.notFound(slots.employee_name!, lang) };
+
+    if (!canApproveLeaveFor(user_role, employee.role)) {
+      return { success: false, reply: REPLIES.permissionDenied('reject leave', lang) };
+    }
 
     const { data: pendingR } = await db
       .from('leave_requests')

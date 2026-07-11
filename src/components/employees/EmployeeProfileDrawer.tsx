@@ -36,7 +36,7 @@ interface DrawerProps {
 
 const ROLE_LABELS: Record<string, string> = {
   super_admin: 'Super Admin',
-  admin: 'Admin', hr: 'HR',
+  admin: 'Admin', hr: 'HR', hr_assistant: 'HR Assistant',
   manager: 'Manager', employee: 'Employee',
 };
 
@@ -302,7 +302,7 @@ export default function EmployeeProfileDrawer({ employee, onClose, canEdit, onUp
                     onChange={e => setForm(f => ({ ...f, role: e.target.value }))}
                     className="w-full rounded-lg border border-surface-300 bg-surface-200 px-3 py-2 text-sm text-surface-900 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
                   >
-                    {['employee','manager','hr','admin','super_admin'].map(r => (
+                    {['employee','manager','hr_assistant','hr','admin','super_admin'].map(r => (
                       <option key={r} value={r}>{ROLE_LABELS[r] ?? r}</option>
                     ))}
                   </select>

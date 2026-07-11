@@ -309,7 +309,7 @@ export async function notifyLeaveSubmitted(opts: {
         .from('users')
         .select('id')
         .eq('organization_id', opts.orgId)
-        .in('role', ['hr', 'admin', 'super_admin'])
+        .in('role', ['hr_assistant', 'hr', 'admin', 'super_admin'])
         .eq('is_active', true)
         .limit(1)
         .single();

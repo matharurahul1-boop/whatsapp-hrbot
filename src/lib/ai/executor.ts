@@ -1360,9 +1360,12 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
   // ── LEAVE TOOLS ─────────────────────────────────────────────────────────────
 
-  async APPLY_LEAVE({ slots, org_id, user_id }): Promise<ToolResult> {
+  async APPLY_LEAVE({ slots, org_id, user_id, user_role }): Promise<ToolResult> {
     const db   = createAdminClient();
     const lang = (slots._lang as 'en' | 'hi') ?? 'en';
+    if (user_role !== 'employee') {
+      return { success: false, reply: REPLIES.permissionDenied('apply for leave', lang) };
+    }
     if (!slots.leave_type?.trim() || !slots.start_date?.trim()) {
       return { success: false, reply: '❌ Please provide the leave type and start date.' };
     }
@@ -1629,7 +1632,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const db   = createAdminClient();
     const lang = (slots._lang as 'en' | 'hi') ?? 'en';
 
-    if (!['manager', 'hr', 'admin', 'super_admin'].includes(user_role)) {
+    if (!['hr', 'admin', 'super_admin'].includes(user_role)) {
       return { success: false, reply: REPLIES.permissionDenied('approve leave', lang) };
     }
 
@@ -1663,14 +1666,6 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     }
 
     if (!employee) return { success: false, reply: REPLIES.notFound(slots.employee_name!, lang) };
-
-    // Managers can only approve their own direct reports
-    if (user_role === 'manager' && employee.manager_id !== user_id) {
-      return { success: false, reply: lang === 'hi'
-        ? `❌ आप केवल अपने direct reports की leave approve कर सकते हैं।`
-        : `❌ You can only approve leave for your direct reports.`
-      };
-    }
 
     const { data: pendingLeaves } = await db
       .from('leave_requests')
@@ -1737,7 +1732,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const db   = createAdminClient();
     const lang = (slots._lang as 'en' | 'hi') ?? 'en';
 
-    if (!['manager', 'hr', 'admin', 'super_admin'].includes(user_role)) {
+    if (!['hr', 'admin', 'super_admin'].includes(user_role)) {
       return { success: false, reply: REPLIES.permissionDenied('reject leave', lang) };
     }
 
@@ -1771,14 +1766,6 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     }
 
     if (!employee) return { success: false, reply: REPLIES.notFound(slots.employee_name!, lang) };
-
-    // Managers can only reject their own direct reports
-    if (user_role === 'manager' && employee.manager_id !== user_id) {
-      return { success: false, reply: lang === 'hi'
-        ? `❌ आप केवल अपने direct reports की leave reject कर सकते हैं।`
-        : `❌ You can only reject leave for your direct reports.`
-      };
-    }
 
     const { data: pendingR } = await db
       .from('leave_requests')

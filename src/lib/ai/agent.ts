@@ -178,6 +178,18 @@ function isNo (msg: string): boolean { return NO_RE.test(msg.trim()); }
 // phrases like "do it"/"sounds good" that could legitimately start an
 // unrelated sentence) to avoid misfiring on ordinary messages.
 const LEADING_YES_RE = /^(?:yes|yeah|yep|sure|ok|okay|go\s*ahead|proceed|confirm|haan|haa|theek\s*hai|bilkul)\b[\s,!.:;-]*(?:and\s+|but\s+)?/i;
+// A remainder that's itself nothing but another affirmation word — as in the
+// WhatsApp "✅ Yes, proceed" button, whose label IS literally "Yes, proceed"
+// — isn't real compound content the way "Yes and it's mahima's task" is.
+// splitLeadingYes still needs to return it truthy (that's the only path that
+// recognizes "Yes, proceed" as a yes at all — isYes()/YES_RE alone don't
+// match it), but callers use isPureAffirmation to skip running the
+// remainder as a follow-up instruction.
+const PURE_AFFIRMATION_RE = /^(?:yes|yeah|yep|sure|ok|okay|go\s*ahead|proceed|confirm|haan|haa|theek\s*hai|bilkul)[\s!.,:;-]*$/i;
+function isPureAffirmation(remainder: string): boolean {
+  return PURE_AFFIRMATION_RE.test(remainder.trim());
+}
+
 function splitLeadingYes(msg: string): string | null {
   const trimmed = msg.trim();
   const m = trimmed.match(LEADING_YES_RE);
@@ -433,8 +445,11 @@ function parseConfirmationMessage(lastMsg: string): ConfirmationParsed | null {
     ?? lastMsg.match(/reject\s+\*([^*]+)\*['']?s?\s+leave/i);
   if (rejectM) return { tool: 'reject_leave', args: { employee_name: rejectM[1].trim() } };
 
-  // CANCEL LEAVE
-  const cancelLeaveM = lastMsg.match(/cancel\s+(?:your\s+)?leave\s+(?:on|from|for|starting)?\s*\*([^*]+)\*/i);
+  // CANCEL LEAVE — the leave type is often echoed back in the confirmation
+  // ("Cancel your casual leave from...") so it must be an optional word here,
+  // not assumed absent, or the whole match fails and falls back to a second
+  // model round-trip.
+  const cancelLeaveM = lastMsg.match(/cancel\s+(?:your\s+)?(?:casual\s+|sick\s+|annual\s+|maternity\s+)?leave\s+(?:on|from|for|starting)?\s*\*([^*]+)\*/i);
   if (cancelLeaveM) {
     const iso = naturalDateToISO(cancelLeaveM[1].trim());
     return { tool: 'cancel_leave', args: { start_date: iso ?? cancelLeaveM[1].trim() } };
@@ -909,22 +924,21 @@ function buildSystemPrompt(user: AgentUser): string {
   if (['admin', 'super_admin'].includes(role)) {
     permissionsBlock = `## Your permissions (${role})
 - Tasks: create for anyone, update any field, delete any task, assign to anyone, view all org tasks
-- Leave: approve / reject leave for any employee in the org
+- Leave: approve / reject leave for any employee in the org — but you CANNOT apply for leave yourself; only employees apply for leave
 - Attendance: view full org attendance and team reports
 - Users: list all org members`;
   } else if (role === 'hr') {
     permissionsBlock = `## Your permissions (hr)
 - Tasks: create for anyone, update any field, delete any task, assign to anyone, view all org tasks
-- Leave: approve / reject leave for any employee in the org
+- Leave: approve / reject leave for any employee in the org — but you CANNOT apply for leave yourself; only employees apply for leave
 - Attendance: view full org attendance and team reports
 - Users: list all org members`;
   } else if (isManager) {
     permissionsBlock = `## Your permissions (manager)
 - Tasks: create for anyone, update any field, delete any task, assign to anyone, view all org tasks
-- Leave: approve / reject leave ONLY for your direct reports
+- Leave: you CANNOT apply for leave, and CANNOT approve/reject leave either — only HR/admin approve, and only employees apply
 - Attendance: view your team's attendance
-- Users: list all org members
-- IMPORTANT: You cannot approve/reject leave for employees who are not your direct reports`;
+- Users: list all org members`;
   } else {
     permissionsBlock = `## Your permissions (employee)
 - Tasks: view all organization tasks, create tasks for anyone, update any task field, assign/reassign and complete any task
@@ -1091,7 +1105,7 @@ Read-only (call IMMEDIATELY, no confirmation):
 - "leave balance" / "my leave balance" / "leaves left" / "how many leaves" / "kitni leave bachi" / "remaining leaves" → check_leave_balance()
 - "my leaves" / "list my leaves" / "leave history" / "leave requests" / "show my leave" / "meri leaves" → list_leaves()
 
-Action — apply leave (collect missing details, one at a time, THEN call apply_leave() directly — see Confirmation rule above, do not write your own "Go ahead?" text):
+${isEmployee ? `Action — apply leave (collect missing details, one at a time, THEN call apply_leave() directly — see Confirmation rule above, do not write your own "Go ahead?" text):
 - "apply leave" / "take leave" / "I want a day off" / "I'm sick tomorrow" / "sick leave" / "I'll be absent" / "leave lena hai" / "leave chahiye"
 - Required: leave_type (casual/sick/annual), start_date, and end_date or duration. Ask one at a time if missing.
 - Half day: "half day" / "1st half" / "first half" / "2nd half" / "second half" / "morning off" / "afternoon off" → pass half_day="first" (9:00 AM–1:00 PM) or half_day="second" (2:00 PM–6:00 PM) instead of end_date/duration_days. A half day is always exactly one day — never combine half_day with an end_date or a multi-day duration.
@@ -1099,9 +1113,9 @@ Action — apply leave (collect missing details, one at a time, THEN call apply_
 
 Action — cancel leave (confirm first):
 - "cancel my leave" / "I don't want leave" / "leave cancel karo"
-→ ask which date if unclear, confirm: "Cancel your leave on *[date]*? (Yes / No)" → cancel_leave()
-${isPrivileged ? `
-Action — approve/reject leave (privileged, confirm first):
+→ ask which date if unclear, confirm: "Cancel your leave on *[date]*? (Yes / No)" → cancel_leave()` : `Leave applications are employee-only — if ${user.first_name} asks to apply for leave, tell them only employees can apply for leave through this bot; approvals are handled by HR/admin.`}
+${['hr', 'admin', 'super_admin'].includes(role) ? `
+Action — approve/reject leave (HR/admin only, confirm first):
 - "approve [Name]'s leave" / "[Name] ki leave approve karo" / "approve leave for [Name]"
 → confirm: "Approve leave for *[Name]*? (Yes / No)" → approve_leave(employee_name="[Name]")
 - "reject [Name]'s leave" / "don't approve [Name]'s leave"
@@ -2137,9 +2151,19 @@ async function runGroqLoop(
     // silently dropping the confirmation (see splitLeadingYes above).
     const leadingYesRemainder = splitLeadingYes(message);
     if (leadingYesRemainder) {
-      console.log(`[Agent] Context shortcircuit: compound YES + "${leadingYesRemainder}" → execute then continue`);
       const result = await dispatchTool(payload.tool, payload.args, user, orgId);
       await saveContext(conversationId, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
+      // "Yes, proceed" (the WhatsApp button's own label) splits into "yes" +
+      // "proceed" — the remainder is just another affirmation word, not a
+      // real follow-up instruction, so running it through another model turn
+      // produced a stray, often contradictory second reply. Only continue
+      // into a fresh turn for genuine compound replies like "Yes and it's
+      // mahima's task".
+      if (isPureAffirmation(leadingYesRemainder)) {
+        console.log('[Agent] Context shortcircuit: compound YES with a pure-affirmation remainder → execute only');
+        return result;
+      }
+      console.log(`[Agent] Context shortcircuit: compound YES + "${leadingYesRemainder}" → execute then continue`);
       const continued = await runGroqLoop(
         leadingYesRemainder, history, user, orgId,
         { ...EMPTY_CONTEXT, language: context.language }, conversationId, { handled: false },
@@ -2369,6 +2393,16 @@ async function runGroqLoop(
   // b) If user says "create the task" / "create it" without a pending confirmation
   //    but history contains task details → inject context so AI looks at history.
   let effectiveMessage = message;
+  // When the deterministic regex parse (executeFromConfirmation) can't match
+  // the bot's own free-text confirmation, we fall through to a real model
+  // call telling it to execute now. But the CONFIRM_BEFORE_EXEC gate below
+  // doesn't know that context — it intercepts ANY qualifying tool call
+  // unconditionally, so the model's very next tool call (the one this hint
+  // is asking for) got gated into a SECOND confirmation on top of the one
+  // the model already gave in free text. The user already said yes once;
+  // this flag lets the first gated tool call in this turn execute directly
+  // instead of asking again.
+  let skipConfirmGateOnce = false;
 
   const CREATE_SHORTCUT = /^(create\s*(the\s*)?task|create\s*it|done\s*create|proceed\s*create)\s*[!.]*$/i;
 
@@ -2384,6 +2418,7 @@ async function runGroqLoop(
       // Fallback: inject hint and let Groq handle it
       console.log('[Agent] Direct parse failed — falling back to Groq with hint');
       effectiveMessage = `${message}\n[INSTRUCTION: The user just confirmed the action you described in your previous message. Call the appropriate tool NOW with the exact details from that message. Do NOT ask for confirmation again.]`;
+      skipConfirmGateOnce = true;
     } else if (isNo(message)) {
       console.log(`[Agent] Cancellation detected ("${message}")`);
       return 'Got it, cancelled. What else can I help with? 😊';
@@ -2642,6 +2677,13 @@ async function runGroqLoop(
             // Mutating tools must never execute without user confirmation, even when
             // Groq skips the text-confirmation step (e.g. after seeing prior "yes" in history).
             if (CONFIRM_BEFORE_EXEC.has(tc.function.name)) {
+              if (skipConfirmGateOnce) {
+                console.log(`[Agent] Resuming already-confirmed action → executing ${tc.function.name} directly`);
+                skipConfirmGateOnce = false;
+                const output = await dispatchTool(tc.function.name, args, user, orgId);
+                await saveContext(conversationId, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
+                return output;
+              }
               console.log(`[Agent] Groq tried to execute ${tc.function.name} directly — intercepting for confirmation`);
               const confirmText = buildToolConfirmation(tc.function.name, args);
               await saveContext(conversationId, {
@@ -2731,6 +2773,13 @@ async function runGroqLoop(
         for (const block of toolBlocks) {
           if (CONFIRM_BEFORE_EXEC.has(block.name)) {
             const args = (block.input ?? {}) as Record<string, string>;
+            if (skipConfirmGateOnce) {
+              console.log(`[Agent] Resuming already-confirmed action → executing ${block.name} directly`);
+              skipConfirmGateOnce = false;
+              const output = await dispatchTool(block.name, args, user, orgId);
+              await saveContext(conversationId, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
+              return output;
+            }
             const confirmText = buildToolConfirmation(block.name, args);
             await saveContext(conversationId, {
               ...EMPTY_CONTEXT,
@@ -2867,6 +2916,13 @@ async function runGroqLoop(
           try { args = JSON.parse(tc.function.arguments); } catch { /* empty args */ }
 
           if (CONFIRM_BEFORE_EXEC.has(tc.function.name)) {
+            if (skipConfirmGateOnce) {
+              console.log(`[Agent] Resuming already-confirmed action → executing ${tc.function.name} directly`);
+              skipConfirmGateOnce = false;
+              const output = await dispatchTool(tc.function.name, args, user, orgId);
+              await saveContext(conversationId, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
+              return output;
+            }
             console.log(`[Agent] OR tried to execute ${tc.function.name} directly — intercepting for confirmation`);
             const confirmText = buildToolConfirmation(tc.function.name, args);
             await saveContext(conversationId, {

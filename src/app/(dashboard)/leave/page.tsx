@@ -24,8 +24,12 @@ export default async function LeavePage() {
   if (!profile) redirect('/login');
 
   const { organization_id: orgId, role } = profile;
-  const year      = new Date().getFullYear();
-  const isManager = ['super_admin', 'admin', 'hr', 'manager'].includes(role);
+  const year        = new Date().getFullYear();
+  // Viewing everyone's requests stays a manager+ privilege; approving is now
+  // narrower (HR/admin only — managers can see the queue but not act on it).
+  const canViewAll  = ['super_admin', 'admin', 'hr', 'manager'].includes(role);
+  const canApprove  = ['super_admin', 'admin', 'hr'].includes(role);
+  const canApply    = role === 'employee';
 
   // Parallel fetches
   let requestQuery = db
@@ -39,7 +43,7 @@ export default async function LeavePage() {
     .order('created_at', { ascending: false })
     .limit(50);
 
-  if (!isManager) requestQuery = requestQuery.eq('employee_id', user.id);
+  if (!canViewAll) requestQuery = requestQuery.eq('employee_id', user.id);
 
   const [requestsRes, balancesRes, leaveTypesRes] = await Promise.all([
     requestQuery,
@@ -67,14 +71,16 @@ export default async function LeavePage() {
         <div>
           <h1 className="page-title">Leave Management</h1>
           <p className="page-subtitle">
-            {isManager
+            {canApprove
               ? `${pendingCount} pending approval${pendingCount !== 1 ? 's' : ''}`
-              : 'Apply and track your leave requests'}
+              : canViewAll
+                ? 'Track leave requests across the team'
+                : 'Apply and track your leave requests'}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <RefreshButton />
-          <ApplyLeaveModal leaveTypes={leaveTypes} />
+          {canApply && <ApplyLeaveModal leaveTypes={leaveTypes} />}
         </div>
       </div>
 
@@ -89,9 +95,9 @@ export default async function LeavePage() {
       {/* Requests table */}
       <section>
         <p className="section-title">
-          {isManager ? 'All Requests' : 'My Requests'}
+          {canViewAll ? 'All Requests' : 'My Requests'}
         </p>
-        <LeaveRequestsTable requests={requests} canApprove={isManager} />
+        <LeaveRequestsTable requests={requests} canApprove={canApprove} />
       </section>
     </div>
   );

@@ -94,14 +94,14 @@ export const BOT_PERMISSIONS = {
     'help',
   ],
   manager: [
-    '(all employee commands)',
+    '(all employee commands except apply leave)',
     'assign task [title] to [name]',
     'team tasks',
     'who is absent',
-    'approve/reject leave for [name]',
   ],
   hr: [
     '(all manager commands)',
+    'approve/reject leave for [name]',
     'onboarding status',
     'start onboarding for [name]',
   ],

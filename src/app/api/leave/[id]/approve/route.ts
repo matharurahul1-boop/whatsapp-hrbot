@@ -26,7 +26,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { data: profile } = await db.from('users').select('organization_id, role').eq('id', user.id).single();
   if (!profile) return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
 
-  if (!['super_admin','admin','hr','manager'].includes(profile.role)) {
+  // Leave approval is HR/admin only — managers can view the request queue
+  // but no longer act on it.
+  if (!['super_admin','admin','hr'].includes(profile.role)) {
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
   }
 
@@ -41,10 +43,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (request.status !== 'pending') return NextResponse.json({ error: `Request is already ${request.status}` }, { status: 409 });
 
   const employee = request.employee as { id: string; full_name: string; manager_id: string | null } | null;
-
-  if (profile.role === 'manager' && employee?.manager_id !== user.id) {
-    return NextResponse.json({ error: 'You can only review your direct reports' }, { status: 403 });
-  }
 
   if (parsed.data.action === 'approved') {
     const leaveYear = new Date(request.start_date).getFullYear();

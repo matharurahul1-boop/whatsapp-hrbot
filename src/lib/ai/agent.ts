@@ -613,6 +613,7 @@ const HRBOT_TOOLS: any[] = [
       type: 'OBJECT',
       properties: {
         assignee_name: { type: 'STRING', description: "'mine' = caller's own tasks. First/full name = that person's tasks. Omit for generic requests, which default to the caller's own tasks." },
+        creator_name: { type: 'STRING', description: "Who CREATED/ASSIGNED the task ('assigned by X', 'created by X') — independent of assignee_name (who the task is FOR). Both can be set together, e.g. 'Rashmi's tasks assigned by Shilpa' means assignee_name=Rashmi AND creator_name=Shilpa." },
         scope: { type: 'STRING', enum: ['all'], description: "Use 'all' only when the user explicitly asks for all/team/company tasks." },
         status_filter: { type: 'STRING', description: "todo | in_progress | done | cancelled | active. Omit for all unfinished tasks." },
         exclude_status_filter: { type: 'STRING', description: "todo | in_progress | done | cancelled | active. Use for negated status phrasing ('tasks excluding done', 'tasks that are not cancelled', 'without pending ones') — the exact opposite of status_filter. NEVER pass status_filter for a negated request, that returns the opposite of what was asked." },
@@ -1005,6 +1006,12 @@ Negation, generally — this applies to EVERY filter, not just deadline. Wheneve
 - "tasks without high priority" / "not urgent tasks" → exclude_priority_filter="high"/"urgent" (NEVER priority_filter — same reasoning)
 - "tasks without overdue" → deadline_filter="not_overdue" (see above)
 RULE: Read negation carefully before choosing a parameter — inverting the user's actual request is worse than asking a clarifying question. If a message negates something list_tasks has no parameter for at all (e.g. excluding a specific person, or a concept with no filter), say so plainly rather than guessing at a filter that doesn't capture it.
+
+Creator filter — pass creator_name for "assigned by X" / "created by X" phrasing. This is who CREATED the task, completely independent of assignee_name (who it's FOR) — a task can be assigned to Rashmi but created/assigned by Shilpa, and both can be filtered on at once:
+- "tasks assigned by shilpa" → creator_name="shilpa"
+- "Rashmi's tasks assigned by shilpa" → list_tasks(assignee_name="Rashmi", creator_name="shilpa")
+- "Rashmi deep tasks whose priority is medium, assigned by shilpa and overdue" → list_tasks(assignee_name="Rashmi Deep", priority_filter="medium", deadline_filter="overdue", creator_name="shilpa") — every filter in the message must be reflected in the call, no matter how many are combined.
+RULE: NEVER drop a filter clause just because the message combines several — silently ignoring "assigned by X" (or any other clause) is worse than asking a clarifying question if you're genuinely unsure how to parse it.
 
 RULE: NEVER pass assignee_name="my" or assignee_name="me". Use assignee_name="mine" for self-queries.
 RULE: NEVER return task data as text. ALWAYS call list_tasks and return the result verbatim.
@@ -2909,6 +2916,7 @@ async function dispatchToolResult(
       title:         input.task_title   ?? input.title         ?? null,
       assignee:      input.assignee                            ?? null,
       assignee_name: input.assignee_name                       ?? null,
+      creator_name:  input.creator_name                        ?? null,
       deadline:      input.deadline                            ?? null,
       priority:      input.priority                            ?? null,
       update_field:   input.update_field                        ?? null,

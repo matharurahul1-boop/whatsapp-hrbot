@@ -97,6 +97,58 @@ function nameSimilarity(a: string, b: string): number {
   return Math.max(raw, collapsed);
 }
 
+type UserResolution =
+  | { status: 'found'; user: { id: string; full_name: string } }
+  | { status: 'ambiguous'; matches: { id: string; full_name: string }[] }
+  | { status: 'not_found'; available: string[] };
+
+// Shared by every place that resolves a raw typed name (assignee, creator/
+// "assigned by", etc.) against real org users — exact substring match first,
+// then fuzzy typo-tolerant fallback, same threshold and scoring everywhere.
+// Kept as ONE implementation rather than one copy per field so a fix or
+// improvement to name matching can't drift out of sync between them (the
+// same "two independently-maintained copies" bug class that hit filter-word
+// stripping earlier — resolving a person's name is exactly as risky to
+// duplicate).
+async function resolveOrgUserByName(
+  db: ReturnType<typeof createAdminClient>,
+  orgId: string,
+  rawName: string,
+): Promise<UserResolution> {
+  const { data: targetRows } = await db
+    .from('users')
+    .select('id, full_name')
+    .eq('organization_id', orgId)
+    .ilike('full_name', `%${rawName}%`)
+    .limit(5);
+  if ((targetRows?.length ?? 0) > 1) {
+    return { status: 'ambiguous', matches: targetRows as { id: string; full_name: string }[] };
+  }
+  let target: { id: string; full_name: string } | null = targetRows?.[0] ?? null;
+
+  // Fuzzy fallback for typos — e.g. "Prnay" → "Pranay"
+  if (!target) {
+    const { data: allActive } = await db
+      .from('users')
+      .select('id, full_name')
+      .eq('organization_id', orgId)
+      .eq('is_active', true)
+      .limit(20);
+
+    let bestScore = 0;
+    for (const u of (allActive ?? []) as { id: string; full_name: string }[]) {
+      // Score against full name AND each word (first name, last name separately)
+      const scores = [u.full_name, ...u.full_name.split(' ')].map(n => nameSimilarity(rawName, n));
+      const score = Math.max(...scores);
+      if (score > bestScore) { bestScore = score; target = u; }
+    }
+    if (bestScore < 0.65) {
+      return { status: 'not_found', available: ((allActive ?? []) as { full_name: string }[]).map(u => u.full_name) };
+    }
+  }
+  return { status: 'found', user: target! };
+}
+
 async function managerTeamIds(orgId: string, managerId: string): Promise<string[]> {
   const db = createAdminClient();
   const { data } = await db.from('users').select('id')
@@ -508,52 +560,48 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     // empty-result branch below can report the corrected name instead of
     // echoing back the raw, possibly-misspelled input.
     let resolvedAssigneeName: string | null = null;
+    let resolvedCreatorName: string | null = null;
 
     if (isSelfQuery || (!slots.assignee_name && !wantsAll)) {
       // Generic task lists default to the caller. Named/all requests expand scope.
       query = query.eq('assignee_id', user_id);
     } else if (slots.assignee_name) {
       // Manager/admin filtering by a specific person
-      const { data: targetRows } = await db
-        .from('users')
-        .select('id, full_name')
-        .eq('organization_id', org_id)
-        .ilike('full_name', `%${slots.assignee_name}%`)
-        .limit(5);
-      if ((targetRows?.length ?? 0) > 1) {
-        const options = targetRows!.map(u => `· ${u.full_name}`).join('\n');
+      const resolved = await resolveOrgUserByName(db, org_id, slots.assignee_name);
+      if (resolved.status === 'ambiguous') {
+        const options = resolved.matches.map(u => `· ${u.full_name}`).join('\n');
         return { success: false, reply: `Multiple people match *${slots.assignee_name}*:\n${options}\n\nPlease use the full name.` };
       }
-      let target: { id: string; full_name: string } | null = targetRows?.[0] ?? null;
-
-      // Fuzzy fallback for typos — e.g. "Prnay" → "Pranay"
-      if (!target) {
-        const { data: allActive } = await db
-          .from('users')
-          .select('id, full_name')
-          .eq('organization_id', org_id)
-          .eq('is_active', true)
-          .limit(20);
-
-        let bestScore = 0;
-        for (const u of (allActive ?? []) as { id: string; full_name: string }[]) {
-          // Score against full name AND each word (first name, last name separately)
-          const scores = [u.full_name, ...u.full_name.split(' ')]
-            .map(n => nameSimilarity(slots.assignee_name!, n));
-          const score = Math.max(...scores);
-          if (score > bestScore) { bestScore = score; target = u; }
-        }
-        if (bestScore < 0.65) {
-          // Still no close match — show who is available
-          const nameList = ((allActive ?? []) as { full_name: string }[]).map(u => u.full_name).join(', ');
-          return { success: false, reply: lang === 'hi'
-            ? `❌ "*${slots.assignee_name}*" नाम का कोई user नहीं मिला।${nameList ? `\n\nउपलब्ध: ${nameList}` : ''}`
-            : `❌ No user found matching "*${slots.assignee_name}*".${nameList ? `\n\nAvailable: ${nameList}` : ''}`
-          };
-        }
+      if (resolved.status === 'not_found') {
+        const nameList = resolved.available.join(', ');
+        return { success: false, reply: lang === 'hi'
+          ? `❌ "*${slots.assignee_name}*" नाम का कोई user नहीं मिला।${nameList ? `\n\nउपलब्ध: ${nameList}` : ''}`
+          : `❌ No user found matching "*${slots.assignee_name}*".${nameList ? `\n\nAvailable: ${nameList}` : ''}`
+        };
       }
-      resolvedAssigneeName = target!.full_name;
-      query = query.eq('assignee_id', target!.id);
+      resolvedAssigneeName = resolved.user.full_name;
+      query = query.eq('assignee_id', resolved.user.id);
+    }
+    // creator_name: "assigned by X" / "created by X" — who created/assigned
+    // the task, independent of who it's assigned TO. Previously had no
+    // filter at all, so "assigned by shilpa" was silently ignored, returning
+    // tasks assigned by anyone (observed live: a task created by Pranay was
+    // included in a reply the user explicitly scoped to "assigned by shilpa").
+    if (slots.creator_name) {
+      const resolvedCreator = await resolveOrgUserByName(db, org_id, slots.creator_name);
+      if (resolvedCreator.status === 'ambiguous') {
+        const options = resolvedCreator.matches.map(u => `· ${u.full_name}`).join('\n');
+        return { success: false, reply: `Multiple people match *${slots.creator_name}*:\n${options}\n\nPlease use the full name.` };
+      }
+      if (resolvedCreator.status === 'not_found') {
+        const nameList = resolvedCreator.available.join(', ');
+        return { success: false, reply: lang === 'hi'
+          ? `❌ "*${slots.creator_name}*" नाम का कोई user नहीं मिला।${nameList ? `\n\nउपलब्ध: ${nameList}` : ''}`
+          : `❌ No user found matching "*${slots.creator_name}*".${nameList ? `\n\nAvailable: ${nameList}` : ''}`
+        };
+      }
+      resolvedCreatorName = resolvedCreator.user.full_name;
+      query = query.eq('created_by', resolvedCreator.user.id);
     }
     // Explicit all/team requests show all organization tasks for every role.
 
@@ -569,14 +617,16 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     ];
     const excludeLabel = excludeLabelParts.length ? `excluding ${excludeLabelParts.join(', ')}` : null;
 
+    const creatorSuffix = resolvedCreatorName ? ` assigned by *${resolvedCreatorName}*` : '';
+
     if (!tasks?.length) {
       const noTasksName = slots.assignee_name && !isSelfQuery ? (resolvedAssigneeName ?? slots.assignee_name) : null;
       const statusLabel_ = statusFilter === 'in_progress' ? 'in progress' : statusFilter === 'todo' ? 'to do' : statusFilter === 'active' ? 'pending' : statusFilter;
       const noTasksLabel = [validPriority, deadlineLabel, statusLabel_, excludeLabel].filter(Boolean).join(' ');
-      if (noTasksLabel) {
+      if (noTasksLabel || creatorSuffix) {
         return { success: true, reply: noTasksName
-          ? `📋 No ${noTasksLabel} tasks found for *${noTasksName}*.`
-          : `📋 No ${noTasksLabel} tasks found.` };
+          ? `📋 No ${noTasksLabel || 'matching'} tasks found for *${noTasksName}*${creatorSuffix}.`
+          : `📋 No ${noTasksLabel || 'matching'} tasks found${creatorSuffix}.` };
       }
       return {
         success: true,
@@ -611,9 +661,16 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       ...(validExcludeStatus ? [excludeStatusHeaderMap[validExcludeStatus] ?? validExcludeStatus] : []),
     ];
     // Rendered as a trailing parenthetical rather than folded into
-    // filterLabel's space-joined adjectives — "excluding X" reads naturally
-    // after "tasks:", not as a prefix modifier like "High Priority".
-    const excludeHeaderSuffix = excludeHeaderParts.length ? ` (excluding ${excludeHeaderParts.join(', ')})` : '';
+    // filterLabel's space-joined adjectives — "excluding X"/"assigned by Y"
+    // read naturally after "tasks:", not as a prefix modifier like "High
+    // Priority". Both can appear together (e.g. "excluding Done; assigned by
+    // Shilpa Rozara") since every filter combination must be reflected in
+    // the reply, not just the ones that happen to fit the adjective slot.
+    const extraHeaderClauses = [
+      ...(excludeHeaderParts.length ? [`excluding ${excludeHeaderParts.join(', ')}`] : []),
+      ...(resolvedCreatorName ? [`assigned by ${resolvedCreatorName}`] : []),
+    ];
+    const excludeHeaderSuffix = extraHeaderClauses.length ? ` (${extraHeaderClauses.join('; ')})` : '';
 
     if (showDone) {
       // Completed tasks: list flat in completion order — no time bucketing

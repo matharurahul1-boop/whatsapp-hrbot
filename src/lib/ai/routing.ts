@@ -12,7 +12,7 @@ const COMMAND_TYPO_MAP: Record<string, string> = {
   chekin: 'checkin', chckin: 'checkin', chekout: 'checkout',
   detials: 'details', deatils: 'details', priorty: 'priority',
   deadine: 'deadline', dedline: 'deadline', assinee: 'assignee',
-  overdued: 'overdue', overdu: 'overdue',
+  overdued: 'overdue', overdu: 'overdue', assinged: 'assigned',
 };
 
 export function normalizeCommandText(message: string): string {
@@ -80,6 +80,26 @@ function requestedTaskDeadline(message: string): string | null {
   return null;
 }
 
+// Shared by requestedCreatorName and stripFilterModifiers so the two can
+// never disagree about where the name ends — a non-greedy capture bounded
+// by a lookahead for the next comma/"and"/"or"/end-of-string, rather than a
+// fixed word count, so both "assigned by Shilpa" and "assigned by Tushar
+// Bali" resolve correctly without also swallowing whatever clause follows
+// (e.g. "assigned by shilpa and overdued" must capture only "shilpa").
+const CREATOR_NAME_RE_SOURCE = '\\b(?:assigned|created)\\s+by\\s+([\\p{L}][\\p{L} .\'-]*?)(?=\\s*(?:,|\\band\\b|\\bor\\b|$))';
+
+/**
+ * "Assigned by NAME" / "created by NAME" — who created/assigned the task,
+ * independent of who it's assigned TO (assignee_name). Previously had no
+ * representation at all in the deterministic router, so this clause was
+ * silently dropped rather than either filtered or bailed out on — observed
+ * live: "assigned by shilpa" was ignored entirely, returning tasks created
+ * by anyone.
+ */
+function requestedCreatorName(message: string): string | null {
+  return message.match(new RegExp(CREATOR_NAME_RE_SOURCE, 'iu'))?.[1]?.trim() || null;
+}
+
 /**
  * Strip every recognized filter-descriptor phrase (priority level, deadline
  * bucket including negation, status word) from the message, wherever it
@@ -129,6 +149,13 @@ function stripFilterModifiers(text: string): string {
     // breaks name-matching patterns anchored on "tasks" being first/last).
     .replace(/\b(?:urgent|high|medium|low)\b/ig, '')
     .replace(/\b(?:completed|complete|done|finished|closed|cancelled|canceled|dropped|abandoned|in[\s_-]*progress|wip|ongoing|underway|started|working\s+on|to[\s_-]*do|todo|pending|open|not\s+started|active)\b/ig, '')
+    // "assigned by NAME" / "created by NAME" — the creator, not the
+    // assignee. Must be stripped for the SAME reason every other filter
+    // phrase is: left in place, it would sit between the real assignee name
+    // and "tasks" (or trail after it) and risk being swept into the wrong
+    // capture group, or contribute a stray "assigned"/"by" the exclusion
+    // list would have to special-case.
+    .replace(new RegExp(CREATOR_NAME_RE_SOURCE, 'igu'), '')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -202,6 +229,10 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
   // "deadline" elsewhere (e.g. "what is the deadline of task X", "update
   // deadline") is a field query/mutation, not a list filter.
   const deadlineFilter = requestedTaskDeadline(t);
+  // "assigned by NAME" / "created by NAME" — independent of assignee_name
+  // (who the task is FOR) and every other filter; any combination of all of
+  // these must resolve correctly together, not just the ones seen so far.
+  const creatorName = requestedCreatorName(t);
   // "all my tasks" / "list all of my tasks" means every one of the caller's
   // own tasks, not every task in the org — self-reference always wins over
   // the generic all-scope keyword.
@@ -277,6 +308,7 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
       ...(priorityFilter ? { priority_filter: priorityFilter } : {}),
       ...(excludePriorityFilter ? { exclude_priority_filter: excludePriorityFilter } : {}),
       ...(deadlineFilter ? { deadline_filter: deadlineFilter } : {}),
+      ...(creatorName ? { creator_name: creatorName } : {}),
       scope: 'all',
     };
   }
@@ -290,12 +322,15 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
   // overdue results (e.g. including an already-completed task). The exclude_*
   // variants gate the same way — a negated-only filter (e.g. "tasks
   // excluding done") must not fall through to null just because
-  // statusFilter/priorityFilter themselves are unset.
-  if (!/\b(list|show|get|display)\b/i.test(t) && !statusFilter && !excludeStatusFilter && !priorityFilter && !excludePriorityFilter && !deadlineFilter && !isSelfRef && !hasValidPossessiveName && !/[’']s\s+tasks?$/i.test(t)) {
+  // statusFilter/priorityFilter themselves are unset. creatorName gates the
+  // same way too — "tasks assigned by shilpa" alone (no other filter/verb/
+  // name) must still route deterministically.
+  if (!/\b(list|show|get|display)\b/i.test(t) && !statusFilter && !excludeStatusFilter && !priorityFilter && !excludePriorityFilter && !deadlineFilter && !creatorName && !isSelfRef && !hasValidPossessiveName && !/[’']s\s+tasks?$/i.test(t)) {
     return null;
   }
 
   const args: Record<string, string> = {};
+  if (creatorName) args.creator_name = creatorName;
   if (statusFilter) args.status_filter = statusFilter;
   if (excludeStatusFilter) args.exclude_status_filter = excludeStatusFilter;
   if (priorityFilter) args.priority_filter = priorityFilter;

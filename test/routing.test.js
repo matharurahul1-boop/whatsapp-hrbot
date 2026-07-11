@@ -242,6 +242,28 @@ test('a two-word name survives unrecognized trailing text (typo, reversed word o
   assert.deepEqual(routing.quickTaskListArgs("Rashmi's overdued tasks"), { deadline_filter: 'overdue', assignee_name: 'Rashmi' });
 });
 
+test('"assigned by X" / "created by X" resolves to creator_name, combining with any number of other filters', () => {
+  // Observed live: "assigned by shilpa" was silently dropped entirely —
+  // LIST_TASKS had no creator filter at all, so a task created by Pranay
+  // was incorrectly included in a reply the user explicitly scoped to
+  // "assigned by shilpa". creator_name is who CREATED the task, completely
+  // independent of assignee_name (who it's assigned TO).
+  assert.deepEqual(routing.quickTaskListArgs('tasks assigned by shilpa'), { creator_name: 'shilpa', scope: 'all' });
+  assert.deepEqual(routing.quickTaskListArgs('tasks created by pranay'), { creator_name: 'pranay', scope: 'all' });
+  // The exact live message (with its "assinged" typo) combining FOUR filters
+  // at once — assignee, priority, creator, and deadline — must resolve every
+  // one of them correctly together, not just whichever is easiest.
+  assert.deepEqual(
+    routing.quickTaskListArgs('Rashmi deep tasks whose priority is medium, assinged by shilpa and overdued'),
+    { assignee_name: 'Rashmi deep', priority_filter: 'medium', deadline_filter: 'overdue', creator_name: 'shilpa' },
+  );
+  // Combines with a two-word creator name and a trailing clause after it.
+  assert.deepEqual(
+    routing.quickTaskListArgs('high priority tasks assigned by Tushar Bali and overdue'),
+    { priority_filter: 'high', deadline_filter: 'overdue', creator_name: 'Tushar Bali', scope: 'all' },
+  );
+});
+
 test('does not misroute task mutations as task-list requests', () => {
   for (const message of ['create a task', 'delete task Payroll', 'update task Payroll', 'assign task Payroll to Mahima', 'show details of task Payroll', 'show task status']) {
     assert.equal(routing.quickTaskListArgs(message), null, message);

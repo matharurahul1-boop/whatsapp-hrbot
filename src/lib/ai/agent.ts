@@ -1268,7 +1268,19 @@ function buildToolConfirmation(tool: string, args: Record<string, string>): stri
   }
   if (tool === 'apply_leave') {
     const ltype = args.leave_type ?? 'leave';
-    return `I'll apply for *${ltype}* from *${args.start_date ?? ''}* to *${args.end_date ?? ''}*. Go ahead? (Yes / No)`;
+    const start = args.start_date ?? '';
+    // end_date is deliberately omitted by the model for single-day leaves
+    // (see the tool schema) — showing "to *${args.end_date ?? ''}*" in that
+    // case rendered the literal empty bold markers "to **" with nothing
+    // between them. Cover all three shapes the model can send: an explicit
+    // end date, a day count, or neither (single day).
+    if (args.end_date) {
+      return `I'll apply for *${ltype}* from *${start}* to *${args.end_date}*. Go ahead? (Yes / No)`;
+    }
+    if (args.duration_days && Number(args.duration_days) > 1) {
+      return `I'll apply for *${ltype}* leave starting *${start}* for *${args.duration_days}* days. Go ahead? (Yes / No)`;
+    }
+    return `I'll apply for *${ltype}* leave on *${start}* (1 day). Go ahead? (Yes / No)`;
   }
   if (tool === 'assign_task') {
     return `I'll reassign *${args.task_title ?? '?'}* to *${args.assignee ?? '?'}*. Go ahead? (Yes / No)`;

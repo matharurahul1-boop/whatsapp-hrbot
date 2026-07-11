@@ -273,12 +273,29 @@ test('looksLikeRealPersonName distinguishes actual names from ordinary conversat
     'Thanks', 'thanks', 'Thank you', 'thanks a lot', "I'm in today", 'I am here',
     'ok', 'okay', 'cool', 'sure', 'no problem', 'yes', 'no', 'good morning',
     'sounds great', 'got it', "we're done",
+    // Observed live: "Who cancelled above task" was captured as
+    // assignee_name "Who above" and looked up as if it were a real name —
+    // interrogatives are never a person volunteering their own name.
+    'Who above', 'What time', 'When is it due', 'Where is it', 'Why not', 'How many',
   ]) {
     assert.equal(routing.looksLikeRealPersonName(notAName), false, notAName);
   }
   for (const realName of ['Rashmi', 'Tushar Bali', 'Ashish', 'Mahima Sengar', 'Pranay', "O'Brien", 'Mary-Jane']) {
     assert.equal(routing.looksLikeRealPersonName(realName), true, realName);
   }
+});
+
+test('bare "cancel" (no -led/-ed suffix) resolves to the cancelled status filter when listing tasks', () => {
+  // Observed live: "List of cancel tasks" returned "No user found matching
+  // 'cancel'" — bare "cancel" wasn't recognized as a status synonym at all
+  // (only "cancelled"/"canceled" were), so it fell through to the
+  // name-extraction patterns and got captured as a fake name.
+  assert.deepEqual(routing.quickTaskListArgs('List of cancel tasks'), { status_filter: 'cancelled', scope: 'all' });
+  assert.deepEqual(routing.quickTaskListArgs('cancel tasks'), { status_filter: 'cancelled', scope: 'all' });
+  // "cancel task NAME" (singular) is an action targeting one specific task,
+  // not a list filter — must NOT be captured by this fix, so it keeps
+  // falling through to the AI's own cancel/delete-task handling.
+  assert.equal(routing.quickTaskListArgs('cancel task Payroll'), null);
 });
 
 test('does not misroute task mutations as task-list requests', () => {

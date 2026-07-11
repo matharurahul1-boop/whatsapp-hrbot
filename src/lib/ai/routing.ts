@@ -149,6 +149,10 @@ function stripFilterModifiers(text: string): string {
     // breaks name-matching patterns anchored on "tasks" being first/last).
     .replace(/\b(?:urgent|high|medium|low)\b/ig, '')
     .replace(/\b(?:completed|complete|done|finished|closed|cancelled|canceled|dropped|abandoned|in[\s_-]*progress|wip|ongoing|underway|started|working\s+on|to[\s_-]*do|todo|pending|open|not\s+started|active)\b/ig, '')
+    // Bare "cancel" — only when immediately before "tasks" (plural), mirroring
+    // the same requestedTaskStatus() scoping above; "cancel task NAME" is an
+    // action and must be left untouched for the AI's own handling.
+    .replace(/\bcancel\b(?=\s+tasks\b)/ig, '')
     // "assigned by NAME" / "created by NAME" — the creator, not the
     // assignee. Must be stripped for the SAME reason every other filter
     // phrase is: left in place, it would sit between the real assignee name
@@ -184,6 +188,18 @@ function requestedTaskStatus(message: string): FilterMatch | null {
   // is also a synonym for in_progress, checked further down, and would
   // otherwise win because in_progress is checked before todo).
   if (/\bnot\s+started\b/i.test(message)) return { value: 'todo', negated: false };
+  // Bare "cancel" (imperative, no "-led"/"-ed" suffix) — e.g. "list of
+  // cancel tasks" — is a real, natural way to ask for cancelled tasks, but
+  // it's ambiguous in a way "cancelled"/"canceled" aren't: "cancel task
+  // Payroll" is an ACTION targeting one specific named task, not a status
+  // filter, and must NOT be captured here (that phrasing is meant to reach
+  // the AI's own cancel/delete-task handling instead). The distinguishing
+  // signal is genuinely simple: immediately followed by "tasks" (plural, a
+  // listing request) rather than singular "task <name>" (an action).
+  // Observed live: "List of cancel tasks" returned "No user found matching
+  // 'cancel'" — bare "cancel" wasn't recognized as a status word at all, so
+  // it fell through to the name-extraction patterns instead.
+  if (/\bcancel\s+tasks\b/i.test(message)) return { value: 'cancelled', negated: false };
   for (const [value, wordRe] of STATUS_WORD_GROUPS) {
     if (new RegExp(NEGATION_PREFIX + wordRe + '\\b', 'i').test(message)) return { value, negated: true };
   }
@@ -430,8 +446,11 @@ export function looksLikeRealPersonName(text: string): boolean {
   // Contractions never appear in real names.
   if (/['’](?:m|re|ll|ve|d)\b/i.test(t)) return false;
   // Opening with a pronoun means this is a sentence about someone, not a
-  // name someone is offering up.
-  if (/^(?:i|we|you|he|she|they|it)\b/i.test(t)) return false;
+  // name someone is offering up — interrogatives included ("who"/"what"/
+  // etc.), since a question is never a person volunteering their own name.
+  // Observed live: "Who cancelled above task" was captured as assignee_name
+  // "Who above" and looked up as if it were a real name.
+  if (/^(?:i|we|you|he|she|they|it|who|what|when|where|why|how|which)\b/i.test(t)) return false;
   // Common short function/acknowledgment words essentially never appear
   // alongside a real name typed alone.
   if (/\b(?:is|am|are|was|were|be|been|the|a|an|to|in|on|at|for|of|and|or|but|if|so|today|tomorrow|now|later|yes|yeah|yep|no|nope|ok|okay|thanks|thank|please|sorry|welcome|done|got|cool|great|nice|sure|fine|perfect|awesome|noted|understood|good|morning|evening|night)\b/i.test(t)) return false;

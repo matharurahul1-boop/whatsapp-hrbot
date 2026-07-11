@@ -264,6 +264,23 @@ test('"assigned by X" / "created by X" resolves to creator_name, combining with 
   );
 });
 
+test('looksLikeRealPersonName distinguishes actual names from ordinary conversation', () => {
+  // Observed live: "Thanks" (an acknowledgment after a task list) and "I'm
+  // in today" (a natural reply to a check-in reminder) were both treated as
+  // a person's name to look up, producing a broken "No user found matching
+  // '*I'm in today*'" reply instead of being read as ordinary conversation.
+  for (const notAName of [
+    'Thanks', 'thanks', 'Thank you', 'thanks a lot', "I'm in today", 'I am here',
+    'ok', 'okay', 'cool', 'sure', 'no problem', 'yes', 'no', 'good morning',
+    'sounds great', 'got it', "we're done",
+  ]) {
+    assert.equal(routing.looksLikeRealPersonName(notAName), false, notAName);
+  }
+  for (const realName of ['Rashmi', 'Tushar Bali', 'Ashish', 'Mahima Sengar', 'Pranay', "O'Brien", 'Mary-Jane']) {
+    assert.equal(routing.looksLikeRealPersonName(realName), true, realName);
+  }
+});
+
 test('does not misroute task mutations as task-list requests', () => {
   for (const message of ['create a task', 'delete task Payroll', 'update task Payroll', 'assign task Payroll to Mahima', 'show details of task Payroll', 'show task status']) {
     assert.equal(routing.quickTaskListArgs(message), null, message);

@@ -7,7 +7,7 @@ import { sendSmartText }       from '@/lib/whatsapp/client';
 import { parseDeadlineString, formatDateTime } from '@/lib/utils/date';
 import { EMPTY_CONTEXT }       from './types';
 import type { AgentTurn, AgentUser, ConversationContext, SupportedLanguage, ToolResult } from './types';
-import { normalizeCommandText, quickTaskListArgs, resolveTaskListPronoun } from './routing';
+import { normalizeCommandText, quickTaskListArgs, resolveTaskListPronoun, looksLikeRealPersonName } from './routing';
 
 // ── AI backend ────────────────────────────────────────────────────────────────
 // Controlled at runtime via organizations.settings.ai_backend (set from /settings page).
@@ -2256,8 +2256,15 @@ async function runGroqLoop(
       || /^📋 No .*tasks?/i.test(lastBot)
       || /^📋 कोई.*टास्क/.test(lastBot);
     const bareNameMatch = message.trim().match(/^(?:no,?\s+)?(?:i\s+mean\s+|actually\s+)?([\p{L}][\p{L} .'-]{1,40})$/iu);
+    // looksLikeRealPersonName() is the important gate here — the regex shape
+    // above matches ANY short run of letters/spaces, including ordinary
+    // conversation ("Thanks", "I'm in today"). Observed live: both were
+    // treated as a name to look up and produced a broken "No user found
+    // matching '*I'm in today*'" reply instead of being read as what they
+    // actually are — an acknowledgment and a check-in confirmation.
     const looksLikeBareName = !!bareNameMatch
-      && !/\b(task|tasks|create|update|delete|leave|check|assign|list|show)\b/i.test(message);
+      && !/\b(task|tasks|create|update|delete|leave|check|assign|list|show)\b/i.test(message)
+      && looksLikeRealPersonName(message);
     if ((NO_MATCH_RE.test(lastBot) || looksLikeTaskListReply) && looksLikeBareName) {
       const correctedName = bareNameMatch![1].trim();
       console.log(`[Agent] Bare-name task-list follow-up: "${correctedName}"`);

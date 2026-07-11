@@ -406,6 +406,41 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
   return args;
 }
 
+/**
+ * Heuristic: does this text look like it could plausibly BE a person's
+ * name, as opposed to a conversational reply, acknowledgment, or sentence?
+ * Used everywhere a raw user message risks being treated as a name lookup —
+ * a bare WhatsApp reply after a task-list-shaped bot message, or a tool
+ * call's assignee_name/creator_name slot. Observed live: "Thanks" and "I'm
+ * in today" (a natural reply to a check-in reminder) were both looked up as
+ * if they were people's names, producing a broken "No user found matching
+ * '*I'm in today*'" reply instead of being recognized as ordinary
+ * conversation.
+ *
+ * A fixed list of banned words can never keep up with everything a person
+ * might type, so this flips the check around: require POSITIVE evidence of
+ * being name-shaped (no contraction, doesn't open with a pronoun, no common
+ * function/filler word, short) rather than trying to enumerate every
+ * non-name phrase in existence — the same "know what you don't know" shape
+ * as the negation safety net in quickTaskListArgs.
+ */
+export function looksLikeRealPersonName(text: string): boolean {
+  const t = text.trim();
+  if (!t) return false;
+  // Contractions never appear in real names.
+  if (/['’](?:m|re|ll|ve|d)\b/i.test(t)) return false;
+  // Opening with a pronoun means this is a sentence about someone, not a
+  // name someone is offering up.
+  if (/^(?:i|we|you|he|she|they|it)\b/i.test(t)) return false;
+  // Common short function/acknowledgment words essentially never appear
+  // alongside a real name typed alone.
+  if (/\b(?:is|am|are|was|were|be|been|the|a|an|to|in|on|at|for|of|and|or|but|if|so|today|tomorrow|now|later|yes|yeah|yep|no|nope|ok|okay|thanks|thank|please|sorry|welcome|done|got|cool|great|nice|sure|fine|perfect|awesome|noted|understood|good|morning|evening|night)\b/i.test(t)) return false;
+  // A real name is short — rarely more than a few words.
+  const wordCount = t.split(/\s+/).filter(Boolean).length;
+  if (wordCount > 4) return false;
+  return true;
+}
+
 export function resolveTaskListPronoun(
   args: Record<string, string>,
   history: Array<{ role: string; content: string }>,

@@ -14,6 +14,7 @@ import {
   notifyWelcome,
 } from '@/lib/whatsapp/notify';
 import type { ToolInput, ToolResult, AgentIntent, SlotValues } from './types';
+import { looksLikeRealPersonName } from './routing';
 
 // ─── Tool Executor Registry ───────────────────────────────────────────────────
 
@@ -100,7 +101,8 @@ function nameSimilarity(a: string, b: string): number {
 type UserResolution =
   | { status: 'found'; user: { id: string; full_name: string } }
   | { status: 'ambiguous'; matches: { id: string; full_name: string }[] }
-  | { status: 'not_found'; available: string[] };
+  | { status: 'not_found'; available: string[] }
+  | { status: 'not_a_name' };
 
 // Shared by every place that resolves a raw typed name (assignee, creator/
 // "assigned by", etc.) against real org users — exact substring match first,
@@ -110,11 +112,21 @@ type UserResolution =
 // same "two independently-maintained copies" bug class that hit filter-word
 // stripping earlier — resolving a person's name is exactly as risky to
 // duplicate).
+//
+// Defense-in-depth: bails out with 'not_a_name' before ever querying the DB
+// if the raw text doesn't look name-shaped at all. This is a second layer
+// behind the same check already applied at the routing/dispatch level
+// (agent.ts) — protects every caller, including any future one, and any
+// path where the AI itself passes a whole conversational reply as a name
+// (observed live: "I'm in today", a reply to a check-in reminder, produced
+// a broken "No user found matching '*I'm in today*'" instead of ever being
+// recognized as not a name lookup in the first place).
 async function resolveOrgUserByName(
   db: ReturnType<typeof createAdminClient>,
   orgId: string,
   rawName: string,
 ): Promise<UserResolution> {
+  if (!looksLikeRealPersonName(rawName)) return { status: 'not_a_name' };
   const { data: targetRows } = await db
     .from('users')
     .select('id, full_name')
@@ -561,6 +573,16 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     // echoing back the raw, possibly-misspelled input.
     let resolvedAssigneeName: string | null = null;
     let resolvedCreatorName: string | null = null;
+    // True when slots.assignee_name was set but didn't look like a real name
+    // at all — every downstream display (not just the query) must then treat
+    // this exactly as if no assignee_name had been given. Tracked separately
+    // from resolvedAssigneeName because that's null in this case too, and
+    // without this flag the empty-result/header text below would still fall
+    // back to echoing the raw non-name string (e.g. "No tasks found for *I'm
+    // in today*") even though the query itself correctly used the caller's
+    // own tasks — the exact same bug this whole guard exists to prevent,
+    // just one layer further down.
+    let assigneeNameIsBogus = false;
 
     if (isSelfQuery || (!slots.assignee_name && !wantsAll)) {
       // Generic task lists default to the caller. Named/all requests expand scope.
@@ -579,8 +601,18 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
           : `❌ No user found matching "*${slots.assignee_name}*".${nameList ? `\n\nAvailable: ${nameList}` : ''}`
         };
       }
-      resolvedAssigneeName = resolved.user.full_name;
-      query = query.eq('assignee_id', resolved.user.id);
+      if (resolved.status === 'found') {
+        resolvedAssigneeName = resolved.user.full_name;
+        query = query.eq('assignee_id', resolved.user.id);
+      } else {
+        // 'not_a_name' — the supposed name doesn't look like one at all
+        // (e.g. a misrouted conversational reply ended up here). Fall back
+        // to the caller's own tasks, matching what happens when no
+        // assignee_name is given, instead of a confusing "no user found"
+        // reply built around an entire sentence.
+        assigneeNameIsBogus = true;
+        query = query.eq('assignee_id', user_id);
+      }
     }
     // creator_name: "assigned by X" / "created by X" — who created/assigned
     // the task, independent of who it's assigned TO. Previously had no
@@ -600,8 +632,12 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
           : `❌ No user found matching "*${slots.creator_name}*".${nameList ? `\n\nAvailable: ${nameList}` : ''}`
         };
       }
-      resolvedCreatorName = resolvedCreator.user.full_name;
-      query = query.eq('created_by', resolvedCreator.user.id);
+      // 'not_a_name' — silently skip the creator filter rather than a
+      // confusing "no user found" reply built around an entire sentence.
+      if (resolvedCreator.status === 'found') {
+        resolvedCreatorName = resolvedCreator.user.full_name;
+        query = query.eq('created_by', resolvedCreator.user.id);
+      }
     }
     // Explicit all/team requests show all organization tasks for every role.
 
@@ -620,7 +656,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const creatorSuffix = resolvedCreatorName ? ` assigned by *${resolvedCreatorName}*` : '';
 
     if (!tasks?.length) {
-      const noTasksName = slots.assignee_name && !isSelfQuery ? (resolvedAssigneeName ?? slots.assignee_name) : null;
+      const noTasksName = slots.assignee_name && !isSelfQuery && !assigneeNameIsBogus ? (resolvedAssigneeName ?? slots.assignee_name) : null;
       const statusLabel_ = statusFilter === 'in_progress' ? 'in progress' : statusFilter === 'todo' ? 'to do' : statusFilter === 'active' ? 'pending' : statusFilter;
       const noTasksLabel = [validPriority, deadlineLabel, statusLabel_, excludeLabel].filter(Boolean).join(' ');
       if (noTasksLabel || creatorSuffix) {
@@ -643,12 +679,12 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
         const d = new Date(t.deadline);
         due = ` — ${d.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}`;
       }
-      const assignee = (wantsAll || !!slots.assignee_name) && t.assignee?.full_name ? ` _(${t.assignee.full_name})_` : '';
+      const assignee = (wantsAll || (!!slots.assignee_name && !assigneeNameIsBogus)) && t.assignee?.full_name ? ` _(${t.assignee.full_name})_` : '';
       return `${i + 1}. ${pEmoji} *${t.title}*${due}${assignee} · ${statusLabel(t.status)}`;
     };
 
     const lines: string[] = [];
-    const headerName = slots.assignee_name && !isSelfQuery
+    const headerName = slots.assignee_name && !isSelfQuery && !assigneeNameIsBogus
       ? (tasks as any[])[0]?.assignee?.full_name ?? slots.assignee_name
       : null;
 

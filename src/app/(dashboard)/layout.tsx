@@ -41,6 +41,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
           {/* Main content — tracks sidebar width */}
           <SidebarShell>
             <Header
+              userId={profile.id}
               userName={profile.full_name}
               userRole={profile.role}
               avatarUrl={profile.avatar_url ?? null}

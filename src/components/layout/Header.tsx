@@ -13,6 +13,7 @@ import { useSidebar } from '@/components/layout/SidebarProvider';
 import InstallButton from '@/components/layout/InstallButton';
 
 interface HeaderProps {
+  userId:    string;
   userName:  string;
   userRole:  string;
   avatarUrl: string | null;
@@ -37,7 +38,7 @@ const CRUMB_MAP: Record<string, string> = {
   settings:   'Settings',
 };
 
-export default function Header({ userName, userRole, avatarUrl }: HeaderProps) {
+export default function Header({ userId, userName, userRole, avatarUrl }: HeaderProps) {
   const router   = useRouter();
   const pathname = usePathname();
   const supabase = createClient();
@@ -65,6 +66,37 @@ export default function Header({ userName, userRole, avatarUrl }: HeaderProps) {
       .then(r => r.ok ? r.json() : null)
       .then(j => { if (j) { setNotifs(j.data ?? []); setUnread(j.unread_count ?? 0); } });
   }, []);
+
+  // Live-update the bell without requiring a page refresh — previously this
+  // only ever fetched once on mount, so a notification created after the
+  // page loaded (e.g. a task assignment) stayed invisible until the user
+  // manually reloaded. Mirrors the same postgres_changes pattern already
+  // used by useRealtimeTasks/useRealtimeLeave/useRealtimeAttendance,
+  // filtered to this user's own rows (matches the /api/notifications GET
+  // route's own per-user scoping).
+  useEffect(() => {
+    const channel = supabase
+      .channel(`notifications:${userId}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${userId}` },
+        (payload) => {
+          const n = payload.new as Notification;
+          setNotifs(prev => prev.some(x => x.id === n.id) ? prev : [n, ...prev]);
+          if (!n.is_read) setUnread(u => u + 1);
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'notifications', filter: `user_id=eq.${userId}` },
+        (payload) => {
+          const n = payload.new as Notification;
+          setNotifs(prev => prev.map(x => (x.id === n.id ? n : x)));
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [userId, supabase]);
 
   // Close notif on outside click
   useEffect(() => {

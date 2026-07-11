@@ -4,7 +4,7 @@ import { createAdminClient }  from '@/lib/supabase/admin';
 import { writeAuditLog }      from '@/lib/utils/audit';
 import { notifyTaskAssigned, notifyTaskCompleted, notifyTaskDeleted, notifyTaskUpdated } from '@/lib/whatsapp/notify';
 import { scheduleTaskReminders } from '@/lib/tasks/scheduleReminders';
-import { formatDateTime } from '@/lib/utils/date';
+import { formatDateTime, deadlineToUTCDate } from '@/lib/utils/date';
 import { isEmployee, isManagerOrAbove } from '@/lib/rbac';
 import { z } from 'zod';
 
@@ -158,12 +158,22 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (updateData.priority !== undefined && updateData.priority !== task.priority) {
       changes.push({ field: 'priority', oldValue: task.priority, value: String(updateData.priority) });
     }
-    if (updateData.deadline !== undefined && updateData.deadline !== task.deadline) {
-      changes.push({
-        field: 'deadline',
-        oldValue: task.deadline ? `${formatDateTime(task.deadline)} IST` : 'No deadline',
-        value: updated.deadline ? `${formatDateTime(updated.deadline)} IST` : 'No deadline',
-      });
+    // Compare actual instants, not raw strings — updateData.deadline is
+    // re-derived from the incoming datetime-local value (line 83) and can
+    // come out in a different string format (T vs space, trailing seconds)
+    // than what's already stored, even when the deadline itself didn't
+    // change (e.g. the edit form resubmits every field, not just the ones
+    // the user touched). A plain !== comparison flagged that as a change.
+    if (updateData.deadline !== undefined) {
+      const oldMs = task.deadline ? deadlineToUTCDate(task.deadline).getTime() : null;
+      const newMs = updated.deadline ? deadlineToUTCDate(updated.deadline).getTime() : null;
+      if (oldMs !== newMs) {
+        changes.push({
+          field: 'deadline',
+          oldValue: task.deadline ? `${formatDateTime(task.deadline)} IST` : 'No deadline',
+          value: updated.deadline ? `${formatDateTime(updated.deadline)} IST` : 'No deadline',
+        });
+      }
     }
     if (updateData.status !== undefined && updateData.status !== task.status && updateData.status !== 'done') {
       changes.push({ field: 'status', oldValue: task.status, value: String(updateData.status) });

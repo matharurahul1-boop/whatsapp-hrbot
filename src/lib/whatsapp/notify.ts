@@ -15,6 +15,7 @@
 import { createAdminClient } from '@/lib/supabase/admin';
 import { sendSmartText } from '@/lib/whatsapp/client';
 import { sendPush } from '@/lib/push/send';
+import { formatDateTime } from '@/lib/utils/date';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -22,12 +23,20 @@ const PRIORITY_EMOJI: Record<string, string> = {
   urgent: '🔴', high: '🟠', medium: '🟡', low: '🟢',
 };
 
+// Date-only — used for leave start/end dates, which have no time component.
 function fmtDate(iso: string | null | undefined): string {
   if (!iso) return 'No deadline';
   return new Date(iso).toLocaleDateString('en-IN', {
     timeZone: 'Asia/Kolkata',
     day: 'numeric', month: 'short', year: 'numeric',
   });
+}
+
+// Date + time — used for task deadlines, which do have one and default to
+// 5 PM IST if not set explicitly (see parseDeadlineString).
+function fmtDeadline(iso: string | null | undefined): string {
+  if (!iso) return 'No deadline';
+  return `${formatDateTime(iso)} IST`;
 }
 
 function firstName(fullName: string | null | undefined): string {
@@ -101,7 +110,7 @@ export async function notifyTaskAssigned(opts: {
         `📋 *Hi ${firstName(assignee.full_name)}, you have a new task!*\n\n` +
         `*${opts.taskTitle}*\n\n` +
         `${PRIORITY_EMOJI[opts.priority] ?? '⚪'} Priority: *${opts.priority}*\n` +
-        `🗓 Deadline: *${fmtDate(opts.deadline)}*\n` +
+        `🗓 Deadline: *${fmtDeadline(opts.deadline)}*\n` +
         `👤 Assigned by: *${opts.creatorName}*\n\n` +
         `Reply *my tasks* to view all your pending tasks.`;
       sends.push(sendSmartText(assignee.wa_number, msg, opts.orgId, firstName(assignee.full_name)));
@@ -227,7 +236,7 @@ export async function notifyTaskDeleted(opts: {
         `🗑️ *Task removed, ${firstName(assignee.full_name)}!*\n\n` +
         `*${opts.taskTitle}*\n` +
         (pEmoji ? `${pEmoji} Priority: *${opts.priority}*\n` : '') +
-        (opts.deadline ? `🗓 Deadline: *${fmtDate(opts.deadline)}*\n` : '') +
+        (opts.deadline ? `🗓 Deadline: *${fmtDeadline(opts.deadline)}*\n` : '') +
         `Deleted by: *${opts.deleterName}*\n\n` +
         `Reply *my tasks* to view your remaining tasks.`;
       sends.push(sendSmartText(assignee.wa_number, msg, opts.orgId, firstName(assignee.full_name)));

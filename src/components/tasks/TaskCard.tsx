@@ -254,7 +254,9 @@ export default function TaskCard({ task, canEdit, canDelete = false, employees, 
                     {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.full_name}</option>)}
                   </SelectNative>
                 )}
-                <Input label="Deadline" type="datetime-local" value={form.deadline} onChange={e => setField('deadline', e.target.value)} />
+                {/* lang="en-GB" forces Chrome's native datetime-local clock
+                    to render 24-hour instead of "en"'s default 12-hour AM/PM. */}
+                <Input label="Deadline" type="datetime-local" lang="en-GB" value={form.deadline} onChange={e => setField('deadline', e.target.value)} />
 
                 {/* Reminders — only shown when a deadline is set */}
                 {form.deadline && (
@@ -497,6 +499,10 @@ export default function TaskCard({ task, canEdit, canDelete = false, employees, 
               <Input
                 label="Deadline"
                 type="datetime-local"
+                // en-GB (not en) — Chrome renders the native datetime-local
+                // picker's clock in whatever format that lang implies; "en"
+                // (US) defaults to 12-hour AM/PM, en-GB defaults to 24-hour.
+                lang="en-GB"
                 value={form.deadline}
                 onChange={e => setField('deadline', e.target.value)}
               />

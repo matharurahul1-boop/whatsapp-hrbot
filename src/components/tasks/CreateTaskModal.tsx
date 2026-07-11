@@ -166,6 +166,10 @@ export default function CreateTaskModal({ employees }: CreateTaskModalProps) {
               <Input
                 label="Deadline *"
                 type="datetime-local"
+                // en-GB (not en) — Chrome renders the native datetime-local
+                // picker's clock in whatever format that lang implies; "en"
+                // (US) defaults to 12-hour AM/PM, en-GB defaults to 24-hour.
+                lang="en-GB"
                 value={form.deadline}
                 onChange={e => set('deadline', e.target.value)}
                 error={errors.deadline}

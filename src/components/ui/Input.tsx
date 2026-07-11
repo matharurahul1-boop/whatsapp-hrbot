@@ -74,6 +74,9 @@ const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
             'flex min-h-[80px] w-full rounded-lg bg-surface-200 border border-surface-300',
             'px-3 py-2 text-sm text-surface-950 placeholder:text-surface-600 resize-none',
             'transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500/40',
+            // Same reasoning as .input in globals.css — cancels the
+            // app-wide :focus-visible ring stacking on top of this own ring.
+            'focus-visible:ring-0 focus-visible:ring-offset-0',
             'disabled:opacity-50 disabled:cursor-not-allowed',
             error && 'border-danger/50 focus:ring-danger/40',
             className

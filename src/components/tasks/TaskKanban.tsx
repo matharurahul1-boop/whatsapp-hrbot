@@ -147,6 +147,15 @@ function MultiSelectDropdown({
     // closed the dropdown before you could click anything.
     function onScrollOrResize(e: Event) {
       if (popoverRef.current && e.target instanceof Node && popoverRef.current.contains(e.target)) return;
+      // On mobile, the search input auto-focuses the instant the popover
+      // opens, which pops up the on-screen keyboard — that resizes the
+      // visual viewport and fires a `resize` event on `window` (not "inside
+      // the popover" per the check above, since resize has no meaningful
+      // target). Without this, the dropdown closed itself the instant it
+      // opened on mobile, before you could type or tap anything — it just
+      // looked like "clicking it closes it." Ignore scroll/resize entirely
+      // while focus is still inside the popover (typing in the search box).
+      if (document.activeElement && popoverRef.current?.contains(document.activeElement)) return;
       setOpen(false);
     }
     document.addEventListener('mousedown', onClickOutside);

@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient }       from '@/lib/supabase/server';
 import { createAdminClient }  from '@/lib/supabase/admin';
 import { writeAuditLog }      from '@/lib/utils/audit';
-import { notifyTaskAssigned, notifyTaskCompleted, notifyTaskDeleted } from '@/lib/whatsapp/notify';
+import { notifyTaskAssigned, notifyTaskCompleted, notifyTaskDeleted, notifyTaskUpdated } from '@/lib/whatsapp/notify';
 import { scheduleTaskReminders } from '@/lib/tasks/scheduleReminders';
+import { formatDateTime } from '@/lib/utils/date';
 import { isEmployee, isManagerOrAbove } from '@/lib/rbac';
 import { z } from 'zod';
 
@@ -140,6 +141,51 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       completedByName: actorName,
       creatorId:       completionNotifyTarget,
     }).catch(() => {});
+  }
+
+  // Notify "the other party" about any other field change (title,
+  // description, priority, deadline, or a status change that isn't the
+  // "completed" case handled above). This mirrors the WhatsApp bot's own
+  // UPDATE_TASK notification (executor.ts) — previously that push+WhatsApp
+  // message only ever fired when a task was edited via WhatsApp itself;
+  // the exact same edit made from this dashboard silently sent nothing.
+  const updateNotifyTarget = actorIsAssignee ? task.created_by : task.assignee_id;
+  if (updateNotifyTarget && updateNotifyTarget !== user.id) {
+    const changes: { field: string; oldValue: string; value: string }[] = [];
+    if (updateData.title !== undefined && updateData.title !== task.title) {
+      changes.push({ field: 'title', oldValue: task.title, value: String(updateData.title) });
+    }
+    if (updateData.priority !== undefined && updateData.priority !== task.priority) {
+      changes.push({ field: 'priority', oldValue: task.priority, value: String(updateData.priority) });
+    }
+    if (updateData.deadline !== undefined && updateData.deadline !== task.deadline) {
+      changes.push({
+        field: 'deadline',
+        oldValue: task.deadline ? `${formatDateTime(task.deadline)} IST` : 'No deadline',
+        value: updated.deadline ? `${formatDateTime(updated.deadline)} IST` : 'No deadline',
+      });
+    }
+    if (updateData.status !== undefined && updateData.status !== task.status && updateData.status !== 'done') {
+      changes.push({ field: 'status', oldValue: task.status, value: String(updateData.status) });
+    }
+    if (updateData.description !== undefined && updateData.description !== task.description) {
+      changes.push({ field: 'description', oldValue: task.description || '(none)', value: (updateData.description as string) || '(none)' });
+    }
+
+    if (changes.length > 0) {
+      notifyTaskUpdated({
+        orgId:       profile.organization_id,
+        taskTitle:   updated.title,
+        field:       changes[0].field,
+        oldValue:    changes[0].oldValue,
+        value:       changes[0].value,
+        field2:      changes[1]?.field,
+        oldValue2:   changes[1]?.oldValue,
+        value2:      changes[1]?.value,
+        assigneeId:  updateNotifyTarget,
+        updaterName: actorName,
+      }).catch(() => {});
+    }
   }
 
   return NextResponse.json({ data: updated });

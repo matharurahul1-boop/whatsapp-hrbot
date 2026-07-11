@@ -177,6 +177,11 @@
            px-3 text-sm text-surface-950 placeholder:text-surface-600
            transition-colors duration-150
            focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500/50
+           /* Cancels the app-wide :focus-visible rule below (ring-2 +
+              ring-offset-1), which otherwise stacks on top of this class's
+              own border-color focus treatment as a second, thicker outer
+              ring — this class's inner ring + border is already enough. */
+           focus-visible:ring-0 focus-visible:ring-offset-0
            disabled:opacity-50 disabled:cursor-not-allowed;
     color-scheme: dark; /* makes datetime-local text visible on dark bg */
   }

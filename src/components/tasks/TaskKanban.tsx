@@ -344,8 +344,12 @@ function ListRow({
         )}
       </div>
 
-      {/* Assigned To */}
-      <div className="flex items-center gap-1.5 w-36 shrink-0">
+      {/* Assigned To — pl-2.5 matches the header filter button's own px-2.5
+          (+ border), so the avatar lines up under "ASSIGNED TO" instead of
+          sitting ~11px left of it. The header buttons keep their padding
+          (added deliberately per an earlier request to make the filters
+          bigger) — these data cells are what needed to catch up to them. */}
+      <div className="flex items-center gap-1.5 w-36 shrink-0 pl-2.5">
         {task.assignee ? (
           <>
             <Avatar src={task.assignee.avatar_url} name={task.assignee.full_name} size="xs" />
@@ -357,7 +361,7 @@ function ListRow({
       </div>
 
       {/* Assigned By */}
-      <div className="flex items-center gap-1.5 w-36 shrink-0">
+      <div className="flex items-center gap-1.5 w-36 shrink-0 pl-2.5">
         {task.creator ? (
           <>
             <Avatar src={task.creator.avatar_url} name={task.creator.full_name} size="xs" />
@@ -369,21 +373,22 @@ function ListRow({
       </div>
 
       {/* Priority */}
-      <div className="flex items-center gap-1.5 w-28 shrink-0">
+      <div className="flex items-center gap-1.5 w-28 shrink-0 pl-2.5">
         <span className={cn('h-2 w-2 rounded-full shrink-0', pri.dot)} />
         <span className={cn('text-xs font-medium capitalize', pri.text)}>{task.priority}</span>
       </div>
 
       {/* Status */}
-      <div className="w-32 shrink-0">
+      <div className="w-32 shrink-0 pl-2.5">
         <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-2xs font-semibold', stCfg.pill)}>
           {stCfg.icon}
           {stCfg.label}
         </span>
       </div>
 
-      {/* Deadline */}
-      <div className="w-32 shrink-0 text-right">
+      {/* Deadline — right-aligned, so it needs matching RIGHT inset instead
+          (the header's Deadline dropdown is also right-aligned via align="right"). */}
+      <div className="w-32 shrink-0 text-right pr-2.5">
         {task.deadline ? (
           <span className={cn('flex items-center justify-end gap-1 text-xs font-medium', overdue ? 'text-danger' : 'text-surface-500')}>
             {overdue && <AlertTriangle className="h-3 w-3 shrink-0" />}

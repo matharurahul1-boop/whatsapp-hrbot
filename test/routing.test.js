@@ -217,6 +217,31 @@ test('bails out to the AI (returns null) on negation phrasing it is not specific
   assert.equal(routing.quickTaskListArgs('tasks not assigned to anyone'), null);
 });
 
+test('a two-word name survives unrecognized trailing text (typo, reversed word order, extra prefix)', () => {
+  // Observed live: "Tushar Bali's tasks priority high and overdued" dropped
+  // "Tushar Bali" entirely and returned the org-wide "All High Priority
+  // tasks" list. Root cause was NOT negation (the earlier safety net
+  // doesn't apply here) — it was two unrelated gaps compounding: "priority
+  // high" (reversed order, only "high priority" was recognized) and
+  // "overdued" (a typo of "overdue") both left unstripped leftover text
+  // after "tasks", which broke the then-end-anchored ("tasks?$") name
+  // patterns entirely, even though "Tushar Bali's" was unambiguous.
+  assert.deepEqual(
+    routing.quickTaskListArgs("Tushar Bali's tasks priority high and overdued"),
+    { priority_filter: 'high', deadline_filter: 'overdue', assignee_name: 'Tushar Bali' },
+  );
+  // Second live message, same underlying bug plus a leading "give all"
+  // (no "me") prefix and a "priority is high" variant.
+  assert.deepEqual(
+    routing.quickTaskListArgs("Please give all tushar Bali's tasks whose priority is high and overdued"),
+    { priority_filter: 'high', deadline_filter: 'overdue', assignee_name: 'tushar Bali' },
+  );
+  // Reversed "priority <level>" order alone, no typo involved.
+  assert.deepEqual(routing.quickTaskListArgs('Rashmi tasks priority medium'), { priority_filter: 'medium', assignee_name: 'Rashmi' });
+  // "overdued" typo alone, no reversed order involved.
+  assert.deepEqual(routing.quickTaskListArgs("Rashmi's overdued tasks"), { deadline_filter: 'overdue', assignee_name: 'Rashmi' });
+});
+
 test('does not misroute task mutations as task-list requests', () => {
   for (const message of ['create a task', 'delete task Payroll', 'update task Payroll', 'assign task Payroll to Mahima', 'show details of task Payroll', 'show task status']) {
     assert.equal(routing.quickTaskListArgs(message), null, message);

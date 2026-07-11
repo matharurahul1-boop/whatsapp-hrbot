@@ -12,6 +12,7 @@ const COMMAND_TYPO_MAP: Record<string, string> = {
   chekin: 'checkin', chckin: 'checkin', chekout: 'checkout',
   detials: 'details', deatils: 'details', priorty: 'priority',
   deadine: 'deadline', dedline: 'deadline', assinee: 'assignee',
+  overdued: 'overdue', overdu: 'overdue',
 };
 
 export function normalizeCommandText(message: string): string {
@@ -112,6 +113,15 @@ function stripFilterModifiers(text: string): string {
     .replace(/\bno\s+deadline\b/ig, '')
     .replace(/\bwithout\s+(?:a\s+)?deadline\b/ig, '')
     .replace(/\b(?:urgent|high|medium|low)\s+priority\b/ig, '')
+    // Reversed order — "priority high"/"priority is high" (e.g. "whose
+    // priority is high and overdued") — requestedTaskPriority() already
+    // recognizes the bare level word regardless of position, but without
+    // this strip "priority is" is left as orphaned leftover text, which
+    // breaks the end-anchored name-matching patterns below just as badly as
+    // an unstripped negation word would. Observed live: "Tushar Bali's tasks
+    // priority high and overdued" dropped "Tushar Bali" entirely and
+    // returned the org-wide list.
+    .replace(/\bpriority\s+(?:is\s+)?(?:urgent|high|medium|low)\b/ig, '')
     // Bare level word with no "priority" suffix — e.g. "Medium tasks
     // assigned to rashmi" (requestedTaskPriority() already recognizes a
     // bare level word as a real priority filter; this strip needs to match
@@ -227,8 +237,19 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
   // Excludes the same generic/scope words the all-scope check itself
   // matches, so "team's tasks"/"everyone's tasks" still correctly fall
   // through to org-wide scope below.
-  const possessiveName = tClean.match(/^(.+?)[’']s\s+(?:all\s+)?tasks?$/i)?.[1]
-    ?.replace(/^(?:list|show|get|display)(?:\s+me)?(?:\s+the)?\s+/i, '')
+  // Anchored on "tasks" with a word boundary (\b), NOT end-of-string ($) —
+  // trailing text this function doesn't specifically recognize (a typo, an
+  // unhandled word order, an extra clause) must never be able to silently
+  // wipe out an otherwise-unambiguous name. Observed live: "Tushar Bali's
+  // tasks priority high and overdued" left "priority and overdued" behind
+  // after stripping (word-order + typo gaps), which broke an end-anchored
+  // match entirely and dropped "Tushar Bali" to the org-wide list — the
+  // exact same silent-failure shape as the negation bug, just without any
+  // negation word involved. A word-boundary anchor degrades gracefully
+  // instead: whatever trailing text survives stripping is simply ignored,
+  // since it played no part in identifying who the tasks belong to.
+  const possessiveName = tClean.match(/^(.+?)[’']s\s+(?:all\s+)?tasks?\b/i)?.[1]
+    ?.replace(/^(?:please\s+)?(?:list|show|get|display|give|send|tell)(?:\s+me)?(?:\s+the)?\s+/i, '')
     .replace(/^of\s+/i, '')
     .replace(/^all\s+/i, '')
     .trim();
@@ -289,12 +310,19 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
     return args;
   }
 
+  // Anchored on "tasks?\b", not "tasks?$", for the same reason as
+  // possessiveName above — trailing text this function doesn't specifically
+  // recognize must be ignored, not allowed to silently break the match and
+  // wipe out an otherwise-clear name. Pattern 6 (assigned-to/of/for) is the
+  // one exception: the name there is captured at the very end of the
+  // pattern, so relaxing its anchor would risk sweeping trailing garbage
+  // INTO the captured name rather than past it.
   const personPatterns = [
-    /^(?:list|show|get|display)(?:\s+me)?(?:\s+the)?\s+(.+?)(?:[’']s)?\s+(?:completed|done|finished)\s+tasks?$/i,
-    /^(.+?)[’']s\s+(?:completed|done|finished)\s+tasks?$/i,
-    /^(?:list|show|get|display)(?:\s+me)?(?:\s+the)?(?:\s+list)?\s+of\s+(.+?)(?:[’']s)?\s+tasks?$/i,
-    /^(.+?)[’']s\s+tasks?$/i,
-    /^(?:list|show|get|display)(?:\s+me)?(?:\s+the)?\s+(.+?)\s+tasks?$/i,
+    /^(?:list|show|get|display)(?:\s+me)?(?:\s+the)?\s+(.+?)(?:[’']s)?\s+(?:completed|done|finished)\s+tasks?\b/i,
+    /^(.+?)[’']s\s+(?:completed|done|finished)\s+tasks?\b/i,
+    /^(?:list|show|get|display)(?:\s+me)?(?:\s+the)?(?:\s+list)?\s+of\s+(.+?)(?:[’']s)?\s+tasks?\b/i,
+    /^(.+?)[’']s\s+tasks?\b/i,
+    /^(?:list|show|get|display)(?:\s+me)?(?:\s+the)?\s+(.+?)\s+tasks?\b/i,
     /^(?:(?:list|show|get|display)(?:\s+me)?(?:\s+the)?(?:\s+of)?\s+)?tasks?\s+(?:of|for|assigned\s+to)\s+(.+)$/i,
     // Bare "<name> tasks" with no possessive, verb prefix, or preposition at
     // all — e.g. "Ashish tasks" or "Ashish pending tasks" (the status word
@@ -302,7 +330,7 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
     // reached when none of the more specific shapes above matched. Command
     // verbs are excluded below so "show tasks" doesn't get "show" read back
     // as a person's name.
-    /^(.+?)\s+tasks?$/i,
+    /^(.+?)\s+tasks?\b/i,
   ];
   for (const pattern of personPatterns) {
     // Reuse the same modifier-stripped text computed above for the
@@ -314,7 +342,7 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
     const taskOwnerText = tClean;
     const match = taskOwnerText.match(pattern);
     const name = match?.[1]
-      ?.replace(/^(?:list|show|get|display)(?:\s+me)?(?:\s+the)?\s+/i, '')
+      ?.replace(/^(?:please\s+)?(?:list|show|get|display|give|send|tell)(?:\s+me)?(?:\s+the)?\s+/i, '')
       ?.replace(/^of\s+/i, '')
       ?.replace(/^all\s+/i, '')
       .replace(/(?:[’']s)$/i, '')

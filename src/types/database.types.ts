@@ -113,10 +113,11 @@ export interface LeaveType {
   id: string;
   organization_id: string;
   name: string;
-  max_days_per_year: number;
+  default_days: number;
   carry_forward: boolean;
   requires_approval: boolean;
-  color_hex: string;
+  color: string;
+  is_active: boolean;
   created_at: string;
 }
 

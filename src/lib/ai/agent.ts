@@ -395,9 +395,18 @@ function parseConfirmationMessage(lastMsg: string): ConfirmationParsed | null {
   // APPLY_LEAVE — "apply *type* leave" OR "Apply for *type* leave" (bold or plain type)
   const leaveM = lastMsg.match(/apply\s+(?:for\s+)?\*?(casual|sick|annual|maternity)\*?\s+leave/i);
   if (leaveM) {
-    const startM = lastMsg.match(/from\s+\*([^*]+)\*/i) ?? lastMsg.match(/\bfrom\s+([\w\s,]+?)(?:\s+(?:to|for|\()|$)/i);
-    const endM   = lastMsg.match(/to\s+\*([^*]+)\*/i);
-    const durM   = lastMsg.match(/for\s+\*?(\d+)\*?\s+days?/i);
+    // Only search the text AFTER "...leave" for the date/duration clauses —
+    // "apply *for* *type*" earlier in the string also contains the word
+    // "for", which would otherwise be misread as the start-date preposition
+    // once "for" is accepted as a synonym for "from"/"on" below.
+    const afterLeave = lastMsg.slice(leaveM.index! + leaveM[0].length);
+    // "from"/"on"/"for" all show up across the different ways this
+    // confirmation gets phrased (buildToolConfirmation's own templates use
+    // "from"/"on"; the model's free-text confirmations often say "for").
+    const startM = afterLeave.match(/\b(?:from|on|for)\s+\*([^*]+)\*/i)
+      ?? afterLeave.match(/\b(?:from|on|for)\s+([\w\s,()]+?)(?:\s+(?:to|for|\(|,)|\.|$)/i);
+    const endM   = afterLeave.match(/\bto\s+\*([^*]+)\*/i);
+    const durM   = afterLeave.match(/for\s+\*?(\d+)\*?\s+days?/i);
     if (startM) {
       const args: Record<string, string> = {
         leave_type: leaveM[1].toLowerCase(),
@@ -920,7 +929,7 @@ ${permissionsBlock}
 ## How to respond
 - Be warm and direct like a helpful colleague, not a form-filling robot.
 - Understand natural references: "same task", "it", "that one", "update the assigned to" = update assignee.
-- For task creation, ask only for whatever is still missing, in ONE message (see rule 5 below). For all other flows, ask ONE question at a time.
+- For task creation, ask only for whatever is still missing, in ONE message (see rule 4 below). For all other flows, ask ONE question at a time.
 - Keep replies concise. *bold* for task names and key values. Emojis naturally (✅ ❌ 📋 ⏰ 👤 📅).
 - NEVER attempt a tool outside the user's permissions listed above.
 
@@ -934,23 +943,33 @@ The tool text IS the complete reply.
 ## CRITICAL: Confirmation rule
 For every action tool (create_task, update_task, complete_task, delete_task, apply_leave, approve_leave,
 reject_leave, cancel_leave, check_in, check_out, set_reminder):
-1. First reply with one sentence describing what you'll do (bold the key values).
-2. End with "Go ahead? (Yes / No)"
-3. Only call the tool AFTER the user says Yes / Haan / Sure / Ok / Confirm / "Create the task" / "Do it" / "Go ahead".
-4. If user says No / Nahi / Cancel → say "Got it, cancelled. What else can I help with?"
-5. For create_task ONLY: *title* and *deadline* are the only required fields (priority/assignee/description are optional and default to medium/you/none). If BOTH are missing from the user's message, ask for everything using this format:
+1. As soon as every REQUIRED field for the action is known (from this message, earlier in the
+   conversation, or a default), call the tool DIRECTLY — as an actual tool call, in this same
+   turn. Do NOT type your own "I'll do X. Go ahead? (Yes / No)" sentence first and wait for a
+   separate reply before calling the tool. The system automatically intercepts every one of these
+   tool calls before anything runs, and shows the user its own confirmation message with Yes/No
+   buttons on your behalf — you must not produce that confirmation yourself. Writing your own
+   confirmation text and THEN calling the tool on a later turn shows the user two separate
+   confirmation prompts for the same action, one right after the other — that is a bug, not
+   politeness.
+2. If a REQUIRED field is genuinely missing from everything said so far, do NOT call the tool yet
+   — ask (in your own text, no tool call) for only the missing piece(s). Once every required field
+   is known, immediately go to step 1 — do not insert your own confirmation turn in between asking
+   and calling the tool.
+3. If the user replies No / Nahi / Cancel to the system's confirmation → say "Got it, cancelled.
+   What else can I help with?"
+4. For create_task ONLY: *title* and *deadline* are the only required fields (priority/assignee/description are optional and default to medium/you/none). If BOTH are missing from the user's message, ask for everything using this format (no tool call yet — this is a question, not a confirmation):
 "Sure! Please provide the following:
 📝 *Title* (Required)
 📅 *Deadline* (Required) — e.g. tomorrow 5pm (defaults to 5:00 PM IST if no time given)
 🔴 *Priority* (Optional — defaults to Medium if not provided) — High / Medium / Low / Urgent
 👤 *Assign To* (Optional — defaults to you if not provided)
 💬 *Description* (Optional)"
-If only ONE of title/deadline is missing, do NOT dump the full template — briefly acknowledge what you already understood (deadline, assignee, priority, etc. — whatever the user gave) and ask specifically for the one missing piece. Example: user said "create a task for Tushar, due day after tomorrow 3:30pm, priority medium" (no title) → reply "Got it — due *12 Jul 2026, 03:30 PM* for *Tushar*, medium priority. What should I title this task?" NEVER re-ask for a field the user already provided, and NEVER send the confirmation until both Required fields are collected. If the user never mentions a priority, default it to medium and say so in the confirmation sentence — do not ask for it separately.
-6. For create_task, ALWAYS include the assignee in the confirmation sentence: "for *you*" when self-assigned, "for *[Name]*" when assigned to someone else. Use the EXACT name the user typed — do NOT resolve or expand it to a full name. Example: "I'll create task *Fix bug* for *Tushar* due *2 Jul 2026, 05:00 PM* with *high* priority. Go ahead? (Yes / No)"
+If only ONE of title/deadline is missing, do NOT dump the full template — briefly acknowledge what you already understood (deadline, assignee, priority, etc. — whatever the user gave) and ask specifically for the one missing piece, without calling the tool yet. Example: user said "create a task for Tushar, due day after tomorrow 3:30pm, priority medium" (no title) → reply "Got it — due *12 Jul 2026, 03:30 PM* for *Tushar*, medium priority. What should I title this task?" NEVER re-ask for a field the user already provided. If the user never mentions a priority, default it to medium — do not ask for it separately. Once BOTH required fields are known, call create_task directly per rule 1 above — do not type your own confirmation sentence first.
+5. For create_task, ALWAYS pass the assignee to the tool using the EXACT name the user typed — do NOT resolve or expand it to a full name (e.g. pass "Tushar", not "Tushar Sharma"). Omit it (or pass "you") when self-assigned.
 
 ## CRITICAL: Never lose context mid-collection
-- If you just asked for task details and the user provided them, your IMMEDIATE next reply MUST be the confirmation message (e.g. "I'll create task *X* due *Y*. Go ahead? (Yes / No)"). NEVER say "What else can I help with?" at this point.
-- If the previous assistant message ended with "Go ahead? (Yes / No)" and the user's new message is a confirmation word (yes, ok, sure, create the task, create it, go ahead, haan, do it, etc.) → call the tool NOW. Do NOT ask for confirmation again.
+If you just asked for missing details (task fields, leave type/dates, reminder text, etc.) and the user's new message answers them, your IMMEDIATE next action MUST be to call the tool directly per the Confirmation rule above — NOT to say "What else can I help with?", and NOT to type your own "Go ahead? (Yes / No)" sentence first.
 
 ## Read-only tools — call immediately, NO confirmation needed:
 daily_briefing, list_tasks, get_task_details, check_leave_balance, list_leaves, my_attendance, my_profile, task_stats, list_leave_types${isPrivileged ? ', team_attendance, list_users, pending_leaves, onboarding_status' : ''}
@@ -1052,10 +1071,10 @@ Read-only (call IMMEDIATELY, no confirmation):
 - "leave balance" / "my leave balance" / "leaves left" / "how many leaves" / "kitni leave bachi" / "remaining leaves" → check_leave_balance()
 - "my leaves" / "list my leaves" / "leave history" / "leave requests" / "show my leave" / "meri leaves" → list_leaves()
 
-Action — apply leave (confirm first, collect missing details before confirming):
+Action — apply leave (collect missing details, one at a time, THEN call apply_leave() directly — see Confirmation rule above, do not write your own "Go ahead?" text):
 - "apply leave" / "take leave" / "I want a day off" / "I'm sick tomorrow" / "sick leave" / "I'll be absent" / "leave lena hai" / "leave chahiye"
-- Collect: leave_type (casual/sick/annual), start_date, end_date or duration. Ask one at a time if missing.
-→ confirm: "Apply *sick* leave from *${tmr.display}* (1 day)? (Yes / No)" → apply_leave()
+- Required: leave_type (casual/sick/annual), start_date, and end_date or duration. Ask one at a time if missing.
+- Once all required fields are known (whether from one message or several), call apply_leave() immediately — do NOT ask "Apply sick leave for X (1 day)?" yourself first. The system shows that confirmation automatically.
 
 Action — cancel leave (confirm first):
 - "cancel my leave" / "I don't want leave" / "leave cancel karo"
@@ -1172,10 +1191,10 @@ Leave balance (read-only):
 User: "leave balance" / "how many leaves left" / "kitni leave bachi" → [call check_leave_balance(), return verbatim]
 
 Apply leave:
-User: "I'm sick tomorrow, apply leave" → You: Apply *sick* leave for *${tmr.display}* (1 day)? (Yes / No)
-User: "yes" → [call apply_leave(leave_type="sick", start_date="${tmr.iso}")]
-User: "apply casual leave from Monday for 2 days" → You: Apply *casual* leave from *[date]* for *2 days*? (Yes / No)
-User: "yes" → [call apply_leave(leave_type="casual", start_date="[date]", duration_days="2")]
+User: "I'm sick tomorrow, apply leave" → [all required fields known — call apply_leave(leave_type="sick", start_date="${tmr.iso}") DIRECTLY, no confirmation text of your own; the system shows one]
+User: "apply casual leave from Monday for 2 days" → [call apply_leave(leave_type="casual", start_date="[date]", duration_days="2") DIRECTLY]
+User: "apply leave" (no other details) → You: "Sure! What type of leave, from when, and for how long?" (no tool call — fields are genuinely missing)
+User: "sick, tomorrow, 1 day" → [now all fields are known — call apply_leave(leave_type="sick", start_date="${tmr.iso}") DIRECTLY]
 
 Setting due date on an existing task:
 User: "What's the due date of X?" → [get_task_details] → "No due date set. Want to add one?"

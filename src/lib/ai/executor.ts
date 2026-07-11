@@ -1369,7 +1369,12 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     const { data: leaveType, error: leaveTypeError } = await db
       .from('leave_types')
-      .select('id, name, requires_approval, max_days_per_year')
+      // max_days_per_year was renamed to default_days (see combined_migration.sql)
+      // — this select still referenced the old name, which doesn't exist on the
+      // live table, so every apply_leave call threw a hard Postgres error
+      // ("column leave_types.max_days_per_year does not exist") right here,
+      // before the leave request was ever created.
+      .select('id, name, requires_approval')
       .eq('organization_id', org_id)
       .ilike('name', `%${slots.leave_type}%`)
       .maybeSingle();
@@ -2289,7 +2294,11 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     const { data: types } = await db
       .from('leave_types')
-      .select('name, max_days_per_year, requires_approval, description')
+      // Same rename as APPLY_LEAVE above (max_days_per_year → default_days);
+      // this select also referenced a `description` column that was never
+      // part of the schema, so this command threw the same missing-column
+      // Postgres error as apply_leave did.
+      .select('name, default_days, requires_approval')
       .eq('organization_id', org_id)
       .order('name');
 
@@ -2306,8 +2315,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
         ? (lang === 'hi' ? '_(अनुमोदन जरूरी)_' : '_(requires approval)_')
         : (lang === 'hi' ? '_(स्वतः स्वीकृत)_' : '_(auto-approved)_');
       lines.push(`${i + 1}. *${t.name}* ${approvalStr}`);
-      if (t.max_days_per_year) lines.push(`   📊 Max: ${t.max_days_per_year} days/year`);
-      if (t.description) lines.push(`   💬 ${t.description}`);
+      if (t.default_days) lines.push(`   📊 ${t.default_days} days/year`);
       lines.push('');
     });
 

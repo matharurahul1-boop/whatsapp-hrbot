@@ -407,13 +407,18 @@ function parseConfirmationMessage(lastMsg: string): ConfirmationParsed | null {
       ?? afterLeave.match(/\b(?:from|on|for)\s+([\w\s,()]+?)(?:\s+(?:to|for|\(|,)|\.|$)/i);
     const endM   = afterLeave.match(/\bto\s+\*([^*]+)\*/i);
     const durM   = afterLeave.match(/for\s+\*?(\d+)\*?\s+days?/i);
+    const halfDayM = afterLeave.match(/\b(first|second)\s+half\b/i);
     if (startM) {
       const args: Record<string, string> = {
         leave_type: leaveM[1].toLowerCase(),
         start_date: naturalDateToISO(startM[1].trim()) ?? startM[1].trim(),
       };
-      if (endM)  args.end_date      = naturalDateToISO(endM[1].trim()) ?? endM[1].trim();
-      if (durM)  args.duration_days = durM[1];
+      if (halfDayM) {
+        args.half_day = halfDayM[1].toLowerCase();
+      } else {
+        if (endM) args.end_date      = naturalDateToISO(endM[1].trim()) ?? endM[1].trim();
+        if (durM) args.duration_days = durM[1];
+      }
       return { tool: 'apply_leave', args };
     }
   }
@@ -708,6 +713,7 @@ const HRBOT_TOOLS: any[] = [
         start_date:    { type: 'STRING', description: 'YYYY-MM-DD' },
         end_date:      { type: 'STRING', description: 'YYYY-MM-DD — omit if single day or if duration_days given' },
         duration_days: { type: 'STRING', description: 'Number of days when user says "for 3 days" instead of giving an end date. E.g. "3"' },
+        half_day:      { type: 'STRING', description: 'first | second — set ONLY for a half-day request ("half day", "1st half", "morning off", "afternoon off"). first = 9:00 AM-1:00 PM, second = 2:00 PM-6:00 PM. A half day is always exactly one day — omit end_date and duration_days when this is set.' },
         reason:        { type: 'STRING', description: 'Optional reason' },
       },
       required: ['leave_type', 'start_date'],
@@ -1074,6 +1080,7 @@ Read-only (call IMMEDIATELY, no confirmation):
 Action — apply leave (collect missing details, one at a time, THEN call apply_leave() directly — see Confirmation rule above, do not write your own "Go ahead?" text):
 - "apply leave" / "take leave" / "I want a day off" / "I'm sick tomorrow" / "sick leave" / "I'll be absent" / "leave lena hai" / "leave chahiye"
 - Required: leave_type (casual/sick/annual), start_date, and end_date or duration. Ask one at a time if missing.
+- Half day: "half day" / "1st half" / "first half" / "2nd half" / "second half" / "morning off" / "afternoon off" → pass half_day="first" (9:00 AM–1:00 PM) or half_day="second" (2:00 PM–6:00 PM) instead of end_date/duration_days. A half day is always exactly one day — never combine half_day with an end_date or a multi-day duration.
 - Once all required fields are known (whether from one message or several), call apply_leave() immediately — do NOT ask "Apply sick leave for X (1 day)?" yourself first. The system shows that confirmation automatically.
 
 Action — cancel leave (confirm first):
@@ -1288,6 +1295,10 @@ function buildToolConfirmation(tool: string, args: Record<string, string>): stri
   if (tool === 'apply_leave') {
     const ltype = args.leave_type ?? 'leave';
     const start = args.start_date ?? '';
+    if (args.half_day === 'first' || args.half_day === 'second') {
+      const session = args.half_day === 'first' ? 'First Half, 9:00 AM–1:00 PM' : 'Second Half, 2:00 PM–6:00 PM';
+      return `I'll apply for *${ltype}* leave on *${start}* (${session}). Go ahead? (Yes / No)`;
+    }
     // end_date is deliberately omitted by the model for single-day leaves
     // (see the tool schema) — showing "to *${args.end_date ?? ''}*" in that
     // case rendered the literal empty bold markers "to **" with nothing
@@ -2963,6 +2974,7 @@ async function dispatchToolResult(
       start_date:    input.start_date                          ?? null,
       end_date:      input.end_date                            ?? null,
       duration_days: input.duration_days                       ?? null,
+      half_day:      input.half_day                            ?? null,
       reason:        input.reason                              ?? null,
       employee_name: input.employee_name                       ?? null,
       wa_number:     input.wa_number                            ?? null,

@@ -1388,7 +1388,15 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     }
 
     const startDate = slots.start_date!;
-    let endDate = slots.end_date ?? startDate;
+    // Half-day leave is always exactly one day (9 AM–1 PM or 2 PM–6 PM), so it
+    // ignores any end_date/duration_days the model might also have sent.
+    const halfDay: 'first' | 'second' | null =
+      slots.half_day === 'first' || slots.half_day === 'second' ? slots.half_day : null;
+    const HALF_DAY_LABEL: Record<'first' | 'second', string> = {
+      first:  'First Half, 9:00 AM–1:00 PM',
+      second: 'Second Half, 2:00 PM–6:00 PM',
+    };
+    let endDate = halfDay ? startDate : (slots.end_date ?? startDate);
 
     const isValidYmd = (value: string) => {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -1400,7 +1408,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       return { success: false, reply: '❌ Invalid leave date. Please use a real date such as 2026-07-15.' };
     }
 
-    if (slots.duration_days && !slots.end_date) {
+    if (!halfDay && slots.duration_days && !slots.end_date) {
       const duration = Number(slots.duration_days);
       if (!Number.isInteger(duration) || duration < 1 || duration > 365) {
         return { success: false, reply: '❌ Leave duration must be between 1 and 365 days.' };
@@ -1427,7 +1435,11 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       };
     }
 
-    const totalDays = calcBusinessDays(startDate, endDate);
+    // A half day is still pinned to a real business day — Saturday/Sunday
+    // aren't valid even for half a day off.
+    const totalDays = halfDay
+      ? (calcBusinessDays(startDate, startDate) > 0 ? 0.5 : 0)
+      : calcBusinessDays(startDate, endDate);
     const year = new Date(startDate).getFullYear();
 
     // Validate: must be at least 1 business day
@@ -1476,7 +1488,12 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       };
     }
 
-    const reason = (slots.reason === 'SKIP' || !slots.reason) ? null : slots.reason.trim().slice(0, 1000);
+    // There's no dedicated "session" column on leave_requests, so the half-day
+    // label is folded into reason — it's the one field every leave listing
+    // (WhatsApp, dashboard, audit log) already surfaces.
+    const userReason = (slots.reason === 'SKIP' || !slots.reason) ? null : slots.reason.trim().slice(0, 1000);
+    const halfDayTag = halfDay ? `[${HALF_DAY_LABEL[halfDay]}]` : null;
+    const reason = [halfDayTag, userReason].filter(Boolean).join(' ') || null;
 
     const { data: request, error } = await db
       .from('leave_requests')
@@ -1502,7 +1519,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     return {
       success: true,
-      reply: REPLIES.leaveApplied(leaveType.name, startDate, endDate, totalDays, leaveType.requires_approval, lang),
+      reply: REPLIES.leaveApplied(leaveType.name, startDate, endDate, totalDays, leaveType.requires_approval, lang, halfDay ? HALF_DAY_LABEL[halfDay] : null),
     };
   },
 

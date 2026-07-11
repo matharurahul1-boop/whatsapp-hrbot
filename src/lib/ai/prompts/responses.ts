@@ -58,12 +58,15 @@ export const REPLIES = {
 
   leaveApplied: (
     leaveType: string, start: string, end: string, days: number,
-    requiresApproval: boolean, lang: SupportedLanguage
+    requiresApproval: boolean, lang: SupportedLanguage, sessionLabel?: string | null
   ) => {
     const status = requiresApproval ? (lang === 'hi' ? 'अनुमोदन प्रतीक्षित' : 'Pending approval') : (lang === 'hi' ? 'स्वीकृत' : 'Auto-approved');
+    const dayLine = sessionLabel
+      ? (lang === 'hi' ? `📊 ${days} दिन (${sessionLabel})` : `📊 ${days} day (${sessionLabel})`)
+      : (lang === 'hi' ? `📊 ${days} दिन` : `📊 ${days} day(s)`);
     return lang === 'hi'
-      ? `📅 छुट्टी आवेदन जमा!\n\n🏷️ *${leaveType}*\n📆 ${formatDate(start)} से ${formatDate(end)}\n📊 ${days} दिन\n✅ स्थिति: ${status}`
-      : `📅 Leave request submitted!\n\n🏷️ *${leaveType}*\n📆 ${formatDate(start)} → ${formatDate(end)}\n📊 ${days} day(s)\n✅ Status: ${status}`;
+      ? `📅 छुट्टी आवेदन जमा!\n\n🏷️ *${leaveType}*\n📆 ${formatDate(start)}${end !== start ? ` से ${formatDate(end)}` : ''}\n${dayLine}\n✅ स्थिति: ${status}`
+      : `📅 Leave request submitted!\n\n🏷️ *${leaveType}*\n📆 ${formatDate(start)}${end !== start ? ` → ${formatDate(end)}` : ''}\n${dayLine}\n✅ Status: ${status}`;
   },
 
   leaveBalance: (

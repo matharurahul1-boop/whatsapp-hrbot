@@ -4,6 +4,8 @@ import { redirect } from 'next/navigation';
 import TaskKanban from '@/components/tasks/TaskKanban';
 import CreateTaskModal from '@/components/tasks/CreateTaskModal';
 import RefreshButton from '@/components/ui/RefreshButton';
+import RealtimeWatcher from '@/components/realtime/RealtimeWatcher';
+import { isRealtimeRefreshEnabled } from '@/lib/utils/realtime-settings';
 import { isEmployee } from '@/lib/rbac';
 
 export const metadata = { title: 'Tasks — HRBot' };
@@ -44,7 +46,7 @@ export default async function TasksPage() {
     taskQuery = taskQuery.or(`assignee_id.eq.${user.id},created_by.eq.${user.id},updated_by.eq.${user.id}`);
   }
 
-  const [tasksRes, empRes] = await Promise.all([
+  const [tasksRes, empRes, realtimeEnabled] = await Promise.all([
     taskQuery,
     db.from('users')
       .select('id, full_name')
@@ -52,6 +54,7 @@ export default async function TasksPage() {
       .eq('is_active', true)
       .is('deleted_at', null)
       .order('full_name'),
+    isRealtimeRefreshEnabled(db, orgId),
   ]);
 
   const tasks     = (tasksRes.data ?? []) as unknown as Parameters<typeof TaskKanban>[0]['tasks'];
@@ -59,6 +62,7 @@ export default async function TasksPage() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto animate-fade-up">
+      <RealtimeWatcher orgId={orgId} table="tasks" enabled={realtimeEnabled} />
       {/* Page header */}
       <div className="page-header">
         <div>

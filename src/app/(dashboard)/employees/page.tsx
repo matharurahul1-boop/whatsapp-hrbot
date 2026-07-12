@@ -5,6 +5,8 @@ import EmployeeGrid from '@/components/employees/EmployeeGrid';
 import InvitePanel from '@/components/employees/InvitePanel';
 import CreateAccountModal from '@/components/employees/CreateAccountModal';
 import RefreshButton from '@/components/ui/RefreshButton';
+import RealtimeWatcher from '@/components/realtime/RealtimeWatcher';
+import { isRealtimeRefreshEnabled } from '@/lib/utils/realtime-settings';
 
 export const metadata = { title: 'Team — HRBot' };
 export const dynamic = 'force-dynamic';
@@ -24,17 +26,20 @@ export default async function EmployeesPage() {
   if (!profile) redirect('/login');
   if (profile.role === 'employee') redirect('/dashboard');
 
-  const { data: employees } = await db
-    .from('v_employee_directory')
-    .select('*')
-    .eq('organization_id', profile.organization_id)
-    .order('full_name');
+  const [{ data: employees }, realtimeEnabled] = await Promise.all([
+    db.from('v_employee_directory')
+      .select('*')
+      .eq('organization_id', profile.organization_id)
+      .order('full_name'),
+    isRealtimeRefreshEnabled(db, profile.organization_id),
+  ]);
 
   const canEdit   = ['super_admin', 'admin', 'hr'].includes(profile.role);
   const canInvite = ['super_admin', 'admin', 'hr'].includes(profile.role);
 
   return (
     <div className="max-w-7xl mx-auto animate-fade-up space-y-6">
+      <RealtimeWatcher orgId={profile.organization_id} table="users" enabled={realtimeEnabled} />
       <div className="page-header">
         <div>
           <h1 className="page-title">Team</h1>

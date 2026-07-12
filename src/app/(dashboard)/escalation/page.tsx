@@ -2,6 +2,8 @@ import { createClient }      from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { redirect }          from 'next/navigation';
 import EscalationClient      from './EscalationClient';
+import RealtimeWatcher       from '@/components/realtime/RealtimeWatcher';
+import { isRealtimeRefreshEnabled } from '@/lib/utils/realtime-settings';
 
 export const metadata = { title: 'Escalation Engine — HRBot' };
 export const revalidate = 0;
@@ -23,22 +25,27 @@ export default async function EscalationPage() {
   }
 
   // Fetch pending leave requests with escalation info
-  const { data: leaves } = await db
-    .from('leave_requests')
-    .select(`
-      id, created_at, start_date, end_date, total_days, reason,
-      escalated_manager_at, escalated_admin_at,
-      user:users!leave_requests_user_id_fkey(full_name, wa_number, department),
-      leave_type:leave_types!leave_requests_leave_type_id_fkey(name, color_hex),
-      approver:users!leave_requests_approved_by_fkey(full_name)
-    `)
-    .eq('organization_id', profile.organization_id)
-    .eq('status', 'pending')
-    .order('created_at', { ascending: true });
+  const [{ data: leaves }, realtimeEnabled] = await Promise.all([
+    db.from('leave_requests')
+      .select(`
+        id, created_at, start_date, end_date, total_days, reason,
+        escalated_manager_at, escalated_admin_at,
+        user:users!leave_requests_user_id_fkey(full_name, wa_number, department),
+        leave_type:leave_types!leave_requests_leave_type_id_fkey(name, color_hex),
+        approver:users!leave_requests_approved_by_fkey(full_name)
+      `)
+      .eq('organization_id', profile.organization_id)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: true }),
+    isRealtimeRefreshEnabled(db, profile.organization_id),
+  ]);
 
   return (
-    <EscalationClient
-      initialLeaves={(leaves ?? []) as unknown as Parameters<typeof EscalationClient>[0]['initialLeaves']}
-    />
+    <>
+      <RealtimeWatcher orgId={profile.organization_id} table="leave_requests" enabled={realtimeEnabled} />
+      <EscalationClient
+        initialLeaves={(leaves ?? []) as unknown as Parameters<typeof EscalationClient>[0]['initialLeaves']}
+      />
+    </>
   );
 }

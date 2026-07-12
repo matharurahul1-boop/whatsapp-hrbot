@@ -8,6 +8,7 @@ export type FlowState =
   | 'AUDIO_CONFIRM'      // Voice message transcribed, waiting for yes/no before dispatch
   | 'AUDIO_FIELD_SELECT' // User said No; waiting for them to pick which field to correct
   | 'PICKING_DEADLINE'   // Two-step date+time calendar picker
+  | 'AWAITING_LEAVE_REASON' // apply_leave proposed without a reason; next message supplies it
   | 'AUDIO_FIELD_VALUE'  // Field selected; waiting for the new value to apply
   | 'RESOLVING_TASK_OWNER' // "update <name>'s task" was ambiguous; next message is the full name
   | 'EXECUTING'          // Running tool (internal, not persisted long)

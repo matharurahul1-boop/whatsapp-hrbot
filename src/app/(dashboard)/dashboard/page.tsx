@@ -13,6 +13,8 @@ import AttendanceSummary from '@/components/attendance/AttendanceSummary';
 import ActivityFeed from '@/components/dashboard/ActivityFeed';
 import AttendanceHeatmap from '@/components/dashboard/AttendanceHeatmap';
 import RefreshButton from '@/components/ui/RefreshButton';
+import RealtimeWatcher from '@/components/realtime/RealtimeWatcher';
+import { isRealtimeRefreshEnabled } from '@/lib/utils/realtime-settings';
 
 export const metadata = { title: 'Dashboard — HRBot' };
 export const dynamic = 'force-dynamic';
@@ -39,10 +41,11 @@ export default async function DashboardPage() {
   const firstName = profile.full_name?.split(' ')[0] ?? 'there';
 
   // Parallel data fetch
-  const [kpisRes, taskTrendRes, heatmapRes] = await Promise.all([
+  const [kpisRes, taskTrendRes, heatmapRes, realtimeEnabled] = await Promise.all([
     db.rpc('get_org_kpis', { p_org_id: orgId }),
     db.rpc('get_task_trend', { p_org_id: orgId }),
     db.rpc('get_attendance_heatmap', { p_org_id: orgId, p_days: 30 }),
+    isRealtimeRefreshEnabled(db, orgId),
   ]);
 
   const kpis        = kpisRes.data?.[0];
@@ -71,6 +74,9 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto animate-fade-up">
+      <RealtimeWatcher orgId={orgId} table="tasks" enabled={realtimeEnabled} />
+      <RealtimeWatcher orgId={orgId} table="leave_requests" enabled={realtimeEnabled} />
+      <RealtimeWatcher orgId={orgId} table="attendance_records" enabled={realtimeEnabled} />
       {/* ── Header ── */}
       <div className="page-header">
         <div>

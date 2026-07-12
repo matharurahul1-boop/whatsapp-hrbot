@@ -421,6 +421,7 @@ function parseConfirmationMessage(lastMsg: string): ConfirmationParsed | null {
     const endM   = afterLeave.match(/\bto\s+\*([^*]+)\*/i);
     const durM   = afterLeave.match(/for\s+\*?(\d+)\*?\s+days?/i);
     const halfDayM = afterLeave.match(/\b(first|second)\s+half\b/i);
+    const reasonM  = lastMsg.match(/Reason:\s*"([^"]*)"/i);
     if (startM) {
       const args: Record<string, string> = {
         leave_type: leaveM[1].toLowerCase(),
@@ -432,6 +433,7 @@ function parseConfirmationMessage(lastMsg: string): ConfirmationParsed | null {
         if (endM) args.end_date      = naturalDateToISO(endM[1].trim()) ?? endM[1].trim();
         if (durM) args.duration_days = durM[1];
       }
+      if (reasonM) args.reason = reasonM[1].trim();
       return { tool: 'apply_leave', args };
     }
   }
@@ -1122,9 +1124,11 @@ Read-only (call IMMEDIATELY, no confirmation):
 
 ${userCanApplyForLeave ? `Action — apply leave (collect missing details, one at a time, THEN call apply_leave() directly — see Confirmation rule above, do not write your own "Go ahead?" text):
 - "apply leave" / "take leave" / "I want a day off" / "I'm sick tomorrow" / "sick leave" / "I'll be absent" / "leave lena hai" / "leave chahiye"
-- Required: leave_type (casual/sick/annual), start_date, and end_date or duration. Ask one at a time if missing.
+- CRITICAL — you must NEVER pass reason="SKIP" (or invent/assume any reason) unless the user has, in their own words somewhere in this conversation, actually said "skip" / "no reason" / declined to give one. Guessing or defaulting to SKIP on your own is forbidden.
+- Required before you may call apply_leave: leave_type (casual/sick/annual), start_date, end_date or duration, AND a reason that the user actually gave you (a real reason, or their own "skip"). Ask for whichever of these is still missing, one at a time.
 - Half day: "half day" / "1st half" / "first half" / "2nd half" / "second half" / "morning off" / "afternoon off" → pass half_day="first" (9:00 AM–1:00 PM) or half_day="second" (2:00 PM–6:00 PM) instead of end_date/duration_days. A half day is always exactly one day — never combine half_day with an end_date or a multi-day duration.
-- Once all required fields are known (whether from one message or several), call apply_leave() immediately — do NOT ask "Apply sick leave for X (1 day)?" yourself first. The system shows that confirmation automatically.
+- If leave_type, start_date, and end_date/duration are all known but the user has NOT yet told you a reason (even if this is the very first message and everything else is present), do NOT call apply_leave yet. Your entire reply for this turn must be only: "What's the reason for your leave?" Nothing else — no tool call, no summary, no "Go ahead?". Wait for the user's next message.
+- Once the user replies to that question (a real reason, or "skip"/"no reason"/decline → then and only then pass reason="SKIP"), call apply_leave() immediately with everything collected so far — do NOT ask "Apply sick leave for X (1 day)?" yourself first. The system shows that confirmation automatically. Never ask about the reason twice.
 
 Action — cancel leave (confirm first):
 - "cancel my leave" / "I don't want leave" / "leave cancel karo"
@@ -1338,9 +1342,13 @@ function buildToolConfirmation(tool: string, args: Record<string, string>): stri
   if (tool === 'apply_leave') {
     const ltype = args.leave_type ?? 'leave';
     const start = args.start_date ?? '';
+    // Round-tripped through parseConfirmationMessage below — keep both in sync.
+    const reasonSuffix = (args.reason && args.reason !== 'SKIP')
+      ? ` Reason: "${args.reason.slice(0, 200)}".`
+      : '';
     if (args.half_day === 'first' || args.half_day === 'second') {
       const session = args.half_day === 'first' ? 'First Half, 9:00 AM–1:00 PM' : 'Second Half, 2:00 PM–6:00 PM';
-      return `I'll apply for *${ltype}* leave on *${start}* (${session}). Go ahead? (Yes / No)`;
+      return `I'll apply for *${ltype}* leave on *${start}* (${session}).${reasonSuffix} Go ahead? (Yes / No)`;
     }
     // end_date is deliberately omitted by the model for single-day leaves
     // (see the tool schema) — showing "to *${args.end_date ?? ''}*" in that
@@ -1348,12 +1356,12 @@ function buildToolConfirmation(tool: string, args: Record<string, string>): stri
     // between them. Cover all three shapes the model can send: an explicit
     // end date, a day count, or neither (single day).
     if (args.end_date) {
-      return `I'll apply for *${ltype}* from *${start}* to *${args.end_date}*. Go ahead? (Yes / No)`;
+      return `I'll apply for *${ltype}* from *${start}* to *${args.end_date}*.${reasonSuffix} Go ahead? (Yes / No)`;
     }
     if (args.duration_days && Number(args.duration_days) > 1) {
-      return `I'll apply for *${ltype}* leave starting *${start}* for *${args.duration_days}* days. Go ahead? (Yes / No)`;
+      return `I'll apply for *${ltype}* leave starting *${start}* for *${args.duration_days}* days.${reasonSuffix} Go ahead? (Yes / No)`;
     }
-    return `I'll apply for *${ltype}* leave on *${start}* (1 day). Go ahead? (Yes / No)`;
+    return `I'll apply for *${ltype}* leave on *${start}* (1 day).${reasonSuffix} Go ahead? (Yes / No)`;
   }
   if (tool === 'assign_task') {
     return `I'll reassign *${args.task_title ?? '?'}* to *${args.assignee ?? '?'}*. Go ahead? (Yes / No)`;
@@ -1380,6 +1388,35 @@ function buildToolConfirmation(tool: string, args: Record<string, string>): stri
   if (tool === 'set_reminder') return `I'll set a reminder for *${args.message ?? '?'}* at *${args.remind_at ?? '?'}*. Go ahead? (Yes / No)`;
   if (tool === 'configure_reminders') return 'I’ll update your reminder preferences. Go ahead? (Yes / No)';
   return `Confirm this action? (Yes / No)`;
+}
+
+// apply_leave must never reach the Yes/No confirmation without a reason the
+// user actually typed into a dedicated reply — the model proved unreliable
+// at self-reporting this in every way tried: defaulting straight to
+// reason="SKIP", omitting it, inventing a plausible-sounding reason
+// ("personal reason") the user never said, or simply echoing the entire
+// request back as its own "reason". So it's enforced deterministically:
+// any apply_leave call that reaches this gate always gets intercepted to
+// ask the question for real, discarding whatever the model put in
+// args.reason. The only trusted source of a reason is the user's own next
+// message, captured by the AWAITING_LEAVE_REASON branch above (which
+// bypasses this gate entirely on the resuming turn). Returns the "what's
+// the reason" prompt (and saves AWAITING_LEAVE_REASON context).
+async function gateLeaveReason(
+  toolName:       string,
+  args:           Record<string, string>,
+  context:        ConversationContext,
+  conversationId: string,
+): Promise<string | null> {
+  if (toolName !== 'apply_leave') return null;
+  const { reason: _drop, ...argsWithoutReason } = args;
+  await saveContext(conversationId, {
+    ...EMPTY_CONTEXT,
+    language:        context.language,
+    flow_state:      'AWAITING_LEAVE_REASON',
+    confirm_payload: { tool: 'apply_leave', args: argsWithoutReason },
+  }).catch(() => {});
+  return "What's the reason for your leave?";
 }
 
 function shouldHaveCalledTool(msg: string): boolean {
@@ -1753,6 +1790,35 @@ async function runGroqLoop(
     const personName = message.trim();
     console.log(`[Agent] Resolving ambiguous task-owner name: "${personName}"`);
     return resolveTaskOwnerForUpdate(personName, user, orgId, conversationId, context.language);
+  }
+
+  // ── 0a2. AWAITING_LEAVE_REASON state — user is answering "what's the reason
+  // for your leave?" (see gateLeaveReason below). Enforced here deterministically
+  // rather than left to the system prompt — the model proved unreliable at
+  // asking this itself before calling apply_leave.
+  if (context.flow_state === 'AWAITING_LEAVE_REASON' && context.confirm_payload) {
+    const raw = message.trim();
+    // "no"/"cancel"/"nahi" etc. here means abandon the whole leave
+    // application, not "I decline to give a reason" — isNo() is the same
+    // check used for every other cancel shortcut in this file.
+    if (isNo(raw)) {
+      await saveContext(conversationId, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
+      ctxRef.handled = true;
+      return 'Got it, cancelled. What else can I help with? 😊';
+    }
+    const pending = context.confirm_payload as { tool: string; args: Record<string, string> };
+    const reason = /^(skip|no\s*reason|none|n\/?a|decline|prefer\s*not\s*to\s*say)$/i.test(raw) ? 'SKIP' : raw.slice(0, 500);
+    const mergedArgs = { ...pending.args, reason };
+    const confirmText = buildToolConfirmation('apply_leave', mergedArgs);
+    await saveContext(conversationId, {
+      ...EMPTY_CONTEXT,
+      language:        context.language,
+      flow_state:      'CONFIRMING',
+      confirm_message: confirmText,
+      confirm_payload: { tool: 'apply_leave', args: mergedArgs },
+    }).catch(() => {});
+    ctxRef.handled = true;
+    return confirmText;
   }
 
   // ── 0. EDITING state — merge user correction with base create_task payload ──
@@ -2699,6 +2765,8 @@ async function runGroqLoop(
                 await saveContext(conversationId, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
                 return output;
               }
+              const reasonPrompt = await gateLeaveReason(tc.function.name, args, context, conversationId);
+              if (reasonPrompt) return reasonPrompt;
               console.log(`[Agent] Groq tried to execute ${tc.function.name} directly — intercepting for confirmation`);
               const confirmText = buildToolConfirmation(tc.function.name, args);
               await saveContext(conversationId, {
@@ -2795,6 +2863,8 @@ async function runGroqLoop(
               await saveContext(conversationId, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
               return output;
             }
+            const reasonPrompt = await gateLeaveReason(block.name, args, context, conversationId);
+            if (reasonPrompt) return reasonPrompt;
             const confirmText = buildToolConfirmation(block.name, args);
             await saveContext(conversationId, {
               ...EMPTY_CONTEXT,
@@ -2938,6 +3008,8 @@ async function runGroqLoop(
               await saveContext(conversationId, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
               return output;
             }
+            const reasonPrompt = await gateLeaveReason(tc.function.name, args, context, conversationId);
+            if (reasonPrompt) return reasonPrompt;
             console.log(`[Agent] OR tried to execute ${tc.function.name} directly — intercepting for confirmation`);
             const confirmText = buildToolConfirmation(tc.function.name, args);
             await saveContext(conversationId, {

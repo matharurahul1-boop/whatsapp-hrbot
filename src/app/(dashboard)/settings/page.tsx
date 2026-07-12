@@ -7,7 +7,7 @@ import {
   Building2, Bell, Shield, Phone,
   Save, Loader2, CheckCircle2, AlertCircle,
   Eye, EyeOff, Copy, Check, Bot, KeyRound, Plus, X,
-  CalendarDays,
+  CalendarDays, RefreshCw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import { normalizeWaNumber } from '@/lib/utils/phone';
@@ -136,6 +136,13 @@ export default function SettingsPage() {
   const [savingAi,    setSavingAi]    = useState(false);
   const [aiSaved,     setAiSaved]     = useState(false);
 
+  // Realtime dashboard auto-refresh toggle (admin only) — org-wide on/off for
+  // the postgres_changes subscriptions that auto-refresh Leave/Tasks/Attendance/
+  // Team/Dashboard/Escalation pages.
+  const [realtimeRefresh,      setRealtimeRefresh]      = useState(true);
+  const [savingRealtime,       setSavingRealtime]       = useState(false);
+  const [realtimeSaved,        setRealtimeSaved]        = useState(false);
+
   // Leave Policy (HR+) — leave types themselves, plus a role x work_mode
   // entitlement override matrix. Self-contained, same pattern as AI
   // Backend/Groq Keys above (own load + own inline save actions rather than
@@ -224,6 +231,7 @@ export default function SettingsPage() {
         setWaTemplateLang(snapshot.waTemplateLang);
         setWaTemplateVars(snapshot.waTemplateVars);
         setAiBackend(GROQ_BACKEND_ENABLED ? ((org as any).settings?.ai_backend === 'claude' ? 'claude' : 'groq') : 'claude');
+        setRealtimeRefresh((org as any).settings?.realtime_refresh_enabled !== false);
         setGroqKeysCount(org.groq_api_keys_count ?? 0);
         setGroqKeys(Array.isArray(org.groq_api_keys) && org.groq_api_keys.length > 0 ? org.groq_api_keys : ['']);
         setGroqKeysSource(org.groq_api_keys_source === 'org' ? 'org' : 'server');
@@ -482,6 +490,28 @@ export default function SettingsPage() {
       }
     } finally {
       setSavingAi(false);
+    }
+  }
+
+  async function saveRealtimeRefresh(next: boolean) {
+    setRealtimeRefresh(next);
+    setSavingRealtime(true);
+    try {
+      const res = await fetch('/api/organizations/settings', {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ realtime_refresh_enabled: next }),
+      });
+      if (res.ok) {
+        setRealtimeSaved(true);
+        toast(next ? 'Live page updates turned on.' : 'Live page updates turned off.');
+        setTimeout(() => setRealtimeSaved(false), 2500);
+      } else {
+        setRealtimeRefresh(!next);
+        toast('Failed to save live updates setting.', 'error');
+      }
+    } finally {
+      setSavingRealtime(false);
     }
   }
 
@@ -909,6 +939,49 @@ export default function SettingsPage() {
                 {savingAi ? 'Saving…' : aiSaved ? 'Saved!' : 'Save AI settings'}
               </button>
             </div>
+          </Section>
+        )}
+
+        {/* ── Live page updates (admin only) ── */}
+        {isAdmin && (
+          <Section
+            title="Live Updates"
+            description="Auto-refresh Leave, Tasks, Attendance, Team, Dashboard, and Escalation pages the moment data changes — org-wide"
+            icon={<RefreshCw className="h-4 w-4" />}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold text-surface-900">
+                  {realtimeRefresh ? 'Live updates on' : 'Live updates off'}
+                </p>
+                <p className="text-xs text-surface-500 mt-0.5">
+                  {realtimeRefresh
+                    ? 'Pages refresh themselves automatically when someone else changes data'
+                    : 'Everyone in this organization needs to refresh manually to see new data'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => saveRealtimeRefresh(!realtimeRefresh)}
+                disabled={savingRealtime}
+                className={cn(
+                  'relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500/50',
+                  realtimeRefresh ? 'bg-brand-500' : 'bg-surface-300',
+                  savingRealtime && 'opacity-50 cursor-not-allowed'
+                )}
+                aria-label="Toggle live page updates"
+              >
+                <span className={cn(
+                  'inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform mt-0.5',
+                  realtimeRefresh ? 'translate-x-5' : 'translate-x-0.5'
+                )} />
+              </button>
+            </div>
+            {realtimeSaved && (
+              <p className="text-xs text-success flex items-center gap-1.5">
+                <CheckCircle2 className="h-3.5 w-3.5" /> Saved
+              </p>
+            )}
           </Section>
         )}
 

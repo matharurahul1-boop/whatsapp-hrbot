@@ -6,6 +6,8 @@ import CheckInWidget from '@/components/attendance/CheckInWidget';
 import AttendanceHeatmap from '@/components/dashboard/AttendanceHeatmap';
 import { todayISO } from '@/lib/utils/date';
 import RefreshButton from '@/components/ui/RefreshButton';
+import RealtimeWatcher from '@/components/realtime/RealtimeWatcher';
+import { isRealtimeRefreshEnabled } from '@/lib/utils/realtime-settings';
 
 export const metadata = { title: 'Attendance — HRBot' };
 export const revalidate = 0;
@@ -44,7 +46,7 @@ export default async function AttendancePage() {
 
   if (!isManager) query = query.eq('employee_id', user.id);
 
-  const [recordsRes, todayRes, heatmapRes] = await Promise.all([
+  const [recordsRes, todayRes, heatmapRes, realtimeEnabled] = await Promise.all([
     query,
     db.from('attendance_records')
       .select('id, status, check_in_time, check_out_time, total_hours')
@@ -54,6 +56,7 @@ export default async function AttendancePage() {
     isManager
       ? db.rpc('get_attendance_heatmap', { p_org_id: orgId, p_days: 30 })
       : Promise.resolve({ data: null }),
+    isRealtimeRefreshEnabled(db, orgId),
   ]);
 
   const records      = (recordsRes.data ?? []) as unknown as Parameters<typeof AttendanceTable>[0]['records'];
@@ -62,6 +65,7 @@ export default async function AttendancePage() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto animate-fade-up">
+      <RealtimeWatcher orgId={orgId} table="attendance_records" enabled={realtimeEnabled} />
       {/* Page header */}
       <div className="page-header">
         <div>

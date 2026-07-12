@@ -21,6 +21,8 @@ const Schema = z.object({
   wa_template_variables: z.number().int().min(1).max(5).optional(),
   // AI backend toggle — stored inside organizations.settings JSONB, not a direct column
   ai_backend:           z.enum(['groq', 'claude']).optional(),
+  // Realtime dashboard auto-refresh — also stored inside organizations.settings JSONB
+  realtime_refresh_enabled: z.boolean().optional(),
   // Comma-separated Groq keys, stored in organization_secrets alongside wa_access_token
   groq_api_keys:        z.string().min(1).optional(),
 });
@@ -103,7 +105,7 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: msg }, { status: 422 });
   }
 
-  const { ai_backend, wa_access_token, groq_api_keys, wa_template_variables, ...directFields } = parsed.data;
+  const { ai_backend, realtime_refresh_enabled, wa_access_token, groq_api_keys, wa_template_variables, ...directFields } = parsed.data;
   const orgId = profile.organization_id;
 
   if (wa_access_token !== undefined || groq_api_keys !== undefined) {
@@ -147,17 +149,23 @@ export async function PATCH(req: NextRequest) {
     if (error) console.error('[org/settings PATCH] wa_template_variables (column may not exist yet):', error.message);
   }
 
-  // Merge ai_backend into the settings JSONB column
-  if (ai_backend !== undefined) {
+  // Merge ai_backend / realtime_refresh_enabled into the settings JSONB column
+  if (ai_backend !== undefined || realtime_refresh_enabled !== undefined) {
     const { data: org } = await db
       .from('organizations').select('settings').eq('id', orgId).single();
     const current = (org?.settings as Record<string, unknown>) ?? {};
     const { error } = await db
       .from('organizations')
-      .update({ settings: { ...current, ai_backend } })
+      .update({
+        settings: {
+          ...current,
+          ...(ai_backend !== undefined && { ai_backend }),
+          ...(realtime_refresh_enabled !== undefined && { realtime_refresh_enabled }),
+        },
+      })
       .eq('id', orgId);
     if (error) {
-      console.error('[org/settings PATCH] ai_backend:', error.message);
+      console.error('[org/settings PATCH] settings JSONB:', error.message);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
   }

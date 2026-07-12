@@ -5,6 +5,8 @@ import LeaveBalanceCards from '@/components/leave/LeaveBalanceCards';
 import LeaveRequestsTable from '@/components/leave/LeaveRequestsTable';
 import ApplyLeaveModal from '@/components/leave/ApplyLeaveModal';
 import RefreshButton from '@/components/ui/RefreshButton';
+import RealtimeWatcher from '@/components/realtime/RealtimeWatcher';
+import { isRealtimeRefreshEnabled } from '@/lib/utils/realtime-settings';
 import { canApplyForLeave, canApproveLeaveFor } from '@/lib/rbac';
 
 export const metadata = { title: 'Leave — HRBot' };
@@ -49,7 +51,7 @@ export default async function LeavePage() {
 
   if (!canViewAll) requestQuery = requestQuery.eq('employee_id', user.id);
 
-  const [requestsRes, balancesRes, leaveTypesRes] = await Promise.all([
+  const [requestsRes, balancesRes, leaveTypesRes, realtimeEnabled] = await Promise.all([
     requestQuery,
     db.from('v_leave_summary')
       .select('leave_type, color, entitled_days, used_days, remaining_days')
@@ -60,6 +62,7 @@ export default async function LeavePage() {
       .eq('organization_id', orgId)
       .eq('is_active', true)
       .order('name'),
+    isRealtimeRefreshEnabled(db, orgId),
   ]);
 
   const requests   = (requestsRes.data ?? []) as unknown as Parameters<typeof LeaveRequestsTable>[0]['requests'];
@@ -70,6 +73,7 @@ export default async function LeavePage() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto animate-fade-up">
+      <RealtimeWatcher orgId={orgId} table="leave_requests" enabled={realtimeEnabled} />
       {/* Page header */}
       <div className="page-header">
         <div>

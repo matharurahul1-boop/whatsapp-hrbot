@@ -1,4 +1,4 @@
-import { formatDate } from '@/lib/utils/date';
+import { formatDateWithDay } from '@/lib/utils/date';
 import { Avatar } from '@/components/ui/Avatar';
 import { StatusBadge, Badge } from '@/components/ui/Badge';
 
@@ -69,7 +69,7 @@ export default function AttendanceTable({
                     </div>
                   </td>
                 )}
-                <td className="text-sm text-surface-800">{formatDate(r.date)}</td>
+                <td className="text-sm text-surface-800">{formatDateWithDay(r.date)}</td>
                 <td className="text-sm font-medium text-surface-900 tabular">{fmt(r.check_in_time)}</td>
                 <td className="text-sm font-medium text-surface-900 tabular">{fmt(r.check_out_time)}</td>
                 <td className="text-sm text-surface-800">

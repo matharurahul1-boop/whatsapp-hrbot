@@ -324,7 +324,7 @@ export default function Header({ userId, userName, userRole, userEmail, avatarUr
         <div className="h-5 w-px bg-surface-300 mx-1 hidden sm:block" />
 
         {/* User info — click to edit profile */}
-        <div className="relative hidden sm:block" ref={profileRef}>
+        <div className="relative" ref={profileRef}>
           <button
             type="button"
             onClick={toggleProfile}
@@ -341,7 +341,7 @@ export default function Header({ userId, userName, userRole, userEmail, avatarUr
           </button>
 
           {profileOpen && (
-            <div className="absolute right-0 top-11 z-50 w-80 rounded-2xl bg-surface-100 border border-surface-300 shadow-modal animate-[scaleIn_0.15s_ease-out]">
+            <div className="absolute right-0 top-11 z-50 w-80 max-w-[calc(100vw-2rem)] rounded-2xl bg-surface-100 border border-surface-300 shadow-modal animate-[scaleIn_0.15s_ease-out]">
               <div className="flex items-center justify-between px-4 py-3 border-b border-surface-300">
                 <span className="text-sm font-semibold text-surface-950">Edit Profile</span>
                 <button onClick={() => setProfileOpen(false)} className="flex h-6 w-6 items-center justify-center rounded-lg text-surface-600 hover:text-surface-950 hover:bg-surface-300 transition-colors">
@@ -378,15 +378,15 @@ export default function Header({ userId, userName, userRole, userEmail, avatarUr
                     <div>
                       <label className="block text-2xs font-medium text-surface-700 mb-1">Department</label>
                       <input
-                        type="text" value={pDepartment} onChange={e => setPDepartment(e.target.value)}
-                        className="w-full rounded-lg border border-surface-300 bg-surface-0 px-3 py-2 text-sm text-surface-950 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500"
+                        type="text" value={pDepartment} disabled
+                        className="w-full rounded-lg border border-surface-300 bg-surface-0 px-3 py-2 text-sm text-surface-500 disabled:opacity-60 disabled:cursor-not-allowed"
                       />
                     </div>
                     <div>
                       <label className="block text-2xs font-medium text-surface-700 mb-1">Designation</label>
                       <input
-                        type="text" value={pDesignation} onChange={e => setPDesignation(e.target.value)}
-                        className="w-full rounded-lg border border-surface-300 bg-surface-0 px-3 py-2 text-sm text-surface-950 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500"
+                        type="text" value={pDesignation} disabled
+                        className="w-full rounded-lg border border-surface-300 bg-surface-0 px-3 py-2 text-sm text-surface-500 disabled:opacity-60 disabled:cursor-not-allowed"
                       />
                     </div>
                   </div>

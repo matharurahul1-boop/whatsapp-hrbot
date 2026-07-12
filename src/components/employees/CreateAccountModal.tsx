@@ -19,13 +19,14 @@ interface FormState {
   role: UserRole;
   department: string;
   designation: string;
+  work_mode: 'wfo' | 'wfh';
   password: string;
   confirm_password: string;
 }
 
 const EMPTY: FormState = {
   full_name: '', wa_number: '', email: '', role: 'employee',
-  department: '', designation: '', password: '', confirm_password: '',
+  department: '', designation: '', work_mode: 'wfo', password: '', confirm_password: '',
 };
 
 export default function CreateAccountModal({ actorRole }: { actorRole: string }) {
@@ -78,6 +79,7 @@ export default function CreateAccountModal({ actorRole }: { actorRole: string })
           role:        form.role,
           department:  form.department.trim(),
           designation: form.designation.trim(),
+          work_mode:   form.work_mode,
           password:    form.password,
         }),
       });
@@ -174,6 +176,13 @@ export default function CreateAccountModal({ actorRole }: { actorRole: string })
                     options={JOB_TITLE_OPTIONS} placeholder="Select job title" required
                     className="input"
                   />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="label">Work mode</label>
+                  <SelectNative value={form.work_mode} onChange={e => set('work_mode', e.target.value as 'wfo' | 'wfh')}>
+                    <option value="wfo">Work From Office</option>
+                    <option value="wfh">Work From Home</option>
+                  </SelectNative>
                 </div>
                 <div className="space-y-1.5">
                   <label className="label">Initial password</label>

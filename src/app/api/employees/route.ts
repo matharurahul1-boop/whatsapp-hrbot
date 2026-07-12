@@ -21,6 +21,7 @@ const UpdateProfileSchema = z.object({
   is_active:   z.boolean().optional(),
   role:        z.enum(['super_admin','admin','hr','hr_assistant','manager','employee']).optional(),
   onboarding_status: z.enum(['pending', 'in_progress', 'completed']).optional(),
+  work_mode:   z.enum(['wfo', 'wfh']).optional(),
 });
 
 const CreateAccountSchema = z.object({
@@ -31,6 +32,7 @@ const CreateAccountSchema = z.object({
   role:        z.enum(['super_admin','admin','hr','hr_assistant','manager','employee']).default('employee'),
   department:  z.string().min(1).max(100),
   designation: z.string().min(1).max(100),
+  work_mode:   z.enum(['wfo', 'wfh']).default('wfo'),
 });
 
 // ── GET /api/employees ────────────────────────────────────────────────────────
@@ -279,7 +281,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Only HR and above can create accounts for others' }, { status: 403 });
   }
 
-  const { full_name, email, wa_number, password, role, department, designation } = parsed.data;
+  const { full_name, email, wa_number, password, role, department, designation, work_mode } = parsed.data;
 
   // Prevent privilege escalation — creating a higher-privileged account than
   // your own requires being at that level yourself.
@@ -329,6 +331,7 @@ export async function POST(req: NextRequest) {
     role,
     department:      department?.trim() || null,
     designation:     designation?.trim() || null,
+    work_mode,
     is_active:       true,
     joined_at:       new Date().toISOString(),
   };

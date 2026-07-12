@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Mail, Phone, Building2, Calendar, User2, Hash, Pencil, Check, Loader2 } from 'lucide-react';
+import { X, Mail, Phone, Building2, Calendar, User2, Hash, Pencil, Check, Loader2, Home, CalendarDays } from 'lucide-react';
 import { Avatar } from '@/components/ui/Avatar';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -25,7 +25,19 @@ interface Employee {
   today_status: string | null;
   manager_name: string | null;
   onboarding_status: string | null;
+  work_mode?: 'wfo' | 'wfh';
 }
+
+interface LeaveBalanceRow {
+  id: string;
+  leave_type_id: string;
+  entitled_days: number;
+  used_days: number;
+  remaining_days: number;
+  leave_type: { name: string; color: string | null } | null;
+}
+
+const WORK_MODE_LABELS: Record<string, string> = { wfo: 'Work From Office', wfh: 'Work From Home' };
 
 interface DrawerProps {
   employee:  Employee | null;
@@ -77,6 +89,7 @@ interface EditFormState {
   role:        string;
   is_active:   boolean;
   onboarding_status: string;
+  work_mode:   string;
 }
 
 const ONBOARDING_LABELS: Record<string, string> = {
@@ -91,8 +104,11 @@ export default function EmployeeProfileDrawer({ employee, onClose, canEdit, onUp
   const [error,   setError]     = useState<string | null>(null);
   const [form,    setForm]      = useState<EditFormState>({
     full_name: '', wa_number: '', department: '', designation: '', role: 'employee', is_active: true,
-    onboarding_status: 'pending',
+    onboarding_status: 'pending', work_mode: 'wfo',
   });
+  const [balances,        setBalances]        = useState<LeaveBalanceRow[]>([]);
+  const [loadingBalances,  setLoadingBalances]  = useState(false);
+  const [savingBalanceId,  setSavingBalanceId]  = useState<string | null>(null);
   // Rendered via a portal straight to document.body (see the return below) so
   // this fixed-position overlay never inherits layout from wherever it's
   // mounted in the tree — e.g. EmployeeGrid returns it as a Fragment sibling
@@ -105,6 +121,7 @@ export default function EmployeeProfileDrawer({ employee, onClose, canEdit, onUp
   useEffect(() => {
     setEditing(false);
     setError(null);
+    setBalances([]);
     if (employee) {
       setForm({
         full_name:   employee.full_name   ?? '',
@@ -114,9 +131,37 @@ export default function EmployeeProfileDrawer({ employee, onClose, canEdit, onUp
         role:        employee.role        ?? 'employee',
         is_active:   employee.is_active   ?? true,
         onboarding_status: employee.onboarding_status ?? 'pending',
+        work_mode:   employee.work_mode   ?? 'wfo',
       });
+      if (canEdit) {
+        setLoadingBalances(true);
+        fetch(`/api/employees/leave-balances?employee_id=${employee.id}`)
+          .then(r => r.ok ? r.json() : { data: [] })
+          .then(j => setBalances(j.data ?? []))
+          .finally(() => setLoadingBalances(false));
+      }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [employee]);
+
+  async function saveBalance(row: LeaveBalanceRow, days: number) {
+    if (!employee) return;
+    setSavingBalanceId(row.leave_type_id);
+    try {
+      const res = await fetch('/api/employees/leave-balances', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ employee_id: employee.id, leave_type_id: row.leave_type_id, entitled_days: days }),
+      });
+      if (res.ok) {
+        setBalances(rows => rows.map(r => r.leave_type_id === row.leave_type_id
+          ? { ...r, entitled_days: days, remaining_days: days - r.used_days }
+          : r));
+      }
+    } finally {
+      setSavingBalanceId(null);
+    }
+  }
 
   // Close on Escape
   useEffect(() => {
@@ -139,6 +184,7 @@ export default function EmployeeProfileDrawer({ employee, onClose, canEdit, onUp
         role:        form.role,
         is_active:   form.is_active,
         onboarding_status: form.onboarding_status,
+        work_mode:   form.work_mode,
       };
 
       const res = await fetch('/api/employees', {
@@ -159,6 +205,7 @@ export default function EmployeeProfileDrawer({ employee, onClose, canEdit, onUp
         role:        form.role,
         is_active:   form.is_active,
         onboarding_status: form.onboarding_status,
+        work_mode:   form.work_mode as 'wfo' | 'wfh',
       });
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Unknown error');
@@ -232,6 +279,7 @@ export default function EmployeeProfileDrawer({ employee, onClose, canEdit, onUp
                 <InfoRow      icon={<User2     className="h-4 w-4" />} label="Manager"     value={employee.manager_name} />
                 <InfoRow      icon={<Hash      className="h-4 w-4" />} label="Employee ID" value={employee.employee_id} />
                 <InfoRow      icon={<Calendar  className="h-4 w-4" />} label="Joined"      value={employee.joined_at ? formatDate(employee.joined_at) : null} />
+                <InfoRow      icon={<Home      className="h-4 w-4" />} label="Work mode"   value={WORK_MODE_LABELS[employee.work_mode ?? 'wfo']} />
                 <div className="flex items-start gap-3">
                   <span className="mt-0.5 text-surface-500 shrink-0"><Check className="h-4 w-4" /></span>
                   <div>
@@ -243,6 +291,47 @@ export default function EmployeeProfileDrawer({ employee, onClose, canEdit, onUp
                     </p>
                   </div>
                 </div>
+
+                {/* Leave balances — only loaded for viewers who can edit (HR+/managers) */}
+                {canEdit && (
+                  <div className="pt-4 border-t border-surface-300">
+                    <div className="flex items-center gap-2 mb-3">
+                      <CalendarDays className="h-4 w-4 text-surface-500" />
+                      <p className="text-2xs text-surface-600 uppercase tracking-wide font-medium">Leave Balances ({new Date().getFullYear()})</p>
+                    </div>
+                    {loadingBalances ? (
+                      <div className="flex justify-center py-3"><Loader2 className="h-4 w-4 animate-spin text-brand-500" /></div>
+                    ) : balances.length === 0 ? (
+                      <p className="text-xs text-surface-500">No leave balance configured yet.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {balances.map(b => (
+                          <div key={b.id} className="flex items-center justify-between gap-2 text-sm">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              {b.leave_type?.color && <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: b.leave_type.color }} />}
+                              <span className="text-surface-800 truncate">{b.leave_type?.name ?? 'Leave'}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <input
+                                type="number" min="0" step="0.5"
+                                defaultValue={b.entitled_days}
+                                key={`${b.id}-${b.entitled_days}`}
+                                onBlur={e => {
+                                  const v = parseFloat(e.target.value);
+                                  if (!isNaN(v) && v !== b.entitled_days) saveBalance(b, v);
+                                }}
+                                className="w-16 rounded-lg border border-surface-300 bg-surface-0 px-2 py-1 text-xs text-surface-950 text-right focus:outline-none focus:ring-2 focus:ring-brand-500/50"
+                              />
+                              <span className="text-2xs text-surface-500 w-24 text-right">
+                                {savingBalanceId === b.leave_type_id ? <Loader2 className="h-3 w-3 animate-spin inline" /> : `${b.used_days} used, ${b.remaining_days} left`}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
@@ -304,6 +393,22 @@ export default function EmployeeProfileDrawer({ employee, onClose, canEdit, onUp
                   >
                     {['employee','manager','hr_assistant','hr','admin','super_admin'].map(r => (
                       <option key={r} value={r}>{ROLE_LABELS[r] ?? r}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-2xs text-surface-600 uppercase tracking-wide font-medium mb-1">
+                    Work mode
+                    <span className="ml-1 text-brand-400 normal-case font-normal">(affects default leave entitlement)</span>
+                  </label>
+                  <select
+                    value={form.work_mode}
+                    onChange={e => setForm(f => ({ ...f, work_mode: e.target.value }))}
+                    className="w-full rounded-lg border border-surface-300 bg-surface-200 px-3 py-2 text-sm text-surface-900 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+                  >
+                    {['wfo', 'wfh'].map(m => (
+                      <option key={m} value={m}>{WORK_MODE_LABELS[m]}</option>
                     ))}
                   </select>
                 </div>

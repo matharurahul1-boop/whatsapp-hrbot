@@ -15,6 +15,7 @@ export type DocumentType = 'id_proof' | 'address_proof' | 'photo' | 'contract' |
 export type WorkflowStatus = 'running' | 'success' | 'failed';
 export type NotificationChannel = 'whatsapp' | 'in_app' | 'email';
 export type NotificationStatus = 'pending' | 'sent' | 'failed' | 'read';
+export type WorkMode = 'wfo' | 'wfh';
 
 export interface Organization {
   id: string;
@@ -42,6 +43,7 @@ export interface User {
   onboarding_status: OnboardingStatus;
   is_active: boolean;
   avatar_url: string | null;
+  work_mode: WorkMode;
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
@@ -119,6 +121,15 @@ export interface LeaveType {
   color: string;
   is_active: boolean;
   created_at: string;
+}
+
+export interface LeavePolicyDefault {
+  id: string;
+  organization_id: string;
+  leave_type_id: string;
+  role: UserRole;
+  work_mode: WorkMode;
+  default_days: number;
 }
 
 export interface LeaveBalance {

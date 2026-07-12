@@ -70,7 +70,7 @@ export const EMPLOYEE_PROFILE_WRITABLE = new Set<string>([
 
 /** Fields only HR+ can update on another employee's profile. */
 export const HR_PROFILE_WRITABLE = new Set<string>([
-  'department', 'designation', 'manager_id', 'joined_at', 'onboarding_status',
+  'department', 'designation', 'manager_id', 'joined_at', 'onboarding_status', 'work_mode',
 ]);
 
 /** Fields only Admin+ can change (role promotion, deactivation). */

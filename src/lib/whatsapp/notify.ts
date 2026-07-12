@@ -356,6 +356,9 @@ export async function notifyLeaveApprovalNeeded(opts: {
 export async function notifyLeaveDecision(opts: {
   orgId: string;
   employeeId: string;
+  employeeName: string;
+  applicantRole: string;
+  reviewerId: string;
   action: 'approved' | 'rejected';
   leaveTypeName: string;
   startDate: string;
@@ -364,6 +367,7 @@ export async function notifyLeaveDecision(opts: {
   remarks?: string | null;
 }): Promise<void> {
   return fire('LeaveDecision', async () => {
+    const db = createAdminClient();
     const target = await getWaAndName(opts.employeeId);
 
     const isSingle = opts.startDate === opts.endDate;
@@ -372,8 +376,10 @@ export async function notifyLeaveDecision(opts: {
       : `${fmtDate(opts.startDate)} → ${fmtDate(opts.endDate)}`;
 
     const approved = opts.action === 'approved';
+    const sends: Promise<unknown>[] = [];
 
-    const sends: Promise<unknown>[] = [
+    // 1. The applicant themselves.
+    sends.push(
       sendPush(opts.employeeId, {
         title: approved ? '✅ Leave approved' : '❌ Leave rejected',
         body:  `${opts.leaveTypeName} — ${dateStr}`,
@@ -381,8 +387,7 @@ export async function notifyLeaveDecision(opts: {
         tag:   'leave-decision',
       }),
       writeInApp(opts.employeeId, opts.orgId, approved ? '✅ Leave approved' : '❌ Leave rejected', `${opts.leaveTypeName} — ${dateStr}`, '/leave'),
-    ];
-
+    );
     if (target) {
       const msg =
         `${approved ? '✅' : '❌'} *Your leave request has been ${opts.action}!*\n\n` +
@@ -396,8 +401,42 @@ export async function notifyLeaveDecision(opts: {
       sends.push(sendSmartText(target.wa_number, msg, opts.orgId, firstName(target.full_name)));
     }
 
+    // 2. Every other approver who was originally notified about this
+    // request (canApproveLeaveFor, same set notifyLeaveApprovalNeeded
+    // used) — everyone except the applicant and whoever just made the
+    // decision, so they know it's resolved and no longer needs action.
+    const { data: candidates } = await db
+      .from('users')
+      .select('id, full_name, wa_number, role')
+      .eq('organization_id', opts.orgId)
+      .eq('is_active', true)
+      .is('deleted_at', null);
+
+    const others = (candidates ?? []).filter(u =>
+      u.id !== opts.employeeId && u.id !== opts.reviewerId && canApproveLeaveFor(u.role, opts.applicantRole)
+    );
+
+    const othersTitle = approved ? '✅ Leave request resolved' : '❌ Leave request resolved';
+    const othersBody  = `${opts.employeeName} — ${opts.leaveTypeName}, ${dateStr} — ${opts.action} by ${opts.reviewerName}`;
+    for (const other of others) {
+      sends.push(
+        sendPush(other.id, { title: othersTitle, body: othersBody, url: '/leave', tag: 'leave-decision' }),
+        writeInApp(other.id, opts.orgId, othersTitle, othersBody, '/leave'),
+      );
+      if (other.wa_number) {
+        const msg =
+          `${approved ? '✅' : '❌'} *Leave request resolved*\n\n` +
+          `👤 *${opts.employeeName}*\n` +
+          `📋 Type: *${opts.leaveTypeName}*\n` +
+          `🗓 ${dateStr}\n` +
+          `${approved ? 'Approved' : 'Rejected'} by *${opts.reviewerName}*\n\n` +
+          `No action needed.`;
+        sends.push(sendSmartText(other.wa_number, msg, opts.orgId, firstName(other.full_name)));
+      }
+    }
+
     await Promise.all(sends);
-    console.log(`[Notify:LeaveDecision] ✅ push${target ? ' + wa:' + target.wa_number : ' only'}`);
+    console.log(`[Notify:LeaveDecision] ✅ applicant${target ? ' + wa' : ''} + ${others.length} other approver(s) notified`);
   });
 }
 

@@ -7,6 +7,7 @@ import {
   Building2, Bell, Shield, Phone,
   Save, Loader2, CheckCircle2, AlertCircle,
   Eye, EyeOff, Copy, Check, Bot, KeyRound, Plus, X,
+  CalendarDays,
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import { normalizeWaNumber } from '@/lib/utils/phone';
@@ -17,6 +18,19 @@ import { useToast } from '@/components/ui/Toast';
 // actually enforces this on the backend (this flag only locks the UI so it
 // can't show a selection that wouldn't take effect).
 const GROQ_BACKEND_ENABLED = true;
+
+// ── Leave Policy types ──────────────────────────────────────────────────────
+interface LeaveTypeRow {
+  id: string; name: string; default_days: number; color: string;
+  carry_forward: boolean; requires_approval: boolean; is_active: boolean;
+}
+interface PolicyRow {
+  leave_type_id: string; role: string; work_mode: 'wfo' | 'wfh'; default_days: number;
+}
+const APPLICANT_ROLES = ['employee', 'manager', 'hr_assistant', 'hr'] as const;
+const APPLICANT_ROLE_LABEL: Record<string, string> = {
+  employee: 'Employee', manager: 'Manager', hr_assistant: 'HR Assistant', hr: 'HR',
+};
 
 // ── tiny helpers ─────────────────────────────────────────────────────────────
 function Section({ title, description, icon, children }: {
@@ -122,13 +136,37 @@ export default function SettingsPage() {
   const [savingAi,    setSavingAi]    = useState(false);
   const [aiSaved,     setAiSaved]     = useState(false);
 
+  // Leave Policy (HR+) — leave types themselves, plus a role x work_mode
+  // entitlement override matrix. Self-contained, same pattern as AI
+  // Backend/Groq Keys above (own load + own inline save actions rather than
+  // participating in the shared isDirty/handleSaveProfile flow).
+  const [leaveTypes,      setLeaveTypes]      = useState<LeaveTypeRow[]>([]);
+  const [loadingLeaveTypes, setLoadingLeaveTypes] = useState(false);
+  const [savingTypeId,    setSavingTypeId]    = useState<string | null>(null);
+  const [addingType,      setAddingType]      = useState(false);
+  const [newType,         setNewType]         = useState({ name: '', default_days: '10', color: '#3b82f6' });
+  const [policyMatrix,    setPolicyMatrix]    = useState<PolicyRow[]>([]);
+  const [selectedTypeId,  setSelectedTypeId]  = useState('');
+  const [savingCell,      setSavingCell]      = useState<string | null>(null); // `${role}:${work_mode}`
+
   // Meta
   const [role,   setRole]   = useState('');
   const [orgId,  setOrgId]  = useState('');
   const [userId, setUserId] = useState('');
-  const isAdmin = ['super_admin', 'admin'].includes(role);
+  const isAdmin     = ['super_admin', 'admin'].includes(role);
+  const isHrOrAbove = ['super_admin', 'admin', 'hr'].includes(role);
 
   useEffect(() => { loadData(); }, []);
+
+  // Fires once role is known and confirmed HR+ — mirrors the org-settings
+  // fetch in loadData(), just gated on a role check that only resolves
+  // after the initial load, so it's a separate effect rather than inline.
+  useEffect(() => {
+    if (!loading && isHrOrAbove && leaveTypes.length === 0 && !loadingLeaveTypes) {
+      loadLeavePolicy();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, isHrOrAbove]);
 
   // Recompute dirty state whenever a tracked field changes, comparing
   // against the snapshot taken right after load.
@@ -310,6 +348,98 @@ export default function SettingsPage() {
       setTimeout(() => setGroqSaved(false), 2500);
     } finally {
       setSavingGroq(false);
+    }
+  }
+
+  async function loadLeavePolicy() {
+    setLoadingLeaveTypes(true);
+    try {
+      const [typesRes, policyRes] = await Promise.all([
+        fetch('/api/leave-types'),
+        fetch('/api/leave-policy'),
+      ]);
+      if (typesRes.ok) {
+        const { data } = await typesRes.json();
+        setLeaveTypes(data ?? []);
+        if (data?.length && !selectedTypeId) setSelectedTypeId(data[0].id);
+      }
+      if (policyRes.ok) {
+        const { data } = await policyRes.json();
+        setPolicyMatrix(data ?? []);
+      }
+    } finally {
+      setLoadingLeaveTypes(false);
+    }
+  }
+
+  async function saveLeaveType(id: string, fields: Partial<LeaveTypeRow>) {
+    setSavingTypeId(id);
+    try {
+      const res = await fetch('/api/leave-types', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, ...fields }),
+      });
+      const json = await res.json();
+      if (!res.ok) { toast(typeof json.error === 'string' ? json.error : 'Failed to save leave type', 'error'); return; }
+      setLeaveTypes(types => types.map(t => t.id === id ? { ...t, ...fields } : t));
+      toast('Leave type saved.');
+    } finally {
+      setSavingTypeId(null);
+    }
+  }
+
+  async function createLeaveType() {
+    if (!newType.name.trim()) return;
+    setSavingTypeId('__new__');
+    try {
+      const res = await fetch('/api/leave-types', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newType.name.trim(),
+          default_days: parseFloat(newType.default_days) || 0,
+          color: newType.color,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) { toast(typeof json.error === 'string' ? json.error : 'Failed to create leave type', 'error'); return; }
+      setLeaveTypes(types => [...types, json.data]);
+      setNewType({ name: '', default_days: '10', color: '#3b82f6' });
+      setAddingType(false);
+      toast('Leave type created.');
+    } finally {
+      setSavingTypeId(null);
+    }
+  }
+
+  function policyCellValue(role: string, workMode: 'wfo' | 'wfh'): number | null {
+    const row = policyMatrix.find(p => p.leave_type_id === selectedTypeId && p.role === role && p.work_mode === workMode);
+    return row?.default_days ?? null;
+  }
+
+  async function savePolicyCell(role: string, workMode: 'wfo' | 'wfh', value: string) {
+    const days = value.trim() === '' ? null : parseFloat(value);
+    if (days === null || isNaN(days)) return;
+    const key = `${role}:${workMode}`;
+    setSavingCell(key);
+    try {
+      const res = await fetch('/api/leave-policy', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leave_type_id: selectedTypeId, role, work_mode: workMode, default_days: days }),
+      });
+      const json = await res.json();
+      if (!res.ok) { toast(typeof json.error === 'string' ? json.error : 'Failed to save', 'error'); return; }
+      setPolicyMatrix(rows => {
+        const idx = rows.findIndex(r => r.leave_type_id === selectedTypeId && r.role === role && r.work_mode === workMode);
+        if (idx === -1) return [...rows, { leave_type_id: selectedTypeId, role, work_mode: workMode, default_days: days }];
+        const next = [...rows];
+        next[idx] = { ...next[idx], default_days: days };
+        return next;
+      });
+    } finally {
+      setSavingCell(null);
     }
   }
 
@@ -533,6 +663,176 @@ export default function SettingsPage() {
                 💡 When sending from WA Logs, free-form is tried first. If the 24h window expired, it auto-retries with this template — the recipient sees your exact message.
               </p>
             </div>
+          </Section>
+        )}
+
+        {/* ── Leave Policy (HR+) ── */}
+        {isHrOrAbove && (
+          <Section
+            title="Leave Policy"
+            description="Manage leave types and how many days each role gets, by work mode"
+            icon={<CalendarDays className="h-4 w-4" />}
+          >
+            {loadingLeaveTypes ? (
+              <div className="flex items-center justify-center py-6">
+                <Loader2 className="h-5 w-5 animate-spin text-brand-500" />
+              </div>
+            ) : (
+              <>
+                {/* Leave types */}
+                <div className="space-y-2">
+                  <p className="text-[11px] font-semibold text-surface-500 uppercase tracking-wider">Leave Types</p>
+                  {leaveTypes.map(lt => (
+                    <div key={lt.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-surface-300 bg-surface-0 px-3 py-2.5">
+                      <input
+                        type="color"
+                        value={lt.color}
+                        onChange={e => saveLeaveType(lt.id, { color: e.target.value })}
+                        className="h-7 w-7 rounded cursor-pointer border border-surface-300 shrink-0"
+                        title="Color"
+                      />
+                      <input
+                        type="text"
+                        defaultValue={lt.name}
+                        onBlur={e => e.target.value.trim() && e.target.value !== lt.name && saveLeaveType(lt.id, { name: e.target.value.trim() })}
+                        className="flex-1 min-w-[100px] rounded-lg border border-surface-300 bg-surface-0 px-2 py-1.5 text-sm text-surface-950 focus:outline-none focus:ring-2 focus:ring-brand-500/50"
+                      />
+                      <input
+                        type="number" min="0" step="0.5"
+                        defaultValue={lt.default_days}
+                        onBlur={e => {
+                          const v = parseFloat(e.target.value);
+                          if (!isNaN(v) && v !== lt.default_days) saveLeaveType(lt.id, { default_days: v });
+                        }}
+                        className="w-20 rounded-lg border border-surface-300 bg-surface-0 px-2 py-1.5 text-sm text-surface-950 focus:outline-none focus:ring-2 focus:ring-brand-500/50"
+                        title="Default days/year"
+                      />
+                      <label className="flex items-center gap-1.5 text-xs text-surface-700 shrink-0">
+                        <input
+                          type="checkbox" checked={lt.requires_approval}
+                          onChange={e => saveLeaveType(lt.id, { requires_approval: e.target.checked })}
+                          className="h-3.5 w-3.5 rounded border-surface-400 text-brand-500"
+                        />
+                        Requires approval
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => saveLeaveType(lt.id, { is_active: !lt.is_active })}
+                        className={cn(
+                          'text-xs font-medium px-2 py-1 rounded-full border shrink-0 transition-colors',
+                          lt.is_active
+                            ? 'border-success/20 bg-success/10 text-success'
+                            : 'border-surface-300 bg-surface-200 text-surface-500'
+                        )}
+                      >
+                        {lt.is_active ? 'Active' : 'Inactive'}
+                      </button>
+                      {savingTypeId === lt.id && <Loader2 className="h-3.5 w-3.5 animate-spin text-brand-500 shrink-0" />}
+                    </div>
+                  ))}
+
+                  {addingType ? (
+                    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed border-brand-500/40 bg-brand-500/5 px-3 py-2.5">
+                      <input
+                        type="color" value={newType.color}
+                        onChange={e => setNewType(t => ({ ...t, color: e.target.value }))}
+                        className="h-7 w-7 rounded cursor-pointer border border-surface-300 shrink-0"
+                      />
+                      <input
+                        type="text" placeholder="Leave type name" value={newType.name}
+                        onChange={e => setNewType(t => ({ ...t, name: e.target.value }))}
+                        className="flex-1 min-w-[100px] rounded-lg border border-surface-300 bg-surface-0 px-2 py-1.5 text-sm text-surface-950 focus:outline-none focus:ring-2 focus:ring-brand-500/50"
+                      />
+                      <input
+                        type="number" min="0" step="0.5" placeholder="Days" value={newType.default_days}
+                        onChange={e => setNewType(t => ({ ...t, default_days: e.target.value }))}
+                        className="w-20 rounded-lg border border-surface-300 bg-surface-0 px-2 py-1.5 text-sm text-surface-950 focus:outline-none focus:ring-2 focus:ring-brand-500/50"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => { setAddingType(false); setNewType({ name: '', default_days: '10', color: '#3b82f6' }); }}
+                        className="text-sm font-medium text-surface-600 hover:text-surface-900 px-3 py-1.5 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={createLeaveType}
+                        disabled={!newType.name.trim() || savingTypeId === '__new__'}
+                        className="flex items-center gap-1.5 rounded-lg bg-brand-500 hover:bg-brand-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium px-3 py-1.5 transition-colors"
+                      >
+                        {savingTypeId === '__new__' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Add'}
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setAddingType(true)}
+                      className="flex items-center gap-1.5 text-sm font-medium text-brand-500 hover:text-brand-400 transition-colors"
+                    >
+                      <Plus className="h-3.5 w-3.5" /> Add leave type
+                    </button>
+                  )}
+                </div>
+
+                {/* Entitlement matrix — role x work mode, per leave type */}
+                {leaveTypes.length > 0 && (
+                  <div className="pt-2 border-t border-surface-300 space-y-3">
+                    <div className="flex items-center justify-between gap-3 pt-4">
+                      <p className="text-[11px] font-semibold text-surface-500 uppercase tracking-wider">Entitlement by Role &amp; Work Mode</p>
+                      <select
+                        value={selectedTypeId}
+                        onChange={e => setSelectedTypeId(e.target.value)}
+                        className="rounded-lg border border-surface-300 bg-surface-0 px-2.5 py-1.5 text-xs text-surface-950 focus:outline-none focus:ring-2 focus:ring-brand-500/50"
+                      >
+                        {leaveTypes.map(lt => <option key={lt.id} value={lt.id}>{lt.name}</option>)}
+                      </select>
+                    </div>
+
+                    <div className="table-wrap">
+                      <table className="data-table">
+                        <thead>
+                          <tr>
+                            <th>Role</th>
+                            <th>WFO (days/year)</th>
+                            <th>WFH (days/year)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {APPLICANT_ROLES.map(r => (
+                            <tr key={r}>
+                              <td className="text-sm text-surface-900">{APPLICANT_ROLE_LABEL[r]}</td>
+                              {(['wfo', 'wfh'] as const).map(mode => {
+                                const current = policyCellValue(r, mode);
+                                const fallback = leaveTypes.find(t => t.id === selectedTypeId)?.default_days ?? 0;
+                                return (
+                                  <td key={mode}>
+                                    <div className="flex items-center gap-1.5">
+                                      <input
+                                        type="number" min="0" step="0.5"
+                                        defaultValue={current ?? ''}
+                                        key={`${selectedTypeId}-${r}-${mode}-${current}`}
+                                        placeholder={String(fallback)}
+                                        onBlur={e => savePolicyCell(r, mode, e.target.value)}
+                                        className="w-20 rounded-lg border border-surface-300 bg-surface-0 px-2 py-1.5 text-sm text-surface-950 placeholder:text-surface-400 focus:outline-none focus:ring-2 focus:ring-brand-500/50"
+                                      />
+                                      {savingCell === `${r}:${mode}` && <Loader2 className="h-3.5 w-3.5 animate-spin text-brand-500" />}
+                                    </div>
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <p className="text-[11px] text-surface-500">
+                      Blank = falls back to this leave type&apos;s default ({leaveTypes.find(t => t.id === selectedTypeId)?.default_days ?? 0} days/year, shown as placeholder). Applies to newly created employees — existing balances aren&apos;t changed retroactively.
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
           </Section>
         )}
 

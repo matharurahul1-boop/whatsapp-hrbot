@@ -175,7 +175,9 @@ export async function POST(req: NextRequest) {
     new_data: { ...request, leave_type_name: lt?.name ?? null },
   });
 
-  notifyLeaveApprovalNeeded({
+  // Awaited — see the comment on the equivalent call in
+  // api/leave/[id]/approve/route.ts for why this can't be fire-and-forget.
+  await notifyLeaveApprovalNeeded({
     orgId:         profile.organization_id,
     applicantRole: targetProfile.role,
     employeeName:  (targetProfile as any).full_name ?? 'An employee',
@@ -184,7 +186,7 @@ export async function POST(req: NextRequest) {
     endDate:       parsed.data.end_date,
     durationDays,
     reason:        parsed.data.reason,
-  }).catch(() => {});
+  });
 
   return NextResponse.json({ data: request }, { status: 201 });
 }
@@ -247,13 +249,15 @@ export async function DELETE(req: NextRequest) {
   // runs when request.employee_id === user.id (the actor IS the owner).
   if (request.employee_id === user.id) {
     const lt = cancelledLt;
-    notifyLeaveCancelled({
+    // Awaited — see the comment on the equivalent call in
+    // api/leave/[id]/approve/route.ts for why this can't be fire-and-forget.
+    await notifyLeaveCancelled({
       orgId:         profile.organization_id,
       applicantRole: profile.role,
       employeeName:  (profile as any).full_name ?? 'An employee',
       leaveTypeName: lt?.name ?? 'Leave',
       startDate:     request.start_date,
-    }).catch(() => {});
+    });
   }
 
   return NextResponse.json({ ok: true });

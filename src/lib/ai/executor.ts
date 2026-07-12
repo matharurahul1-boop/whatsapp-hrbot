@@ -1531,7 +1531,10 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     });
 
     n8n.notifyLeaveRequest(org_id, request.id).catch(() => {});
-    notifyLeaveApprovalNeeded({
+    // Awaited — see the comment on notifyLeaveDecision's call site in
+    // APPROVE_LEAVE for why a fire-and-forget notify call here risks
+    // getting cut off before it completes on Vercel's serverless runtime.
+    await notifyLeaveApprovalNeeded({
       orgId:         org_id,
       applicantRole: user_role,
       employeeName:  user_name,
@@ -1539,7 +1542,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       startDate,     endDate,
       durationDays:  totalDays,
       reason:        userReason,
-    }).catch(() => {});
+    });
 
     return {
       success: true,
@@ -1735,15 +1738,20 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     n8n.notifyLeaveDecision(org_id, request.id, 'approved').catch(() => {});
 
     const { data: approver } = await db.from('users').select('full_name').eq('id', user_id).single();
-    notifyLeaveDecision({
+    // Awaited — see the comment on the equivalent call in
+    // api/leave/[id]/approve/route.ts for why this can't be fire-and-forget.
+    await notifyLeaveDecision({
       orgId:         org_id,
       employeeId:    employee.id,
+      employeeName:  employee.full_name,
+      applicantRole: employee.role,
+      reviewerId:    user_id,
       action:        'approved',
       leaveTypeName: (request.leave_types as any)?.name ?? 'Leave',
       startDate:     request.start_date,
       endDate:       request.end_date,
       reviewerName:  approver?.full_name ?? 'your manager',
-    }).catch(() => {});
+    });
 
     // notifyLeaveDecision above already sends the WhatsApp message + in-app
     // push notification to the employee — returning a `notify` array here
@@ -1841,16 +1849,21 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     if (!rejected) return { success: false, reply: '⚠️ This leave request was already reviewed. Please refresh the pending list.' };
 
     const { data: rejecter } = await db.from('users').select('full_name').eq('id', user_id).single();
-    notifyLeaveDecision({
+    // Awaited — see the comment on the equivalent call in
+    // api/leave/[id]/approve/route.ts for why this can't be fire-and-forget.
+    await notifyLeaveDecision({
       orgId:         org_id,
       employeeId:    employee.id,
+      employeeName:  employee.full_name,
+      applicantRole: employee.role,
+      reviewerId:    user_id,
       action:        'rejected',
       leaveTypeName: (request.leave_types as any)?.name ?? 'Leave',
       startDate:     request.start_date,
       endDate:       request.end_date,
       reviewerName:  rejecter?.full_name ?? 'your manager',
       remarks:       reason,
-    }).catch(() => {});
+    });
 
     // notifyLeaveDecision above already sends the WhatsApp message + in-app
     // push notification to the employee — see the matching note in
@@ -1903,13 +1916,16 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     if (cancelError) throw cancelError;
     if (!cancelled) return { success: false, reply: '⚠️ That leave request was already changed. Please refresh your leave list.' };
 
-    notifyLeaveCancelled({
+    // Awaited — see the comment on notifyLeaveDecision's call site in
+    // APPROVE_LEAVE for why a fire-and-forget notify call here risks
+    // getting cut off before it completes on Vercel's serverless runtime.
+    await notifyLeaveCancelled({
       orgId:         org_id,
       applicantRole: user_role,
       employeeName:  user_name,
       leaveTypeName: (request.leave_types as any)?.name ?? 'Leave',
       startDate:     request.start_date,
-    }).catch(() => {});
+    });
 
     return {
       success: true,

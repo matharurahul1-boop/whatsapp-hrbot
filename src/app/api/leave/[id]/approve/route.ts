@@ -112,16 +112,24 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { data: reviewer } = await db.from('users').select('full_name').eq('id', user.id).single();
   const leaveType = request.leave_type as { name: string } | null;
 
-  notifyLeaveDecision({
+  // Awaited (not fire-and-forget) — on Vercel's serverless runtime, a
+  // background promise left running after the response is returned can get
+  // cut off before it finishes, which was silently dropping this exact
+  // notification. See notifyLeaveDecision's own fire() wrapper — it never
+  // throws, so awaiting it here can't turn a delivery failure into a 500.
+  await notifyLeaveDecision({
     orgId:         profile.organization_id,
     employeeId:    request.employee_id,
+    employeeName:  employee?.full_name ?? 'An employee',
+    applicantRole: employee?.role ?? 'employee',
+    reviewerId:    user.id,
     action:        parsed.data.action,
     leaveTypeName: leaveType?.name ?? 'Leave',
     startDate:     request.start_date,
     endDate:       request.end_date,
     reviewerName:  reviewer?.full_name ?? 'your manager',
     remarks:       parsed.data.remarks,
-  }).catch(() => {});
+  });
 
   return NextResponse.json({ data: updated });
 }

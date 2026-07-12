@@ -132,10 +132,11 @@ function Avatar({ name, src, size = 40 }: { name: string; src?: string | null; s
   const bg = getAvatarColor(name);
   const style = { width: size, height: size, minWidth: size, minHeight: size, fontSize: size * 0.38 };
   if (src) return (
-    <img src={src} alt={name} className="rounded-full object-cover" style={style} />
+    <img src={src} alt={name} title={name} className="rounded-full object-cover" style={style} />
   );
   return (
     <div
+      title={name}
       className="rounded-full flex items-center justify-center font-semibold text-white select-none shrink-0"
       style={{ ...style, backgroundColor: bg }}
     >

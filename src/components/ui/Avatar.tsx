@@ -30,7 +30,7 @@ function getInitials(name: string) {
 
 function Avatar({ src, name, size = 'md', className, online, title }: AvatarProps) {
   return (
-    <div className="relative inline-flex shrink-0" title={title}>
+    <div className="relative inline-flex shrink-0" title={title ?? name ?? undefined}>
       <AvatarPrimitive.Root
         className={cn(
           'relative flex items-center justify-center rounded-full overflow-hidden',

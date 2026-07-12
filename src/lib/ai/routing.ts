@@ -100,6 +100,40 @@ function requestedCreatorName(message: string): string | null {
   return message.match(new RegExp(CREATOR_NAME_RE_SOURCE, 'iu'))?.[1]?.trim() || null;
 }
 
+// Words this router already treats as filter/scope vocabulary, never a real
+// person's name — shared by every name-extraction path (possessive,
+// assigned-to, personPatterns) so a word excluded in one can't be silently
+// accepted by another.
+const NON_NAME_WORDS_RE = /^(?:all|team|everyone|everybody|users?|employees?|people|persons?|members?|assignees?|organisation|organization|company|pending|open|completed|done|finished|the|of|a|an|my|mine|list|show|get|display|find|give|send|tell|pull|fetch|check|urgent|high|medium|low|priority|overdue|deadline|today|tomorrow|week)$/i;
+
+/**
+ * "assigned to NAME" / "tasks of NAME" / "tasks for NAME" — resolved
+ * independently of personPatterns below and BEFORE the isAllScope
+ * short-circuit, because neither of those originally knew this shape
+ * existed. Unlike personPatterns' pattern 6, "assigned to NAME" is NOT
+ * required to sit immediately after "tasks" — natural phrasing often
+ * inserts other filter clauses in between ("todo tasks whose priority is
+ * high and overdue and assigned to tushar"), and "assigned to" is
+ * unambiguous enough in this domain to resolve correctly without that
+ * adjacency. "tasks (of|for) NAME" keeps the stricter adjacency requirement
+ * mirrored from personPatterns, since "of"/"for" alone are common enough
+ * words elsewhere in a sentence that a loose match risks false positives.
+ * Observed live: "all todo tasks whose priority is high and overdued and
+ * assigned to tushar" returned the org-wide list — "all" tripped
+ * isAllScope, and even past that, the leftover "whose ... and ... and"
+ * between "tasks" and "assigned to" broke personPatterns' strict adjacency.
+ */
+function extractAssignedToName(text: string): string | null {
+  const m = text.match(/\bassigned\s+to\s+(.+)$/i) || text.match(/\btasks?\s+(?:of|for)\s+(.+)$/i);
+  const name = m?.[1]
+    ?.replace(/^(?:please\s+)?(?:list|show|get|display|give|send|tell)(?:\s+me)?(?:\s+the)?\s+/i, '')
+    .replace(/^of\s+/i, '')
+    .replace(/^all\s+/i, '')
+    .trim();
+  if (!name || NON_NAME_WORDS_RE.test(name)) return null;
+  return name;
+}
+
 /**
  * Strip every recognized filter-descriptor phrase (priority level, deadline
  * bucket including negation, status word) from the message, wherever it
@@ -302,6 +336,7 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
     .trim();
   const hasValidPossessiveName = !!possessiveName
     && !/^(?:all|every|each|entire|whole|everyone|everybody|team|staff|workforce|company|org|organisation|organization|the|of|a|an|my|mine|today|tomorrow|week|overdue)$/i.test(possessiveName);
+  const assignedToName = extractAssignedToName(tClean);
   if (!/\btasks?\b/i.test(t)) return null;
   // "priority" alone used to be a blanket exclusion trigger (assumed to mean
   // a field query/mutation like "what is the priority of task X" or "update
@@ -317,7 +352,7 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
     && !/\b(completed|complete|done|finished|closed)\s+tasks?\b/i.test(t) && !/\b(?:full|complete|total)\s+(?:task\s+)?list\b/i.test(t)) {
     return null;
   }
-  if (isAllScope && !isSelfRef && !hasValidPossessiveName) {
+  if (isAllScope && !isSelfRef && !hasValidPossessiveName && !assignedToName) {
     return {
       ...(statusFilter ? { status_filter: statusFilter } : {}),
       ...(excludeStatusFilter ? { exclude_status_filter: excludeStatusFilter } : {}),
@@ -341,7 +376,7 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
   // statusFilter/priorityFilter themselves are unset. creatorName gates the
   // same way too — "tasks assigned by shilpa" alone (no other filter/verb/
   // name) must still route deterministically.
-  if (!/\b(list|show|get|display)\b/i.test(t) && !statusFilter && !excludeStatusFilter && !priorityFilter && !excludePriorityFilter && !deadlineFilter && !creatorName && !isSelfRef && !hasValidPossessiveName && !/[’']s\s+tasks?$/i.test(t)) {
+  if (!/\b(list|show|get|display)\b/i.test(t) && !statusFilter && !excludeStatusFilter && !priorityFilter && !excludePriorityFilter && !deadlineFilter && !creatorName && !isSelfRef && !hasValidPossessiveName && !assignedToName && !/[’']s\s+tasks?$/i.test(t)) {
     return null;
   }
 
@@ -358,6 +393,10 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
   }
   if (hasValidPossessiveName) {
     args.assignee_name = possessiveName;
+    return args;
+  }
+  if (assignedToName) {
+    args.assignee_name = assignedToName;
     return args;
   }
 
@@ -406,8 +445,12 @@ export function quickTaskListArgs(message: string): Record<string, string> | nul
   // Phrases such as "entire tasks" and "whole task list" describe scope,
   // never an employee called "entire" or "whole" — but self-reference
   // ("my"/"mine") still wins, same as the earlier isAllScope check above.
-  if (isAllScope && !isSelfRef) {
-    delete args.assignee_name;
+  // Also guarded on !args.assignee_name so a name the personPatterns loop
+  // just resolved above (e.g. "tasks of NAME") isn't wiped out just because
+  // "all" also appears elsewhere in the same message — the exact same
+  // silent-drop bug as the isAllScope check earlier in this function, just
+  // reachable from a different code path.
+  if (isAllScope && !isSelfRef && !args.assignee_name) {
     args.scope = 'all';
     return args;
   }

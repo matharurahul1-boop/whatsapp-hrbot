@@ -49,7 +49,17 @@ export default function Header({ userId, userName, userRole, userEmail, avatarUr
 
   const { closeMobile } = useSidebar();
 
-  const notifRef    = useRef<HTMLDivElement>(null);
+  // Shared anchor for BOTH dropdowns below — not the individual bell/avatar
+  // buttons themselves. Anchoring right-0 to each button's own small wrapper
+  // looked fine on desktop (plenty of width to the left), but broke on
+  // narrow screens: the bell isn't the rightmost element (the divider,
+  // avatar+name, and sign-out button all follow it in this same row), so its
+  // wrapper's right edge sits well short of the header's true right edge.
+  // Anchoring to the whole cluster instead means "right-0" always lines up
+  // with the actual edge of the header, regardless of which button opened
+  // the dropdown. Observed live: the notifications panel rendered with its
+  // left edge at a negative x-coordinate (off-screen) on a 360px-wide phone.
+  const rightControlsRef = useRef<HTMLDivElement>(null);
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifs,    setNotifs]    = useState<Notification[]>([]);
   const [unread,    setUnread]    = useState(0);
@@ -58,7 +68,6 @@ export default function Header({ userId, userName, userRole, userEmail, avatarUr
   const [viewingNotif,   setViewingNotif]   = useState<Notification | null>(null);
 
   // Profile dropdown — opened by clicking the avatar/name in the header
-  const profileRef = useRef<HTMLDivElement>(null);
   const [profileOpen,    setProfileOpen]    = useState(false);
   const [profileLoaded,  setProfileLoaded]  = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
@@ -117,8 +126,10 @@ export default function Header({ userId, userName, userRole, userEmail, avatarUr
   // Close notif / profile dropdowns on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (notifRef.current && !notifRef.current.contains(e.target as Node)) setNotifOpen(false);
-      if (profileRef.current && !profileRef.current.contains(e.target as Node)) setProfileOpen(false);
+      if (rightControlsRef.current && !rightControlsRef.current.contains(e.target as Node)) {
+        setNotifOpen(false);
+        setProfileOpen(false);
+      }
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -234,7 +245,7 @@ export default function Header({ userId, userName, userRole, userEmail, avatarUr
       </div>
 
       {/* Right — theme toggle + notifications + user + logout */}
-      <div className="flex items-center gap-1.5 shrink-0">
+      <div className="flex items-center gap-1.5 shrink-0 relative" ref={rightControlsRef}>
 
         {/* PWA Install */}
         <InstallButton />
@@ -250,25 +261,55 @@ export default function Header({ userId, userName, userRole, userEmail, avatarUr
             : <Moon className="h-4 w-4" />}
         </button>
 
-        {/* Notifications */}
-        <div className="relative" ref={notifRef}>
-          <button
-            onClick={() => { setProfileOpen(false); setNotifOpen(o => !o); }}
-            className={cn(
-              'relative flex h-8 w-8 items-center justify-center rounded-lg transition-colors',
-              notifOpen ? 'bg-surface-300 text-surface-950' : 'text-surface-600 hover:bg-surface-200 hover:text-surface-950'
-            )}
-          >
-            <Bell className="h-4 w-4" />
-            {unread > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-brand-500 text-2xs font-bold text-white leading-none">
-                {unread > 9 ? '9+' : unread}
-              </span>
-            )}
-          </button>
+        {/* Notifications trigger */}
+        <button
+          onClick={() => { setProfileOpen(false); setNotifOpen(o => !o); }}
+          className={cn(
+            'relative flex h-8 w-8 items-center justify-center rounded-lg transition-colors',
+            notifOpen ? 'bg-surface-300 text-surface-950' : 'text-surface-600 hover:bg-surface-200 hover:text-surface-950'
+          )}
+        >
+          <Bell className="h-4 w-4" />
+          {unread > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-brand-500 text-2xs font-bold text-white leading-none">
+              {unread > 9 ? '9+' : unread}
+            </span>
+          )}
+        </button>
 
-          {notifOpen && (
-            <div className="absolute right-0 top-10 z-50 w-72 sm:w-80 rounded-2xl bg-surface-100 border border-surface-300 shadow-modal animate-[scaleIn_0.15s_ease-out]">
+        {/* Divider */}
+        <div className="h-5 w-px bg-surface-300 mx-1 hidden sm:block" />
+
+        {/* User info trigger — click to edit profile */}
+        <button
+          type="button"
+          onClick={toggleProfile}
+          className={cn(
+            'flex items-center gap-2 pl-0.5 pr-2 py-1 rounded-lg transition-colors',
+            profileOpen ? 'bg-surface-300' : 'hover:bg-surface-200'
+          )}
+        >
+          <Avatar src={avatarUrl} name={userName} size="sm" />
+          <div className="hidden md:block text-left">
+            <p className="text-xs font-semibold text-surface-950 leading-tight truncate max-w-[120px]">{userName}</p>
+            <p className="text-2xs text-surface-600 capitalize">{userRole.replace('_', ' ')}</p>
+          </div>
+        </button>
+
+        {/* Sign out */}
+        <button
+          onClick={() => setSignOutOpen(true)}
+          title="Sign out"
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-surface-600 hover:text-danger hover:bg-danger/10 transition-colors ml-0.5"
+        >
+          <LogOut className="h-4 w-4" />
+        </button>
+
+        {/* Notifications dropdown — anchored to the shared right-hand
+            cluster (rightControlsRef), not the bell button itself. See the
+            comment on rightControlsRef above for why. */}
+        {notifOpen && (
+            <div className="absolute right-0 top-10 z-50 w-72 sm:w-80 max-w-[calc(100vw-2rem)] rounded-2xl bg-surface-100 border border-surface-300 shadow-modal animate-[scaleIn_0.15s_ease-out]">
               <div className="flex items-center justify-between px-4 py-3 border-b border-surface-300">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-semibold text-surface-950">Notifications</span>
@@ -318,29 +359,10 @@ export default function Header({ userId, userName, userRole, userEmail, avatarUr
               </div>
             </div>
           )}
-        </div>
 
-        {/* Divider */}
-        <div className="h-5 w-px bg-surface-300 mx-1 hidden sm:block" />
-
-        {/* User info — click to edit profile */}
-        <div className="relative" ref={profileRef}>
-          <button
-            type="button"
-            onClick={toggleProfile}
-            className={cn(
-              'flex items-center gap-2 pl-0.5 pr-2 py-1 rounded-lg transition-colors',
-              profileOpen ? 'bg-surface-300' : 'hover:bg-surface-200'
-            )}
-          >
-            <Avatar src={avatarUrl} name={userName} size="sm" />
-            <div className="hidden md:block text-left">
-              <p className="text-xs font-semibold text-surface-950 leading-tight truncate max-w-[120px]">{userName}</p>
-              <p className="text-2xs text-surface-600 capitalize">{userRole.replace('_', ' ')}</p>
-            </div>
-          </button>
-
-          {profileOpen && (
+        {/* Profile dropdown — anchored to the shared right-hand cluster,
+            same reasoning as the notifications dropdown above. */}
+        {profileOpen && (
             <div className="absolute right-0 top-11 z-50 w-80 max-w-[calc(100vw-2rem)] rounded-2xl bg-surface-100 border border-surface-300 shadow-modal animate-[scaleIn_0.15s_ease-out]">
               <div className="flex items-center justify-between px-4 py-3 border-b border-surface-300">
                 <span className="text-sm font-semibold text-surface-950">Edit Profile</span>
@@ -415,16 +437,6 @@ export default function Header({ userId, userName, userRole, userEmail, avatarUr
               )}
             </div>
           )}
-        </div>
-
-        {/* Sign out */}
-        <button
-          onClick={() => setSignOutOpen(true)}
-          title="Sign out"
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-surface-600 hover:text-danger hover:bg-danger/10 transition-colors ml-0.5"
-        >
-          <LogOut className="h-4 w-4" />
-        </button>
       </div>
 
       <Dialog open={!!viewingNotif} onOpenChange={o => { if (!o) setViewingNotif(null); }}>

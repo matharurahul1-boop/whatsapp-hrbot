@@ -1317,7 +1317,7 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
 
                   {showMoreMenu && (
                     <div
-                      className="absolute right-0 top-11 z-50 rounded-xl overflow-hidden shadow-2xl min-w-[210px]"
+                      className="absolute right-0 top-11 z-50 rounded-xl overflow-hidden shadow-2xl min-w-[210px] max-w-[calc(100vw-2rem)]"
                       style={{ background: '#233138', border: '1px solid #2A3942' }}
                     >
                       <div className="px-4 py-2.5 border-b" style={{ borderColor: '#2A3942' }}>

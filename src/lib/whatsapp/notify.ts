@@ -401,25 +401,32 @@ export async function notifyLeaveDecision(opts: {
   });
 }
 
+/**
+ * Notifies every approver eligible to have approved this leave (per the
+ * same canApproveLeaveFor hierarchy as notifyLeaveApprovalNeeded) that it
+ * was cancelled — not just one fallback recipient. Uses the leave owner's
+ * role (applicantRole), the same tier that would have been asked to
+ * approve it in the first place, regardless of who actually triggered the
+ * cancellation (self-cancel or HR+ cancelling on someone's behalf).
+ */
 export async function notifyLeaveCancelled(opts: {
   orgId: string;
-  managerId: string | null;
+  applicantRole: string;
   employeeName: string;
   leaveTypeName: string;
   startDate: string;
 }): Promise<void> {
   return fire('LeaveCancelled', async () => {
-    let targetId = opts.managerId;
-    if (!targetId) {
-      const db = createAdminClient();
-      const { data: hr } = await db.from('users').select('id')
-        .eq('organization_id', opts.orgId).in('role', ['hr', 'admin'])
-        .eq('is_active', true).limit(1).single();
-      targetId = hr?.id ?? null;
-    }
-    if (!targetId) return;
-    const target = await getWaAndName(targetId);
-    if (!target) return;
+    const db = createAdminClient();
+    const { data: candidates } = await db
+      .from('users')
+      .select('id, full_name, wa_number, role')
+      .eq('organization_id', opts.orgId)
+      .eq('is_active', true)
+      .is('deleted_at', null);
+
+    const approvers = (candidates ?? []).filter(u => canApproveLeaveFor(u.role, opts.applicantRole));
+    if (!approvers.length) return;
 
     const msg =
       `🚫 *Leave cancelled*\n\n` +
@@ -427,8 +434,16 @@ export async function notifyLeaveCancelled(opts: {
       `leave scheduled for *${fmtDate(opts.startDate)}*.\n\n` +
       `No action required.`;
 
-    await sendSmartText(target.wa_number, msg, opts.orgId, firstName(target.full_name));
-    console.log(`[Notify:LeaveCancelled] ✅ ${target.wa_number}`);
+    const sends: Promise<unknown>[] = [];
+    for (const approver of approvers) {
+      sends.push(writeInApp(approver.id, opts.orgId, '🚫 Leave cancelled', `${opts.employeeName} — ${opts.leaveTypeName}, ${fmtDate(opts.startDate)}`, '/leave'));
+      if (approver.wa_number) {
+        sends.push(sendSmartText(approver.wa_number, msg, opts.orgId, firstName(approver.full_name)));
+      }
+    }
+
+    await Promise.all(sends);
+    console.log(`[Notify:LeaveCancelled] ✅ notified ${approvers.length} approver(s)`);
   });
 }
 

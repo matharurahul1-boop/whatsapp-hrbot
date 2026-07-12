@@ -12,6 +12,7 @@ import {
   notifyTaskDeleted,
   notifyLeaveDecision,
   notifyLeaveApprovalNeeded,
+  notifyLeaveCancelled,
   notifyWelcome,
 } from '@/lib/whatsapp/notify';
 import type { ToolInput, ToolResult, AgentIntent, SlotValues } from './types';
@@ -1860,7 +1861,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     };
   },
 
-  async CANCEL_LEAVE({ slots, org_id, user_id }): Promise<ToolResult> {
+  async CANCEL_LEAVE({ slots, org_id, user_id, user_role, user_name }): Promise<ToolResult> {
     const db   = createAdminClient();
     const lang = (slots._lang as 'en' | 'hi') ?? 'en';
 
@@ -1901,6 +1902,14 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       .select('id').maybeSingle();
     if (cancelError) throw cancelError;
     if (!cancelled) return { success: false, reply: '⚠️ That leave request was already changed. Please refresh your leave list.' };
+
+    notifyLeaveCancelled({
+      orgId:         org_id,
+      applicantRole: user_role,
+      employeeName:  user_name,
+      leaveTypeName: (request.leave_types as any)?.name ?? 'Leave',
+      startDate:     request.start_date,
+    }).catch(() => {});
 
     return {
       success: true,

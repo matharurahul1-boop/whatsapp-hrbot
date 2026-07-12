@@ -242,12 +242,14 @@ export async function DELETE(req: NextRequest) {
     old_data: { ...request, leave_type_name: cancelledLt?.name ?? null }, new_data: { status: 'cancelled' },
   });
 
-  // Notify manager when employee self-cancels
+  // Notify every eligible approver when employee self-cancels — profile.role
+  // is the leave owner's role here specifically because this branch only
+  // runs when request.employee_id === user.id (the actor IS the owner).
   if (request.employee_id === user.id) {
     const lt = cancelledLt;
     notifyLeaveCancelled({
       orgId:         profile.organization_id,
-      managerId:     (profile as any).manager_id ?? null,
+      applicantRole: profile.role,
       employeeName:  (profile as any).full_name ?? 'An employee',
       leaveTypeName: lt?.name ?? 'Leave',
       startDate:     request.start_date,

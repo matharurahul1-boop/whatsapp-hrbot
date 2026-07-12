@@ -1377,7 +1377,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       // live table, so every apply_leave call threw a hard Postgres error
       // ("column leave_types.max_days_per_year does not exist") right here,
       // before the leave request was ever created.
-      .select('id, name, requires_approval')
+      .select('id, name')
       .eq('organization_id', org_id)
       .ilike('name', `%${slots.leave_type}%`)
       .maybeSingle();
@@ -1498,6 +1498,16 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     const halfDayTag = halfDay ? `[${HALF_DAY_LABEL[halfDay]}]` : null;
     const reason = [halfDayTag, userReason].filter(Boolean).join(' ') || null;
 
+    // Every leave request goes to a human approver per the role hierarchy in
+    // rbac.ts (canApproveLeaveFor) — it must never auto-approve, regardless
+    // of the per-leave-type requires_approval flag. That flag previously
+    // drove this status directly, so any leave type seeded with
+    // requires_approval=false (e.g. "Sick Leave") skipped approval entirely,
+    // bypassing the hierarchy and granting instant approval to anyone,
+    // including roles that should need sign-off from someone above them.
+    // The dashboard's own /api/leave POST route already always inserts
+    // 'pending' regardless of leave type — this brings the WhatsApp path in
+    // line with that existing behavior instead of the other way round.
     const { data: request, error } = await db
       .from('leave_requests')
       .insert({
@@ -1505,7 +1515,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
         leave_type_id:   leaveType.id,
         start_date:      startDate, end_date: endDate,
         duration_days:   totalDays, reason,
-        status:          leaveType.requires_approval ? 'pending' : 'approved',
+        status:          'pending',
         source:          'whatsapp',
       })
       .select().single();
@@ -1522,7 +1532,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     return {
       success: true,
-      reply: REPLIES.leaveApplied(leaveType.name, startDate, endDate, totalDays, leaveType.requires_approval, lang, halfDay ? HALF_DAY_LABEL[halfDay] : null),
+      reply: REPLIES.leaveApplied(leaveType.name, startDate, endDate, totalDays, true, lang, halfDay ? HALF_DAY_LABEL[halfDay] : null),
     };
   },
 
@@ -2314,7 +2324,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       // this select also referenced a `description` column that was never
       // part of the schema, so this command threw the same missing-column
       // Postgres error as apply_leave did.
-      .select('name, default_days, requires_approval')
+      .select('name, default_days')
       .eq('organization_id', org_id)
       .order('name');
 
@@ -2326,11 +2336,14 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     const lines = [lang === 'hi' ? '📋 *उपलब्ध Leave Types:*' : '📋 *Available Leave Types:*', ''];
 
+    // Every leave type now always requires human approval per the role
+    // hierarchy (see the comment in APPLY_LEAVE) — the per-type
+    // requires_approval flag no longer drives real behavior, so it isn't
+    // worth showing here anymore; displaying it would just be misleading
+    // (e.g. it used to say "auto-approved" for Sick Leave, which is no
+    // longer true).
     (types as any[]).forEach((t, i) => {
-      const approvalStr = t.requires_approval
-        ? (lang === 'hi' ? '_(अनुमोदन जरूरी)_' : '_(requires approval)_')
-        : (lang === 'hi' ? '_(स्वतः स्वीकृत)_' : '_(auto-approved)_');
-      lines.push(`${i + 1}. *${t.name}* ${approvalStr}`);
+      lines.push(`${i + 1}. *${t.name}*`);
       if (t.default_days) lines.push(`   📊 ${t.default_days} days/year`);
       lines.push('');
     });

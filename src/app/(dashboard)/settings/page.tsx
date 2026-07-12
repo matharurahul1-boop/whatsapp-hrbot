@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import {
-  User, Building2, Bell, Shield, Phone,
+  Building2, Bell, Shield, Phone,
   Save, Loader2, CheckCircle2, AlertCircle,
   Eye, EyeOff, Copy, Check, Bot, KeyRound, Plus, X,
 } from 'lucide-react';
@@ -77,12 +77,7 @@ export default function SettingsPage() {
   const [error,   setError]     = useState('');
 
   // Profile fields
-  const [fullName,     setFullName]     = useState('');
-  const [email,        setEmail]        = useState('');
   const [waNumber,     setWaNumber]     = useState('');
-  const [department,   setDepartment]   = useState('');
-  const [designation,  setDesignation]  = useState('');
-  const [avatarUrl,    setAvatarUrl]    = useState('');
 
   // Org fields (admin only)
   const [orgName,       setOrgName]       = useState('');
@@ -140,39 +135,29 @@ export default function SettingsPage() {
   useEffect(() => {
     if (loading) return;
     const current = JSON.stringify({
-      fullName, waNumber, department, designation, avatarUrl,
-      orgName, waPhoneId, waMsgTemplate, waTemplateLang, waTemplateVars,
+      waNumber, orgName, waPhoneId, waMsgTemplate, waTemplateLang, waTemplateVars,
     });
     setIsDirty(current !== snapshotRef.current);
-  }, [loading, fullName, waNumber, department, designation, avatarUrl, orgName, waPhoneId, waMsgTemplate, waTemplateLang, waTemplateVars]);
+  }, [loading, waNumber, orgName, waPhoneId, waMsgTemplate, waTemplateLang, waTemplateVars]);
 
   async function loadData() {
     setLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     setUserId(user.id);
-    setEmail(user.email ?? '');
 
     const { data: profile } = await supabase
       .from('users')
-      .select('full_name, wa_number, department, designation, avatar_url, role, organization_id, metadata')
+      .select('wa_number, role, organization_id, metadata')
       .eq('id', user.id)
       .single();
 
     const snapshot: Record<string, string> = {};
 
     if (profile) {
-      snapshot.fullName    = profile.full_name ?? '';
-      snapshot.waNumber    = profile.wa_number ?? '';
-      snapshot.department  = profile.department ?? '';
-      snapshot.designation = profile.designation ?? '';
-      snapshot.avatarUrl   = profile.avatar_url ?? '';
+      snapshot.waNumber = profile.wa_number ?? '';
 
-      setFullName(snapshot.fullName);
       setWaNumber(snapshot.waNumber);
-      setDepartment(snapshot.department);
-      setDesignation(snapshot.designation);
-      setAvatarUrl(snapshot.avatarUrl);
       setRole(profile.role ?? '');
       setOrgId(profile.organization_id ?? '');
 
@@ -224,7 +209,7 @@ export default function SettingsPage() {
 
     const { error: err } = await supabase
       .from('users')
-      .update({ full_name: fullName, wa_number: cleanWaNumber || null, department, designation, avatar_url: avatarUrl })
+      .update({ wa_number: cleanWaNumber || null })
       .eq('id', userId);
 
     if (err) { setError(err.message); toast(err.message, 'error'); setSaving(false); return; }
@@ -258,8 +243,7 @@ export default function SettingsPage() {
     // (header avatar, sidebar name, etc.) so the change is visible immediately
     // instead of only after a manual reload.
     snapshotRef.current = JSON.stringify({
-      fullName, waNumber, department, designation, avatarUrl,
-      orgName, waPhoneId, waMsgTemplate, waTemplateLang, waTemplateVars,
+      waNumber, orgName, waPhoneId, waMsgTemplate, waTemplateLang, waTemplateVars,
     });
     setIsDirty(false);
     setWaToken('');
@@ -402,7 +386,7 @@ export default function SettingsPage() {
       <div className="sticky top-0 z-10 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-3 bg-surface-50/95 backdrop-blur-sm border-b border-surface-300/60 flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-surface-950">Settings</h1>
-          <p className="text-sm text-surface-600 mt-1">Manage your profile, organization and integrations</p>
+          <p className="text-sm text-surface-600 mt-1">Manage your WhatsApp number, organization and integrations</p>
         </div>
         <button
           type="submit"
@@ -430,33 +414,6 @@ export default function SettingsPage() {
       )}
 
       <form id="settings-main-form" onSubmit={handleSaveProfile} className="space-y-6">
-        {/* ── Profile ── */}
-        <Section
-          title="Profile"
-          description="Your personal information shown across the app"
-          icon={<User className="h-4 w-4" />}
-        >
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="Full name">
-              <TextInput value={fullName} onChange={setFullName} placeholder="Ashish Kumar" />
-            </Field>
-            <Field label="Email" hint="Managed by Supabase Auth">
-              <TextInput value={email} onChange={() => {}} disabled placeholder="you@company.com" />
-            </Field>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="Department">
-              <TextInput value={department} onChange={setDepartment} placeholder="Engineering" />
-            </Field>
-            <Field label="Designation">
-              <TextInput value={designation} onChange={setDesignation} placeholder="Software Engineer" />
-            </Field>
-          </div>
-          <Field label="Avatar URL" hint="Link to your profile picture">
-            <TextInput value={avatarUrl} onChange={setAvatarUrl} placeholder="https://..." />
-          </Field>
-        </Section>
-
         {/* ── WhatsApp Number ── */}
         <Section
           title="WhatsApp"

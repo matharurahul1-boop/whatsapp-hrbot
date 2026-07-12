@@ -44,6 +44,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
               userId={profile.id}
               userName={profile.full_name}
               userRole={profile.role}
+              userEmail={user.email ?? ''}
               avatarUrl={profile.avatar_url ?? null}
             />
             <main className="flex-1 overflow-hidden flex flex-col">

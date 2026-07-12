@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import { Bell, LogOut, X, ChevronRight, Home, Sun, Moon, ExternalLink } from 'lucide-react';
+import { Bell, LogOut, X, ChevronRight, Home, Sun, Moon, ExternalLink, Loader2, Save, CheckCircle2, AlertCircle } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { Avatar } from '@/components/ui/Avatar';
 import { ConfirmDialog, Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody, DialogFooter } from '@/components/ui/Modal';
@@ -11,11 +11,13 @@ import { cn } from '@/lib/utils/cn';
 import { useTheme } from '@/components/layout/ThemeProvider';
 import { useSidebar } from '@/components/layout/SidebarProvider';
 import InstallButton from '@/components/layout/InstallButton';
+import { useToast } from '@/components/ui/Toast';
 
 interface HeaderProps {
   userId:    string;
   userName:  string;
   userRole:  string;
+  userEmail: string;
   avatarUrl: string | null;
 }
 
@@ -38,11 +40,12 @@ const CRUMB_MAP: Record<string, string> = {
   settings:   'Settings',
 };
 
-export default function Header({ userId, userName, userRole, avatarUrl }: HeaderProps) {
+export default function Header({ userId, userName, userRole, userEmail, avatarUrl }: HeaderProps) {
   const router   = useRouter();
   const pathname = usePathname();
   const supabase = createClient();
   const { theme, toggleTheme } = useTheme();
+  const { toast } = useToast();
 
   const { closeMobile } = useSidebar();
 
@@ -53,6 +56,19 @@ export default function Header({ userId, userName, userRole, avatarUrl }: Header
   const [signOutOpen,    setSignOutOpen]    = useState(false);
   const [signingOut,     setSigningOut]     = useState(false);
   const [viewingNotif,   setViewingNotif]   = useState<Notification | null>(null);
+
+  // Profile dropdown — opened by clicking the avatar/name in the header
+  const profileRef = useRef<HTMLDivElement>(null);
+  const [profileOpen,    setProfileOpen]    = useState(false);
+  const [profileLoaded,  setProfileLoaded]  = useState(false);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [pFullName,    setPFullName]    = useState(userName);
+  const [pDepartment,  setPDepartment]  = useState('');
+  const [pDesignation, setPDesignation] = useState('');
+  const [pAvatarUrl,   setPAvatarUrl]   = useState(avatarUrl ?? '');
+  const [pSaving, setPSaving] = useState(false);
+  const [pSaved,  setPSaved]  = useState(false);
+  const [pError,  setPError]  = useState('');
 
   // Breadcrumbs
   const segments = pathname.split('/').filter(Boolean);
@@ -98,14 +114,56 @@ export default function Header({ userId, userName, userRole, avatarUrl }: Header
     return () => { supabase.removeChannel(channel); };
   }, [userId, supabase]);
 
-  // Close notif on outside click
+  // Close notif / profile dropdowns on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (notifRef.current && !notifRef.current.contains(e.target as Node)) setNotifOpen(false);
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) setProfileOpen(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
+
+  async function toggleProfile() {
+    setNotifOpen(false);
+    setProfileOpen(o => !o);
+    if (!profileLoaded) {
+      setProfileLoading(true);
+      const { data } = await supabase
+        .from('users')
+        .select('full_name, department, designation, avatar_url')
+        .eq('id', userId)
+        .single();
+      if (data) {
+        setPFullName(data.full_name ?? '');
+        setPDepartment(data.department ?? '');
+        setPDesignation(data.designation ?? '');
+        setPAvatarUrl(data.avatar_url ?? '');
+      }
+      setProfileLoaded(true);
+      setProfileLoading(false);
+    }
+  }
+
+  async function saveProfile() {
+    setPSaving(true);
+    setPError('');
+    const { error: err } = await supabase
+      .from('users')
+      .update({
+        full_name:   pFullName.trim(),
+        department:  pDepartment.trim() || null,
+        designation: pDesignation.trim() || null,
+        avatar_url:  pAvatarUrl.trim() || null,
+      })
+      .eq('id', userId);
+    if (err) { setPError(err.message); toast(err.message, 'error'); setPSaving(false); return; }
+    setPSaving(false);
+    setPSaved(true);
+    toast('Profile updated.');
+    router.refresh();
+    setTimeout(() => setPSaved(false), 2500);
+  }
 
   // Close sidebar when the backdrop overlay is tapped
   useEffect(() => {
@@ -195,7 +253,7 @@ export default function Header({ userId, userName, userRole, avatarUrl }: Header
         {/* Notifications */}
         <div className="relative" ref={notifRef}>
           <button
-            onClick={() => setNotifOpen(o => !o)}
+            onClick={() => { setProfileOpen(false); setNotifOpen(o => !o); }}
             className={cn(
               'relative flex h-8 w-8 items-center justify-center rounded-lg transition-colors',
               notifOpen ? 'bg-surface-300 text-surface-950' : 'text-surface-600 hover:bg-surface-200 hover:text-surface-950'
@@ -265,13 +323,98 @@ export default function Header({ userId, userName, userRole, avatarUrl }: Header
         {/* Divider */}
         <div className="h-5 w-px bg-surface-300 mx-1 hidden sm:block" />
 
-        {/* User info */}
-        <div className="hidden sm:flex items-center gap-2 pl-0.5">
-          <Avatar src={avatarUrl} name={userName} size="sm" />
-          <div className="hidden md:block text-left">
-            <p className="text-xs font-semibold text-surface-950 leading-tight truncate max-w-[120px]">{userName}</p>
-            <p className="text-2xs text-surface-600 capitalize">{userRole.replace('_', ' ')}</p>
-          </div>
+        {/* User info — click to edit profile */}
+        <div className="relative hidden sm:block" ref={profileRef}>
+          <button
+            type="button"
+            onClick={toggleProfile}
+            className={cn(
+              'flex items-center gap-2 pl-0.5 pr-2 py-1 rounded-lg transition-colors',
+              profileOpen ? 'bg-surface-300' : 'hover:bg-surface-200'
+            )}
+          >
+            <Avatar src={avatarUrl} name={userName} size="sm" />
+            <div className="hidden md:block text-left">
+              <p className="text-xs font-semibold text-surface-950 leading-tight truncate max-w-[120px]">{userName}</p>
+              <p className="text-2xs text-surface-600 capitalize">{userRole.replace('_', ' ')}</p>
+            </div>
+          </button>
+
+          {profileOpen && (
+            <div className="absolute right-0 top-11 z-50 w-80 rounded-2xl bg-surface-100 border border-surface-300 shadow-modal animate-[scaleIn_0.15s_ease-out]">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-surface-300">
+                <span className="text-sm font-semibold text-surface-950">Edit Profile</span>
+                <button onClick={() => setProfileOpen(false)} className="flex h-6 w-6 items-center justify-center rounded-lg text-surface-600 hover:text-surface-950 hover:bg-surface-300 transition-colors">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+
+              {profileLoading ? (
+                <div className="flex items-center justify-center py-10">
+                  <Loader2 className="h-5 w-5 animate-spin text-brand-500" />
+                </div>
+              ) : (
+                <div className="p-4 space-y-3">
+                  {pError && (
+                    <div className="flex items-center gap-2 rounded-lg border border-danger/20 bg-danger/10 px-3 py-2 text-xs text-danger">
+                      <AlertCircle className="h-3.5 w-3.5 shrink-0" /> {pError}
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-2xs font-medium text-surface-700 mb-1">Full name</label>
+                    <input
+                      type="text" value={pFullName} onChange={e => setPFullName(e.target.value)}
+                      className="w-full rounded-lg border border-surface-300 bg-surface-0 px-3 py-2 text-sm text-surface-950 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-2xs font-medium text-surface-700 mb-1">Email</label>
+                    <input
+                      type="text" value={userEmail} disabled
+                      className="w-full rounded-lg border border-surface-300 bg-surface-0 px-3 py-2 text-sm text-surface-500 disabled:opacity-60 disabled:cursor-not-allowed"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-2xs font-medium text-surface-700 mb-1">Department</label>
+                      <input
+                        type="text" value={pDepartment} onChange={e => setPDepartment(e.target.value)}
+                        className="w-full rounded-lg border border-surface-300 bg-surface-0 px-3 py-2 text-sm text-surface-950 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-2xs font-medium text-surface-700 mb-1">Designation</label>
+                      <input
+                        type="text" value={pDesignation} onChange={e => setPDesignation(e.target.value)}
+                        className="w-full rounded-lg border border-surface-300 bg-surface-0 px-3 py-2 text-sm text-surface-950 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-2xs font-medium text-surface-700 mb-1">Avatar URL</label>
+                    <input
+                      type="text" value={pAvatarUrl} onChange={e => setPAvatarUrl(e.target.value)} placeholder="https://..."
+                      className="w-full rounded-lg border border-surface-300 bg-surface-0 px-3 py-2 text-sm text-surface-950 placeholder:text-surface-500 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500"
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={saveProfile}
+                    disabled={pSaving || !pFullName.trim()}
+                    className="flex items-center justify-center gap-2 w-full rounded-lg bg-brand-500 hover:bg-brand-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold px-4 py-2 transition-colors"
+                  >
+                    {pSaving
+                      ? <Loader2      className="h-3.5 w-3.5 animate-spin" />
+                      : pSaved
+                        ? <CheckCircle2 className="h-3.5 w-3.5" />
+                        : <Save         className="h-3.5 w-3.5" />}
+                    {pSaving ? 'Saving…' : pSaved ? 'Saved!' : 'Save changes'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Sign out */}

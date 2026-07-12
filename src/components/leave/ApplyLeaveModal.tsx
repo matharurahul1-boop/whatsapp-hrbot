@@ -30,15 +30,18 @@ export default function ApplyLeaveModal({ leaveTypes }: ApplyLeaveModalProps) {
     start_date:    '',
     end_date:      '',
     reason:        '',
+    half_day:      '' as '' | 'first' | 'second',
   });
 
-  const duration = form.start_date && form.end_date
-    ? Math.max(0,
-        Math.round(
-          (new Date(form.end_date).getTime() - new Date(form.start_date).getTime()) / 86_400_000
-        ) + 1
-      )
-    : null;
+  const duration = form.half_day
+    ? 0.5
+    : form.start_date && form.end_date
+      ? Math.max(0,
+          Math.round(
+            (new Date(form.end_date).getTime() - new Date(form.start_date).getTime()) / 86_400_000
+          ) + 1
+        )
+      : null;
 
   function set(field: string, value: string) {
     setForm(f => ({ ...f, [field]: value }));
@@ -49,21 +52,31 @@ export default function ApplyLeaveModal({ leaveTypes }: ApplyLeaveModalProps) {
     e.preventDefault();
     if (!form.leave_type_id) { setError('Please select a leave type'); return; }
     if (!form.start_date)    { setError('Please select a start date'); return; }
-    if (!form.end_date)      { setError('Please select an end date'); return; }
-    if (form.end_date < form.start_date) { setError('End date must be after start date'); return; }
+    if (!form.half_day) {
+      if (!form.end_date) { setError('Please select an end date'); return; }
+      if (form.end_date < form.start_date) { setError('End date must be after start date'); return; }
+    }
 
     setLoading(true);
     try {
+      const payload: Record<string, string> = {
+        leave_type_id: form.leave_type_id,
+        start_date:    form.start_date,
+        reason:        form.reason,
+      };
+      if (form.half_day) payload.half_day = form.half_day;
+      else payload.end_date = form.end_date;
+
       const res = await fetch('/api/leave', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(form),
+        body:    JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? 'Failed to apply for leave'); return; }
 
       setOpen(false);
-      setForm({ leave_type_id: '', start_date: '', end_date: '', reason: '' });
+      setForm({ leave_type_id: '', start_date: '', end_date: '', reason: '', half_day: '' });
       router.refresh();
     } finally {
       setLoading(false);
@@ -104,6 +117,20 @@ export default function ApplyLeaveModal({ leaveTypes }: ApplyLeaveModalProps) {
                 ))}
               </SelectNative>
 
+              <label className="flex items-center gap-2 text-sm text-surface-700">
+                <input
+                  type="checkbox"
+                  checked={!!form.half_day}
+                  onChange={e => setForm(f => ({
+                    ...f,
+                    half_day: e.target.checked ? 'first' : '',
+                    end_date: e.target.checked ? '' : f.end_date,
+                  }))}
+                  className="h-4 w-4 rounded border-surface-400 text-brand-500"
+                />
+                Half day
+              </label>
+
               <div className="grid grid-cols-2 gap-4">
                 <Input
                   label="Start Date *"
@@ -112,19 +139,30 @@ export default function ApplyLeaveModal({ leaveTypes }: ApplyLeaveModalProps) {
                   onChange={e => set('start_date', e.target.value)}
                   min={new Date().toISOString().split('T')[0]}
                 />
-                <Input
-                  label="End Date *"
-                  type="date"
-                  value={form.end_date}
-                  onChange={e => set('end_date', e.target.value)}
-                  min={form.start_date || new Date().toISOString().split('T')[0]}
-                />
+                {form.half_day ? (
+                  <SelectNative
+                    label="Session *"
+                    value={form.half_day}
+                    onChange={e => set('half_day', e.target.value)}
+                  >
+                    <option value="first">First Half (9:00 AM–1:00 PM)</option>
+                    <option value="second">Second Half (2:00 PM–6:00 PM)</option>
+                  </SelectNative>
+                ) : (
+                  <Input
+                    label="End Date *"
+                    type="date"
+                    value={form.end_date}
+                    onChange={e => set('end_date', e.target.value)}
+                    min={form.start_date || new Date().toISOString().split('T')[0]}
+                  />
+                )}
               </div>
 
               {duration !== null && duration > 0 && (
                 <div className="flex items-center gap-2 rounded-lg bg-brand-500/10 border border-brand-500/20 px-3 py-2">
                   <span className="text-sm text-brand-400 font-medium">
-                    {duration} day{duration !== 1 ? 's' : ''} of leave
+                    {form.half_day ? 'Half day of leave' : `${duration} day${duration !== 1 ? 's' : ''} of leave`}
                   </span>
                 </div>
               )}

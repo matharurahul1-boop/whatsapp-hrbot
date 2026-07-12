@@ -6,14 +6,26 @@ import { notifyLeaveApprovalNeeded, notifyLeaveCancelled } from '@/lib/whatsapp/
 import { isHrOrAbove, isEmployee, canApplyForLeave } from '@/lib/rbac';
 import { z } from 'zod';
 
+// Matches the label format the WhatsApp bot folds into `reason` (see
+// executor.ts's APPLY_LEAVE) — there's no dedicated half-day column on
+// leave_requests, so both paths must agree on the same tag text or the
+// same request would read differently depending on where it came from.
+const HALF_DAY_LABEL: Record<'first' | 'second', string> = {
+  first:  'First Half, 9:00 AM–1:00 PM',
+  second: 'Second Half, 2:00 PM–6:00 PM',
+};
+
 const ApplyLeaveSchema = z.object({
   leave_type_id: z.string().uuid(),
   start_date:    z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  end_date:      z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  // Not required when half_day is set — a half day is always exactly one
+  // day, so end_date would be ignored anyway.
+  end_date:      z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   reason:        z.string().max(500).optional(),
+  half_day:      z.enum(['first', 'second']).optional(),
   // HR+ can apply on behalf of another employee
   employee_id:   z.string().uuid().optional(),
-});
+}).refine(d => !!d.half_day || !!d.end_date, { message: 'end_date is required unless half_day is set', path: ['end_date'] });
 
 // GET /api/leave — list leave requests
 export async function GET(req: NextRequest) {
@@ -102,13 +114,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Leave cannot be applied for admins or super admins.' }, { status: 422 });
   }
 
-  // Calculate duration
+  // Calculate duration — a half day is always exactly one day, so it
+  // ignores whatever end_date the client sent.
+  const endDateStr = parsed.data.half_day ? parsed.data.start_date : parsed.data.end_date;
+  if (!endDateStr) return NextResponse.json({ error: 'end_date is required' }, { status: 422 });
   const start = new Date(parsed.data.start_date);
-  const end   = new Date(parsed.data.end_date);
+  const end   = new Date(endDateStr);
   if (end < start) return NextResponse.json({ error: 'end_date must be >= start_date' }, { status: 422 });
   const today = new Date(); today.setUTCHours(0, 0, 0, 0);
   if (start < today) return NextResponse.json({ error: 'Leave cannot start in the past' }, { status: 422 });
-  const durationDays = Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
+  const durationDays = parsed.data.half_day
+    ? 0.5
+    : Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
 
   const { data: leaveType } = await db.from('leave_types').select('id')
     .eq('id', parsed.data.leave_type_id).eq('organization_id', profile.organization_id)
@@ -145,7 +162,7 @@ export async function POST(req: NextRequest) {
     .select('id')
     .eq('employee_id', targetEmployeeId)
     .in('status', ['pending','approved'])
-    .lte('start_date', parsed.data.end_date)
+    .lte('start_date', endDateStr)
     .gte('end_date', parsed.data.start_date)
     .limit(1);
 
@@ -153,11 +170,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'This employee already has a leave request overlapping those dates' }, { status: 409 });
   }
 
-  // Destructure out employee_id (HR override field) before inserting
-  const { employee_id: _ignore, ...leaveFields } = parsed.data;
+  // There's no dedicated half-day column on leave_requests, so the label is
+  // folded into reason instead — the one field every leave listing
+  // (WhatsApp, dashboard, audit log) already surfaces.
+  const halfDayTag = parsed.data.half_day ? `[${HALF_DAY_LABEL[parsed.data.half_day]}]` : null;
+  const reason = [halfDayTag, parsed.data.reason].filter(Boolean).join(' ') || undefined;
 
   const { data: request, error } = await db.from('leave_requests').insert({
-    ...leaveFields,
+    leave_type_id:   parsed.data.leave_type_id,
+    start_date:      parsed.data.start_date,
+    end_date:        endDateStr,
+    reason,
     organization_id: profile.organization_id,
     employee_id:     targetEmployeeId,
     duration_days:   durationDays,
@@ -183,9 +206,9 @@ export async function POST(req: NextRequest) {
     employeeName:  (targetProfile as any).full_name ?? 'An employee',
     leaveTypeName: lt?.name ?? 'Leave',
     startDate:     parsed.data.start_date,
-    endDate:       parsed.data.end_date,
+    endDate:       endDateStr,
     durationDays,
-    reason:        parsed.data.reason,
+    reason,
   });
 
   return NextResponse.json({ data: request }, { status: 201 });

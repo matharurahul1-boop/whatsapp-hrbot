@@ -53,10 +53,15 @@ export default async function LeavePage() {
 
   const [requestsRes, balancesRes, leaveTypesRes, realtimeEnabled] = await Promise.all([
     requestQuery,
-    db.from('v_leave_summary')
-      .select('leave_type, color, entitled_days, used_days, remaining_days')
+    // Queried directly (rather than the v_leave_summary view) so an inactive
+    // leave type's balance can be excluded — the view doesn't expose
+    // is_active, so a deactivated type would otherwise keep showing its old
+    // balance card here even after it's hidden everywhere else.
+    db.from('leave_balances')
+      .select('entitled_days, used_days, remaining_days, leave_type:leave_types!inner(name, color, is_active)')
       .eq('employee_id', user.id)
-      .eq('year', year),
+      .eq('year', year)
+      .eq('leave_type.is_active', true),
     db.from('leave_types')
       .select('id, name')
       .eq('organization_id', orgId)
@@ -65,8 +70,14 @@ export default async function LeavePage() {
     isRealtimeRefreshEnabled(db, orgId, 'leave'),
   ]);
 
-  const requests   = (requestsRes.data ?? []) as unknown as Parameters<typeof LeaveRequestsTable>[0]['requests'];
-  const balances   = balancesRes.data ?? [];
+  const requests = (requestsRes.data ?? []) as unknown as Parameters<typeof LeaveRequestsTable>[0]['requests'];
+  const balances = (balancesRes.data ?? []).map(b => ({
+    leave_type:     (b.leave_type as unknown as { name: string }).name,
+    color:          (b.leave_type as unknown as { color: string | null }).color,
+    entitled_days:  b.entitled_days,
+    used_days:      b.used_days,
+    remaining_days: b.remaining_days,
+  }));
   const leaveTypes = leaveTypesRes.data ?? [];
 
   const pendingCount = requests.filter(r => r.status === 'pending').length;

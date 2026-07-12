@@ -62,7 +62,7 @@ export default async function LeavePage() {
       .eq('organization_id', orgId)
       .eq('is_active', true)
       .order('name'),
-    isRealtimeRefreshEnabled(db, orgId),
+    isRealtimeRefreshEnabled(db, orgId, 'leave'),
   ]);
 
   const requests   = (requestsRes.data ?? []) as unknown as Parameters<typeof LeaveRequestsTable>[0]['requests'];

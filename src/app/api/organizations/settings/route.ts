@@ -21,8 +21,9 @@ const Schema = z.object({
   wa_template_variables: z.number().int().min(1).max(5).optional(),
   // AI backend toggle — stored inside organizations.settings JSONB, not a direct column
   ai_backend:           z.enum(['groq', 'claude']).optional(),
-  // Realtime dashboard auto-refresh — also stored inside organizations.settings JSONB
-  realtime_refresh_enabled: z.boolean().optional(),
+  // Realtime dashboard auto-refresh, per page — also stored inside organizations.settings JSONB.
+  // Partial: only the pages included get updated, others keep their existing value.
+  realtime_refresh_pages: z.record(z.string(), z.boolean()).optional(),
   // Comma-separated Groq keys, stored in organization_secrets alongside wa_access_token
   groq_api_keys:        z.string().min(1).optional(),
 });
@@ -105,7 +106,7 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: msg }, { status: 422 });
   }
 
-  const { ai_backend, realtime_refresh_enabled, wa_access_token, groq_api_keys, wa_template_variables, ...directFields } = parsed.data;
+  const { ai_backend, realtime_refresh_pages, wa_access_token, groq_api_keys, wa_template_variables, ...directFields } = parsed.data;
   const orgId = profile.organization_id;
 
   if (wa_access_token !== undefined || groq_api_keys !== undefined) {
@@ -149,18 +150,24 @@ export async function PATCH(req: NextRequest) {
     if (error) console.error('[org/settings PATCH] wa_template_variables (column may not exist yet):', error.message);
   }
 
-  // Merge ai_backend / realtime_refresh_enabled into the settings JSONB column
-  if (ai_backend !== undefined || realtime_refresh_enabled !== undefined) {
+  // Merge ai_backend / realtime_refresh_pages into the settings JSONB column.
+  // realtime_refresh_pages is itself an object, so it needs a nested merge
+  // (current pages ⊕ incoming pages) rather than the shallow spread used for
+  // every other settings key, or toggling one page would wipe the rest.
+  if (ai_backend !== undefined || realtime_refresh_pages !== undefined) {
     const { data: org } = await db
       .from('organizations').select('settings').eq('id', orgId).single();
     const current = (org?.settings as Record<string, unknown>) ?? {};
+    const currentPages = (current.realtime_refresh_pages as Record<string, boolean>) ?? {};
     const { error } = await db
       .from('organizations')
       .update({
         settings: {
           ...current,
           ...(ai_backend !== undefined && { ai_backend }),
-          ...(realtime_refresh_enabled !== undefined && { realtime_refresh_enabled }),
+          ...(realtime_refresh_pages !== undefined && {
+            realtime_refresh_pages: { ...currentPages, ...realtime_refresh_pages },
+          }),
         },
       })
       .eq('id', orgId);

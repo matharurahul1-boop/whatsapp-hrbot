@@ -54,7 +54,7 @@ export default async function TasksPage() {
       .eq('is_active', true)
       .is('deleted_at', null)
       .order('full_name'),
-    isRealtimeRefreshEnabled(db, orgId),
+    isRealtimeRefreshEnabled(db, orgId, 'tasks'),
   ]);
 
   const tasks     = (tasksRes.data ?? []) as unknown as Parameters<typeof TaskKanban>[0]['tasks'];

@@ -56,7 +56,7 @@ export default async function AttendancePage() {
     isManager
       ? db.rpc('get_attendance_heatmap', { p_org_id: orgId, p_days: 30 })
       : Promise.resolve({ data: null }),
-    isRealtimeRefreshEnabled(db, orgId),
+    isRealtimeRefreshEnabled(db, orgId, 'attendance'),
   ]);
 
   const records      = (recordsRes.data ?? []) as unknown as Parameters<typeof AttendanceTable>[0]['records'];

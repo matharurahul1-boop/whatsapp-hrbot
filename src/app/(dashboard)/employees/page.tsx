@@ -31,7 +31,7 @@ export default async function EmployeesPage() {
       .select('*')
       .eq('organization_id', profile.organization_id)
       .order('full_name'),
-    isRealtimeRefreshEnabled(db, profile.organization_id),
+    isRealtimeRefreshEnabled(db, profile.organization_id, 'team'),
   ]);
 
   const canEdit   = ['super_admin', 'admin', 'hr'].includes(profile.role);

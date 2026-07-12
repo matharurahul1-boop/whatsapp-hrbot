@@ -37,7 +37,7 @@ export default async function EscalationPage() {
       .eq('organization_id', profile.organization_id)
       .eq('status', 'pending')
       .order('created_at', { ascending: true }),
-    isRealtimeRefreshEnabled(db, profile.organization_id),
+    isRealtimeRefreshEnabled(db, profile.organization_id, 'escalation'),
   ]);
 
   return (

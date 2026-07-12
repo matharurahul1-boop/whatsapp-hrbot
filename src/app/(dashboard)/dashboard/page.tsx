@@ -45,7 +45,7 @@ export default async function DashboardPage() {
     db.rpc('get_org_kpis', { p_org_id: orgId }),
     db.rpc('get_task_trend', { p_org_id: orgId }),
     db.rpc('get_attendance_heatmap', { p_org_id: orgId, p_days: 30 }),
-    isRealtimeRefreshEnabled(db, orgId),
+    isRealtimeRefreshEnabled(db, orgId, 'dashboard'),
   ]);
 
   const kpis        = kpisRes.data?.[0];

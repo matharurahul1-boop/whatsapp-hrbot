@@ -271,7 +271,10 @@ export default function Header({ userId, userName, userRole, userEmail, avatarUr
         >
           <Bell className="h-4 w-4" />
           {unread > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-brand-500 text-2xs font-bold text-white leading-none">
+            <span className={cn(
+              'absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-brand-500 font-bold text-white leading-none',
+              unread > 9 ? 'text-[8px]' : 'text-2xs'
+            )}>
               {unread > 9 ? '9+' : unread}
             </span>
           )}

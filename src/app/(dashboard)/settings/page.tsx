@@ -12,6 +12,13 @@ import {
 import { cn } from '@/lib/utils/cn';
 import { normalizeWaNumber } from '@/lib/utils/phone';
 import { useToast } from '@/components/ui/Toast';
+import { ConfirmDialog } from '@/components/ui/Modal';
+import { REALTIME_PAGES, type RealtimePage } from '@/lib/utils/realtime-settings';
+
+const REALTIME_PAGE_LABEL: Record<RealtimePage, string> = {
+  leave: 'Leave', tasks: 'Tasks', attendance: 'Attendance',
+  team: 'Team', dashboard: 'Dashboard', escalation: 'Escalation',
+};
 
 // Re-enabled 2026-07-11 at the org's request (was hard-disabled 2026-07-10).
 // Keep in sync with the matching flag in src/lib/ai/agent.ts, which is what
@@ -136,12 +143,13 @@ export default function SettingsPage() {
   const [savingAi,    setSavingAi]    = useState(false);
   const [aiSaved,     setAiSaved]     = useState(false);
 
-  // Realtime dashboard auto-refresh toggle (admin only) — org-wide on/off for
+  // Realtime dashboard auto-refresh toggle (admin only) — per-page on/off for
   // the postgres_changes subscriptions that auto-refresh Leave/Tasks/Attendance/
   // Team/Dashboard/Escalation pages.
-  const [realtimeRefresh,      setRealtimeRefresh]      = useState(true);
-  const [savingRealtime,       setSavingRealtime]       = useState(false);
-  const [realtimeSaved,        setRealtimeSaved]        = useState(false);
+  const [realtimePages,   setRealtimePages]   = useState<Record<RealtimePage, boolean>>(
+    Object.fromEntries(REALTIME_PAGES.map(p => [p, true])) as Record<RealtimePage, boolean>
+  );
+  const [savingRealtimePage, setSavingRealtimePage] = useState<string | null>(null);
 
   // Leave Policy (HR+) — leave types themselves, plus a role x work_mode
   // entitlement override matrix. Self-contained, same pattern as AI
@@ -155,6 +163,8 @@ export default function SettingsPage() {
   const [policyMatrix,    setPolicyMatrix]    = useState<PolicyRow[]>([]);
   const [selectedTypeId,  setSelectedTypeId]  = useState('');
   const [savingCell,      setSavingCell]      = useState<string | null>(null); // `${role}:${work_mode}`
+  const [deleteTarget,    setDeleteTarget]    = useState<LeaveTypeRow | null>(null);
+  const [deletingType,    setDeletingType]    = useState(false);
 
   // Meta
   const [role,   setRole]   = useState('');
@@ -231,7 +241,12 @@ export default function SettingsPage() {
         setWaTemplateLang(snapshot.waTemplateLang);
         setWaTemplateVars(snapshot.waTemplateVars);
         setAiBackend(GROQ_BACKEND_ENABLED ? ((org as any).settings?.ai_backend === 'claude' ? 'claude' : 'groq') : 'claude');
-        setRealtimeRefresh((org as any).settings?.realtime_refresh_enabled !== false);
+        {
+          const savedPages = (org as any).settings?.realtime_refresh_pages ?? {};
+          setRealtimePages(Object.fromEntries(
+            REALTIME_PAGES.map(p => [p, savedPages[p] !== false])
+          ) as Record<RealtimePage, boolean>);
+        }
         setGroqKeysCount(org.groq_api_keys_count ?? 0);
         setGroqKeys(Array.isArray(org.groq_api_keys) && org.groq_api_keys.length > 0 ? org.groq_api_keys : ['']);
         setGroqKeysSource(org.groq_api_keys_source === 'org' ? 'org' : 'server');
@@ -421,6 +436,26 @@ export default function SettingsPage() {
     }
   }
 
+  async function deleteLeaveType() {
+    if (!deleteTarget) return;
+    setDeletingType(true);
+    try {
+      const res = await fetch(`/api/leave-types?id=${deleteTarget.id}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (!res.ok) { toast(typeof json.error === 'string' ? json.error : 'Failed to delete leave type', 'error'); return; }
+      if (json.deactivated) {
+        setLeaveTypes(types => types.map(t => t.id === deleteTarget.id ? { ...t, is_active: false } : t));
+        toast(json.message ?? 'Deactivated instead — existing leave records reference it.');
+      } else {
+        setLeaveTypes(types => types.filter(t => t.id !== deleteTarget.id));
+        toast('Leave type deleted.');
+      }
+      setDeleteTarget(null);
+    } finally {
+      setDeletingType(false);
+    }
+  }
+
   function policyCellValue(role: string, workMode: 'wfo' | 'wfh'): number | null {
     const row = policyMatrix.find(p => p.leave_type_id === selectedTypeId && p.role === role && p.work_mode === workMode);
     return row?.default_days ?? null;
@@ -493,25 +528,23 @@ export default function SettingsPage() {
     }
   }
 
-  async function saveRealtimeRefresh(next: boolean) {
-    setRealtimeRefresh(next);
-    setSavingRealtime(true);
+  async function saveRealtimePage(page: RealtimePage, next: boolean) {
+    setRealtimePages(pages => ({ ...pages, [page]: next }));
+    setSavingRealtimePage(page);
     try {
       const res = await fetch('/api/organizations/settings', {
         method:  'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ realtime_refresh_enabled: next }),
+        body:    JSON.stringify({ realtime_refresh_pages: { [page]: next } }),
       });
       if (res.ok) {
-        setRealtimeSaved(true);
-        toast(next ? 'Live page updates turned on.' : 'Live page updates turned off.');
-        setTimeout(() => setRealtimeSaved(false), 2500);
+        toast(`${REALTIME_PAGE_LABEL[page]} live updates turned ${next ? 'on' : 'off'}.`);
       } else {
-        setRealtimeRefresh(!next);
+        setRealtimePages(pages => ({ ...pages, [page]: !next }));
         toast('Failed to save live updates setting.', 'error');
       }
     } finally {
-      setSavingRealtime(false);
+      setSavingRealtimePage(null);
     }
   }
 
@@ -758,6 +791,15 @@ export default function SettingsPage() {
                         {lt.is_active ? 'Active' : 'Inactive'}
                       </button>
                       {savingTypeId === lt.id && <Loader2 className="h-3.5 w-3.5 animate-spin text-brand-500 shrink-0" />}
+                      <button
+                        type="button"
+                        onClick={() => setDeleteTarget(lt)}
+                        className="flex h-6 w-6 items-center justify-center rounded-full text-surface-500 hover:bg-danger/10 hover:text-danger transition-colors shrink-0"
+                        title="Delete leave type"
+                        aria-label={`Delete ${lt.name}`}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
                     </div>
                   ))}
 
@@ -946,42 +988,41 @@ export default function SettingsPage() {
         {isAdmin && (
           <Section
             title="Live Updates"
-            description="Auto-refresh Leave, Tasks, Attendance, Team, Dashboard, and Escalation pages the moment data changes — org-wide"
+            description="Auto-refresh each page the moment its data changes — set per page"
             icon={<RefreshCw className="h-4 w-4" />}
           >
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-sm font-semibold text-surface-900">
-                  {realtimeRefresh ? 'Live updates on' : 'Live updates off'}
-                </p>
-                <p className="text-xs text-surface-500 mt-0.5">
-                  {realtimeRefresh
-                    ? 'Pages refresh themselves automatically when someone else changes data'
-                    : 'Everyone in this organization needs to refresh manually to see new data'}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => saveRealtimeRefresh(!realtimeRefresh)}
-                disabled={savingRealtime}
-                className={cn(
-                  'relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500/50',
-                  realtimeRefresh ? 'bg-brand-500' : 'bg-surface-300',
-                  savingRealtime && 'opacity-50 cursor-not-allowed'
-                )}
-                aria-label="Toggle live page updates"
-              >
-                <span className={cn(
-                  'inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform mt-0.5',
-                  realtimeRefresh ? 'translate-x-5' : 'translate-x-0.5'
-                )} />
-              </button>
+            <div className="space-y-1">
+              {REALTIME_PAGES.map(page => {
+                const on = realtimePages[page];
+                const saving = savingRealtimePage === page;
+                return (
+                  <div key={page} className="flex items-center justify-between gap-4 rounded-lg px-1 py-2">
+                    <div>
+                      <p className="text-sm font-medium text-surface-900">{REALTIME_PAGE_LABEL[page]}</p>
+                      <p className="text-xs text-surface-500 mt-0.5">
+                        {on ? 'Refreshes automatically when data changes' : 'Needs a manual refresh to see new data'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => saveRealtimePage(page, !on)}
+                      disabled={saving}
+                      className={cn(
+                        'relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500/50',
+                        on ? 'bg-brand-500' : 'bg-surface-300',
+                        saving && 'opacity-50 cursor-not-allowed'
+                      )}
+                      aria-label={`Toggle live updates for ${REALTIME_PAGE_LABEL[page]}`}
+                    >
+                      <span className={cn(
+                        'inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform mt-0.5',
+                        on ? 'translate-x-5' : 'translate-x-0.5'
+                      )} />
+                    </button>
+                  </div>
+                );
+              })}
             </div>
-            {realtimeSaved && (
-              <p className="text-xs text-success flex items-center gap-1.5">
-                <CheckCircle2 className="h-3.5 w-3.5" /> Saved
-              </p>
-            )}
           </Section>
         )}
 
@@ -1198,6 +1239,17 @@ export default function SettingsPage() {
           </button>
         </div>
       </Section>
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={open => !open && setDeleteTarget(null)}
+        title={`Delete "${deleteTarget?.name ?? ''}"?`}
+        description="If this leave type has existing leave requests or balances, it'll be deactivated instead of deleted so history stays intact."
+        confirmLabel="Delete"
+        variant="danger"
+        loading={deletingType}
+        onConfirm={deleteLeaveType}
+      />
     </div>
   );
 }

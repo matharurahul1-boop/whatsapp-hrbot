@@ -102,3 +102,49 @@ export async function PATCH(req: NextRequest) {
 
   return NextResponse.json({ data });
 }
+
+// DELETE /api/leave-types?id=<uuid> — remove a leave type (HR+).
+// Hard-deletes when nothing references it yet; if leave_requests or
+// leave_balances already exist for it, deactivates instead so history and
+// balances stay intact rather than failing outright or cascading deletes.
+export async function DELETE(req: NextRequest) {
+  const ctx = await getProfile();
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!isHrOrAbove(ctx.profile.role)) {
+    return NextResponse.json({ error: 'Only HR and above can manage leave types' }, { status: 403 });
+  }
+
+  const id = req.nextUrl.searchParams.get('id');
+  if (!id) return NextResponse.json({ error: 'id is required' }, { status: 422 });
+
+  const { data: existing } = await ctx.db.from('leave_types').select('id, name')
+    .eq('id', id).eq('organization_id', ctx.profile.organization_id).maybeSingle();
+  if (!existing) return NextResponse.json({ error: 'Leave type not found' }, { status: 404 });
+
+  const [{ count: requestCount }, { count: balanceCount }] = await Promise.all([
+    ctx.db.from('leave_requests').select('id', { count: 'exact', head: true }).eq('leave_type_id', id),
+    ctx.db.from('leave_balances').select('id', { count: 'exact', head: true }).eq('leave_type_id', id),
+  ]);
+
+  if ((requestCount ?? 0) > 0 || (balanceCount ?? 0) > 0) {
+    const { error } = await ctx.db.from('leave_types').update({ is_active: false }).eq('id', id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    await writeAuditLog({
+      org_id: ctx.profile.organization_id, actor_id: ctx.user.id,
+      action: 'UPDATE', table_name: 'leave_types', record_id: id, new_data: { is_active: false },
+    });
+
+    return NextResponse.json({ deactivated: true, message: `"${existing.name}" has existing leave records, so it was deactivated instead of deleted.` });
+  }
+
+  const { error } = await ctx.db.from('leave_types').delete().eq('id', id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  await writeAuditLog({
+    org_id: ctx.profile.organization_id, actor_id: ctx.user.id,
+    action: 'DELETE', table_name: 'leave_types', record_id: id, old_data: existing,
+  });
+
+  return NextResponse.json({ deactivated: false });
+}

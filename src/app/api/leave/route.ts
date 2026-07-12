@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient }         from '@/lib/supabase/server';
 import { createAdminClient }    from '@/lib/supabase/admin';
 import { writeAuditLog }        from '@/lib/utils/audit';
-import { notifyLeaveSubmitted, notifyLeaveCancelled } from '@/lib/whatsapp/notify';
+import { notifyLeaveApprovalNeeded, notifyLeaveCancelled } from '@/lib/whatsapp/notify';
 import { isHrOrAbove, isEmployee, canApplyForLeave } from '@/lib/rbac';
 import { z } from 'zod';
 
@@ -175,9 +175,9 @@ export async function POST(req: NextRequest) {
     new_data: { ...request, leave_type_name: lt?.name ?? null },
   });
 
-  notifyLeaveSubmitted({
+  notifyLeaveApprovalNeeded({
     orgId:         profile.organization_id,
-    managerId:     (targetProfile as any).manager_id ?? null,
+    applicantRole: targetProfile.role,
     employeeName:  (targetProfile as any).full_name ?? 'An employee',
     leaveTypeName: lt?.name ?? 'Leave',
     startDate:     parsed.data.start_date,

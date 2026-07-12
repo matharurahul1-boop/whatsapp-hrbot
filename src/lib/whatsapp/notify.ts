@@ -16,6 +16,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { sendSmartText } from '@/lib/whatsapp/client';
 import { sendPush } from '@/lib/push/send';
 import { formatDateTime } from '@/lib/utils/date';
+import { canApproveLeaveFor } from '@/lib/rbac';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -289,9 +290,19 @@ export async function notifyTaskDeadlineReminder(opts: {
 
 // ── LEAVE NOTIFICATIONS ───────────────────────────────────────────────────────
 
-export async function notifyLeaveSubmitted(opts: {
+/**
+ * Notifies EVERY eligible approver in the org, not just one — per the role
+ * hierarchy in rbac.ts (canApproveLeaveFor), so e.g. an employee's request
+ * reaches every hr_assistant/hr/admin/super_admin, not a single fallback
+ * pick. Replaces the previous notifyLeaveSubmitted, which only notified one
+ * recipient (the manager, or the first HR-ish user found) and used a flat
+ * hardcoded role list that didn't account for the applicant's own role
+ * (e.g. it would treat other hr_assistants as valid targets even when the
+ * applicant was themselves hr_assistant, which the hierarchy forbids).
+ */
+export async function notifyLeaveApprovalNeeded(opts: {
   orgId: string;
-  managerId: string | null;
+  applicantRole: string;
   employeeName: string;
   leaveTypeName: string;
   startDate: string;
@@ -299,55 +310,46 @@ export async function notifyLeaveSubmitted(opts: {
   durationDays: number;
   reason?: string | null;
 }): Promise<void> {
-  return fire('LeaveSubmitted', async () => {
-    // Notify the manager (or fallback: any HR/admin in org)
-    let targetId = opts.managerId;
+  return fire('LeaveApprovalNeeded', async () => {
     const db = createAdminClient();
+    const { data: candidates } = await db
+      .from('users')
+      .select('id, full_name, wa_number, role')
+      .eq('organization_id', opts.orgId)
+      .eq('is_active', true)
+      .is('deleted_at', null);
 
-    if (!targetId) {
-      const { data: hr } = await db
-        .from('users')
-        .select('id')
-        .eq('organization_id', opts.orgId)
-        .in('role', ['hr_assistant', 'hr', 'admin', 'super_admin'])
-        .eq('is_active', true)
-        .limit(1)
-        .single();
-      targetId = hr?.id ?? null;
-    }
-
-    if (!targetId) return;
-    const target = await getWaAndName(targetId);
+    const approvers = (candidates ?? []).filter(u => canApproveLeaveFor(u.role, opts.applicantRole));
+    if (!approvers.length) return;
 
     const isSingle = opts.startDate === opts.endDate;
     const dateStr  = isSingle
       ? fmtDate(opts.startDate)
       : `${fmtDate(opts.startDate)} → ${fmtDate(opts.endDate)}`;
 
-    const sends: Promise<unknown>[] = [
-      sendPush(targetId, {
-        title: '📩 New leave request',
-        body:  `${opts.employeeName} — ${opts.leaveTypeName}, ${dateStr}`,
-        url:   '/leave',
-        tag:   'leave-submitted',
-      }),
-      writeInApp(targetId, opts.orgId, '📩 New leave request', `${opts.employeeName} — ${opts.leaveTypeName}, ${dateStr}`, '/leave'),
-    ];
+    const title = '📩 New leave request';
+    const body  = `${opts.employeeName} — ${opts.leaveTypeName}, ${dateStr}`;
 
-    if (target) {
-      const msg =
-        `📩 *New leave request*\n\n` +
-        `👤 *${opts.employeeName}*\n` +
-        `📋 Type: *${opts.leaveTypeName}*\n` +
-        `🗓 ${dateStr} _(${opts.durationDays} day${opts.durationDays > 1 ? 's' : ''})_\n` +
-        (opts.reason ? `💬 "${opts.reason}"\n` : '') +
-        `\nReply *approve leave for ${opts.employeeName.split(' ')[0]}* or ` +
-        `*reject leave for ${opts.employeeName.split(' ')[0]}* to action.`;
-      sends.push(sendSmartText(target.wa_number, msg, opts.orgId, firstName(target.full_name)));
+    const sends: Promise<unknown>[] = [];
+    for (const approver of approvers) {
+      sends.push(sendPush(approver.id, { title, body, url: '/leave', tag: 'leave-submitted' }));
+      sends.push(writeInApp(approver.id, opts.orgId, title, body, '/leave'));
+
+      if (approver.wa_number) {
+        const msg =
+          `📩 *New leave request*\n\n` +
+          `👤 *${opts.employeeName}*\n` +
+          `📋 Type: *${opts.leaveTypeName}*\n` +
+          `🗓 ${dateStr} _(${opts.durationDays} day${opts.durationDays > 1 ? 's' : ''})_\n` +
+          (opts.reason ? `💬 "${opts.reason}"\n` : '') +
+          `\nReply *approve leave for ${opts.employeeName.split(' ')[0]}* or ` +
+          `*reject leave for ${opts.employeeName.split(' ')[0]}* to action.`;
+        sends.push(sendSmartText(approver.wa_number, msg, opts.orgId, firstName(approver.full_name)));
+      }
     }
 
     await Promise.all(sends);
-    console.log(`[Notify:LeaveSubmitted] ✅ push${target ? ' + wa:' + target.wa_number : ' only'}`);
+    console.log(`[Notify:LeaveApprovalNeeded] ✅ notified ${approvers.length} approver(s)`);
   });
 }
 

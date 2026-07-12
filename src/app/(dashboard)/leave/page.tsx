@@ -38,9 +38,10 @@ export default async function LeavePage() {
   let requestQuery = db
     .from('leave_requests')
     .select(`
-      id, start_date, end_date, duration_days, status, reason, created_at,
+      id, start_date, end_date, duration_days, status, reason, created_at, reviewed_at, remarks,
       employee:users!leave_requests_employee_id_fkey(id, full_name, avatar_url, department, role),
-      leave_type:leave_types(name, color)
+      leave_type:leave_types(name, color),
+      reviewer:users!leave_requests_reviewed_by_fkey(id, full_name)
     `)
     .eq('organization_id', orgId)
     .order('created_at', { ascending: false })

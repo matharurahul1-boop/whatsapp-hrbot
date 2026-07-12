@@ -11,6 +11,7 @@ import {
   notifyTaskUpdated,
   notifyTaskDeleted,
   notifyLeaveDecision,
+  notifyLeaveApprovalNeeded,
   notifyWelcome,
 } from '@/lib/whatsapp/notify';
 import type { ToolInput, ToolResult, AgentIntent, SlotValues } from './types';
@@ -1360,7 +1361,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
   // ── LEAVE TOOLS ─────────────────────────────────────────────────────────────
 
-  async APPLY_LEAVE({ slots, org_id, user_id, user_role }): Promise<ToolResult> {
+  async APPLY_LEAVE({ slots, org_id, user_id, user_role, user_name }): Promise<ToolResult> {
     const db   = createAdminClient();
     const lang = (slots._lang as 'en' | 'hi') ?? 'en';
     if (!canApplyForLeave(user_role)) {
@@ -1529,6 +1530,15 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     });
 
     n8n.notifyLeaveRequest(org_id, request.id).catch(() => {});
+    notifyLeaveApprovalNeeded({
+      orgId:         org_id,
+      applicantRole: user_role,
+      employeeName:  user_name,
+      leaveTypeName: leaveType.name,
+      startDate,     endDate,
+      durationDays:  totalDays,
+      reason:        userReason,
+    }).catch(() => {});
 
     return {
       success: true,

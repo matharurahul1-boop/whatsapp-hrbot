@@ -18,6 +18,8 @@ interface LeaveRequest {
   status:       string;
   reason:       string | null;
   created_at:   string;
+  reviewed_at:  string | null;
+  remarks:      string | null;
   employee: {
     id:         string;
     full_name:  string;
@@ -28,6 +30,10 @@ interface LeaveRequest {
   leave_type: {
     name:  string;
     color: string | null;
+  } | null;
+  reviewer: {
+    id:        string;
+    full_name: string;
   } | null;
 }
 
@@ -116,7 +122,14 @@ export default function LeaveRequestsTable({ requests, canApprove, viewerRole }:
                   <td className="text-sm font-medium text-surface-900">
                     {r.duration_days}d
                   </td>
-                  <td><StatusBadge status={r.status} /></td>
+                  <td>
+                    <StatusBadge status={r.status} />
+                    {r.reviewer && (r.status === 'approved' || r.status === 'rejected') && (
+                      <p className="text-2xs text-surface-500 mt-1">
+                        {r.status === 'approved' ? 'Approved' : 'Rejected'} by {r.reviewer.full_name}
+                      </p>
+                    )}
+                  </td>
                   <td className="text-xs text-surface-600">{formatDate(r.created_at)}</td>
                   {canApprove && (
                     <td>

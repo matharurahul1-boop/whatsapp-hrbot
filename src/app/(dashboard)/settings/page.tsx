@@ -12,7 +12,6 @@ import {
 import { cn } from '@/lib/utils/cn';
 import { normalizeWaNumber } from '@/lib/utils/phone';
 import { useToast } from '@/components/ui/Toast';
-import { ConfirmDialog } from '@/components/ui/Modal';
 import { REALTIME_PAGES, type RealtimePage } from '@/lib/utils/realtime-settings';
 
 const REALTIME_PAGE_LABEL: Record<RealtimePage, string> = {
@@ -163,8 +162,6 @@ export default function SettingsPage() {
   const [policyMatrix,    setPolicyMatrix]    = useState<PolicyRow[]>([]);
   const [selectedTypeId,  setSelectedTypeId]  = useState('');
   const [savingCell,      setSavingCell]      = useState<string | null>(null); // `${role}:${work_mode}`
-  const [deleteTarget,    setDeleteTarget]    = useState<LeaveTypeRow | null>(null);
-  const [deletingType,    setDeletingType]    = useState(false);
 
   // Meta
   const [role,   setRole]   = useState('');
@@ -433,26 +430,6 @@ export default function SettingsPage() {
       toast('Leave type created.');
     } finally {
       setSavingTypeId(null);
-    }
-  }
-
-  async function deleteLeaveType() {
-    if (!deleteTarget) return;
-    setDeletingType(true);
-    try {
-      const res = await fetch(`/api/leave-types?id=${deleteTarget.id}`, { method: 'DELETE' });
-      const json = await res.json();
-      if (!res.ok) { toast(typeof json.error === 'string' ? json.error : 'Failed to delete leave type', 'error'); return; }
-      if (json.deactivated) {
-        setLeaveTypes(types => types.map(t => t.id === deleteTarget.id ? { ...t, is_active: false } : t));
-        toast(json.message ?? 'Deactivated instead — existing leave records reference it.');
-      } else {
-        setLeaveTypes(types => types.filter(t => t.id !== deleteTarget.id));
-        toast('Leave type deleted.');
-      }
-      setDeleteTarget(null);
-    } finally {
-      setDeletingType(false);
     }
   }
 
@@ -791,15 +768,6 @@ export default function SettingsPage() {
                         {lt.is_active ? 'Active' : 'Inactive'}
                       </button>
                       {savingTypeId === lt.id && <Loader2 className="h-3.5 w-3.5 animate-spin text-brand-500 shrink-0" />}
-                      <button
-                        type="button"
-                        onClick={() => setDeleteTarget(lt)}
-                        className="flex h-6 w-6 items-center justify-center rounded-full text-surface-500 hover:bg-danger/10 hover:text-danger transition-colors shrink-0"
-                        title="Delete leave type"
-                        aria-label={`Delete ${lt.name}`}
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
                     </div>
                   ))}
 
@@ -1239,17 +1207,6 @@ export default function SettingsPage() {
           </button>
         </div>
       </Section>
-
-      <ConfirmDialog
-        open={!!deleteTarget}
-        onOpenChange={open => !open && setDeleteTarget(null)}
-        title={`Delete "${deleteTarget?.name ?? ''}"?`}
-        description="If this leave type has existing leave requests or balances, it'll be deactivated instead of deleted so history stays intact."
-        confirmLabel="Delete"
-        variant="danger"
-        loading={deletingType}
-        onConfirm={deleteLeaveType}
-      />
     </div>
   );
 }

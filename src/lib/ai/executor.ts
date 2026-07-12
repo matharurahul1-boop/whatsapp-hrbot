@@ -1381,6 +1381,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       // before the leave request was ever created.
       .select('id, name')
       .eq('organization_id', org_id)
+      .eq('is_active', true)
       .ilike('name', `%${slots.leave_type}%`)
       .maybeSingle();
     if (leaveTypeError) throw leaveTypeError;
@@ -2361,6 +2362,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       // Postgres error as apply_leave did.
       .select('name, default_days')
       .eq('organization_id', org_id)
+      .eq('is_active', true)
       .order('name');
 
     if (!types?.length) {

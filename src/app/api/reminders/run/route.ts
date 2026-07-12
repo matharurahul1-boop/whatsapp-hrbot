@@ -46,6 +46,14 @@ function dayAfterTomorrowIST(): string {
   return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 }
 
+// Sunday in IST — check-in/check-out reminders don't make sense on the
+// weekly off day. Uses en-US weekday formatting rather than getDay() so
+// this is correct regardless of which timezone the cron runner itself is
+// in (Vercel's cron dynos run in UTC).
+function isSundayIST(): boolean {
+  return new Date().toLocaleDateString('en-US', { timeZone: 'Asia/Kolkata', weekday: 'short' }) === 'Sun';
+}
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
 function authorize(req: NextRequest): boolean {
@@ -101,6 +109,11 @@ async function dispatch(type: string): Promise<NextResponse> {
 // ── 1. Check-in reminders ─────────────────────────────────────────────────────
 
 async function runCheckinReminders(): Promise<number> {
+  if (isSundayIST()) {
+    console.log('[Reminders:checkin] skipped — Sunday');
+    return 0;
+  }
+
   const db    = createAdminClient();
   const today = todayIST();
   let   sent  = 0;
@@ -144,6 +157,11 @@ async function runCheckinReminders(): Promise<number> {
 // ── 2. Check-out reminders ────────────────────────────────────────────────────
 
 async function runCheckoutReminders(): Promise<number> {
+  if (isSundayIST()) {
+    console.log('[Reminders:checkout] skipped — Sunday');
+    return 0;
+  }
+
   const db    = createAdminClient();
   const today = todayIST();
   let   sent  = 0;

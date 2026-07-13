@@ -116,7 +116,17 @@ export default function Header({ userId, userName, userRole, userEmail, avatarUr
         { event: 'UPDATE', schema: 'public', table: 'notifications', filter: `user_id=eq.${userId}` },
         (payload) => {
           const n = payload.new as Notification;
-          setNotifs(prev => prev.map(x => (x.id === n.id ? n : x)));
+          // The bell badge only ever moved via markAllRead()/openNotification()'s
+          // own optimistic updates — a read-state change made elsewhere (another
+          // tab/device, or the API directly) updated `notifs` here but never
+          // touched `unread`, so the count stayed stale until a manual reload.
+          setNotifs(prev => {
+            const old = prev.find(x => x.id === n.id);
+            if (old && old.is_read !== n.is_read) {
+              setUnread(u => Math.max(0, u + (n.is_read ? -1 : 1)));
+            }
+            return prev.map(x => (x.id === n.id ? n : x));
+          });
         }
       )
       .subscribe();

@@ -709,117 +709,6 @@ export default function SettingsPage() {
           </Field>
         </Section>
 
-        {/* ── Organization (admin only) ── */}
-        {isAdmin && (
-          <Section
-            title="Organization"
-            description="Company name and WhatsApp Business API configuration"
-            icon={<Building2 className="h-4 w-4" />}
-          >
-            <Field label="Company name">
-              <TextInput value={orgName} onChange={setOrgName} placeholder="Acme Corp" />
-            </Field>
-            <Field label="WhatsApp Phone Number ID" hint="From Meta Business → WhatsApp → Getting Started">
-              <TextInput value={waPhoneId} onChange={setWaPhoneId} placeholder="1069159539605344" />
-            </Field>
-            <Field
-              label="WhatsApp Access Token"
-              hint={waTokenConfigured ? 'A token is already configured — leave blank to keep it, or enter a new one to replace it.' : undefined}
-            >
-              <div className="relative">
-                <input
-                  type="text"
-                  autoComplete="off"
-                  data-lpignore="true"
-                  data-1p-ignore
-                  value={waToken}
-                  onChange={e => setWaToken(e.target.value)}
-                  placeholder={waTokenConfigured ? '•••••••••••••••• (configured)' : 'EAAHBaq2...'}
-                  style={showToken ? undefined : { WebkitTextSecurity: 'disc' } as React.CSSProperties}
-                  className="w-full rounded-lg border border-surface-300 bg-surface-0 pl-3 pr-20 py-2.5 text-sm text-surface-950 placeholder:text-surface-500 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500 font-mono"
-                />
-                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                  <button type="button" onClick={copyToken}
-                    className="p-1.5 rounded text-surface-500 hover:text-surface-800 transition-colors">
-                    {copiedToken ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
-                  </button>
-                  <button type="button" onClick={() => setShowToken(s => !s)}
-                    className="p-1.5 rounded text-surface-500 hover:text-surface-800 transition-colors">
-                    {showToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                  </button>
-                </div>
-              </div>
-            </Field>
-
-            {/* ── Message Template (bypass 24h window) ── */}
-            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-4">
-              <div>
-                <p className="text-xs font-semibold text-amber-800">📋 Message Template — Send to Anyone</p>
-                <p className="text-xs text-amber-700 mt-1">
-                  A pre-approved Meta template lets you message <strong>any WhatsApp number</strong> without the 24-hour restriction.
-                  Pick one of the templates below, create it in Meta Business Manager, then enter the name here.
-                </p>
-              </div>
-
-              {/* Template preview */}
-              <div className="space-y-2">
-                <p className="text-[11px] font-semibold text-amber-800 uppercase tracking-wide">Template body (create this in Meta)</p>
-                <div
-                  className="rounded-lg border border-amber-300 bg-white p-4 text-sm leading-relaxed whitespace-pre-line"
-                  style={{ fontFamily: 'inherit', color: '#1a1a1a' }}
-                >
-                  {`📢 *Important Announcement*\n\nDear {{1}},\n\n{{2}}\n\nStay connected with us for more updates.\n\n- {{3}} HR Team`}
-                </div>
-                <div className="grid grid-cols-3 gap-2 text-[11px]">
-                  <div className="rounded-lg bg-amber-100 border border-amber-200 px-3 py-2 text-center">
-                    <p className="font-bold text-amber-900 font-mono">{'{{1}}'}</p>
-                    <p className="text-amber-700 mt-0.5">Contact Name</p>
-                  </div>
-                  <div className="rounded-lg bg-amber-100 border border-amber-200 px-3 py-2 text-center">
-                    <p className="font-bold text-amber-900 font-mono">{'{{2}}'}</p>
-                    <p className="text-amber-700 mt-0.5">Your Message</p>
-                  </div>
-                  <div className="rounded-lg bg-amber-100 border border-amber-200 px-3 py-2 text-center">
-                    <p className="font-bold text-amber-900 font-mono">{'{{3}}'}</p>
-                    <p className="text-amber-700 mt-0.5">Organization Name</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Manual fields */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="col-span-1">
-                  <Field label="Template name" hint="Must match exactly in Meta">
-                    <TextInput value={waMsgTemplate} onChange={setWaMsgTemplate} placeholder="hrbot_message" />
-                  </Field>
-                </div>
-                <div>
-                  <Field label="Language code" hint="e.g. en, hi, en_US">
-                    <TextInput value={waTemplateLang} onChange={setWaTemplateLang} placeholder="en" />
-                  </Field>
-                </div>
-                <div>
-                  <Field label="Variables" hint="How many {{x}} in body">
-                    <select
-                      value={waTemplateVars}
-                      onChange={e => setWaTemplateVars(e.target.value)}
-                      className="w-full rounded-lg border border-surface-300 bg-surface-0 px-3 py-2.5 text-sm text-surface-950 focus:outline-none focus:ring-2 focus:ring-brand-500/50"
-                    >
-                      <option value="1">1 — message only</option>
-                      <option value="2">2 — name + message</option>
-                      <option value="3">3 — name + message + org</option>
-                    </select>
-                  </Field>
-                </div>
-              </div>
-
-              <p className="text-[11px] text-amber-600">
-                💡 When sending from WA Logs, free-form is tried first. If the 24h window expired, it auto-retries with this template — the recipient sees your exact message.
-              </p>
-            </div>
-          </Section>
-        )}
-
         {/* ── Leave Policy (HR+) ── */}
         {isHrOrAbove && (
           <Section
@@ -1066,48 +955,6 @@ export default function SettingsPage() {
           </Section>
         )}
 
-        {/* ── Live page updates (admin only) ── */}
-        {isAdmin && (
-          <Section
-            title="Live Updates"
-            description="Auto-refresh each page the moment its data changes — set per page"
-            icon={<RefreshCw className="h-4 w-4" />}
-          >
-            <div className="space-y-1">
-              {REALTIME_PAGES.map(page => {
-                const on = realtimePages[page];
-                const saving = savingRealtimePage === page;
-                return (
-                  <div key={page} className="flex items-center justify-between gap-4 rounded-lg px-1 py-2">
-                    <div>
-                      <p className="text-sm font-medium text-surface-900">{REALTIME_PAGE_LABEL[page]}</p>
-                      <p className="text-xs text-surface-500 mt-0.5">
-                        {on ? 'Refreshes automatically when data changes' : 'Needs a manual refresh to see new data'}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => saveRealtimePage(page, !on)}
-                      disabled={saving}
-                      className={cn(
-                        'relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500/50',
-                        on ? 'bg-brand-500' : 'bg-surface-300',
-                        saving && 'opacity-50 cursor-not-allowed'
-                      )}
-                      aria-label={`Toggle live updates for ${REALTIME_PAGE_LABEL[page]}`}
-                    >
-                      <span className={cn(
-                        'inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform mt-0.5',
-                        on ? 'translate-x-5' : 'translate-x-0.5'
-                      )} />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </Section>
-        )}
-
         {/* ── Groq API keys (admin only) ── */}
         {isAdmin && (
           <Section
@@ -1175,6 +1022,48 @@ export default function SettingsPage() {
                     : <Save         className="h-3.5 w-3.5" />}
                 {savingGroq ? 'Saving…' : groqSaved ? 'Saved!' : 'Save Groq keys'}
               </button>
+            </div>
+          </Section>
+        )}
+
+        {/* ── Live page updates (admin only) ── */}
+        {isAdmin && (
+          <Section
+            title="Live Updates"
+            description="Auto-refresh each page the moment its data changes — set per page"
+            icon={<RefreshCw className="h-4 w-4" />}
+          >
+            <div className="space-y-1">
+              {REALTIME_PAGES.map(page => {
+                const on = realtimePages[page];
+                const saving = savingRealtimePage === page;
+                return (
+                  <div key={page} className="flex items-center justify-between gap-4 rounded-lg px-1 py-2">
+                    <div>
+                      <p className="text-sm font-medium text-surface-900">{REALTIME_PAGE_LABEL[page]}</p>
+                      <p className="text-xs text-surface-500 mt-0.5">
+                        {on ? 'Refreshes automatically when data changes' : 'Needs a manual refresh to see new data'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => saveRealtimePage(page, !on)}
+                      disabled={saving}
+                      className={cn(
+                        'relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500/50',
+                        on ? 'bg-brand-500' : 'bg-surface-300',
+                        saving && 'opacity-50 cursor-not-allowed'
+                      )}
+                      aria-label={`Toggle live updates for ${REALTIME_PAGE_LABEL[page]}`}
+                    >
+                      <span className={cn(
+                        'inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform mt-0.5',
+                        on ? 'translate-x-5' : 'translate-x-0.5'
+                      )} />
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           </Section>
         )}
@@ -1329,6 +1218,117 @@ export default function SettingsPage() {
           </button>
         </div>
       </Section>
+
+      {/* ── Organization (admin only) ── */}
+      {isAdmin && (
+        <Section
+          title="Organization"
+          description="Company name and WhatsApp Business API configuration"
+          icon={<Building2 className="h-4 w-4" />}
+        >
+          <Field label="Company name">
+            <TextInput value={orgName} onChange={setOrgName} placeholder="Acme Corp" />
+          </Field>
+          <Field label="WhatsApp Phone Number ID" hint="From Meta Business → WhatsApp → Getting Started">
+            <TextInput value={waPhoneId} onChange={setWaPhoneId} placeholder="1069159539605344" />
+          </Field>
+          <Field
+            label="WhatsApp Access Token"
+            hint={waTokenConfigured ? 'A token is already configured — leave blank to keep it, or enter a new one to replace it.' : undefined}
+          >
+            <div className="relative">
+              <input
+                type="text"
+                autoComplete="off"
+                data-lpignore="true"
+                data-1p-ignore
+                value={waToken}
+                onChange={e => setWaToken(e.target.value)}
+                placeholder={waTokenConfigured ? '•••••••••••••••• (configured)' : 'EAAHBaq2...'}
+                style={showToken ? undefined : { WebkitTextSecurity: 'disc' } as React.CSSProperties}
+                className="w-full rounded-lg border border-surface-300 bg-surface-0 pl-3 pr-20 py-2.5 text-sm text-surface-950 placeholder:text-surface-500 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500 font-mono"
+              />
+              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                <button type="button" onClick={copyToken}
+                  className="p-1.5 rounded text-surface-500 hover:text-surface-800 transition-colors">
+                  {copiedToken ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
+                </button>
+                <button type="button" onClick={() => setShowToken(s => !s)}
+                  className="p-1.5 rounded text-surface-500 hover:text-surface-800 transition-colors">
+                  {showToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+            </div>
+          </Field>
+
+          {/* ── Message Template (bypass 24h window) ── */}
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-4">
+            <div>
+              <p className="text-xs font-semibold text-amber-800">📋 Message Template — Send to Anyone</p>
+              <p className="text-xs text-amber-700 mt-1">
+                A pre-approved Meta template lets you message <strong>any WhatsApp number</strong> without the 24-hour restriction.
+                Pick one of the templates below, create it in Meta Business Manager, then enter the name here.
+              </p>
+            </div>
+
+            {/* Template preview */}
+            <div className="space-y-2">
+              <p className="text-[11px] font-semibold text-amber-800 uppercase tracking-wide">Template body (create this in Meta)</p>
+              <div
+                className="rounded-lg border border-amber-300 bg-white p-4 text-sm leading-relaxed whitespace-pre-line"
+                style={{ fontFamily: 'inherit', color: '#1a1a1a' }}
+              >
+                {`📢 *Important Announcement*\n\nDear {{1}},\n\n{{2}}\n\nStay connected with us for more updates.\n\n- {{3}} HR Team`}
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-[11px]">
+                <div className="rounded-lg bg-amber-100 border border-amber-200 px-3 py-2 text-center">
+                  <p className="font-bold text-amber-900 font-mono">{'{{1}}'}</p>
+                  <p className="text-amber-700 mt-0.5">Contact Name</p>
+                </div>
+                <div className="rounded-lg bg-amber-100 border border-amber-200 px-3 py-2 text-center">
+                  <p className="font-bold text-amber-900 font-mono">{'{{2}}'}</p>
+                  <p className="text-amber-700 mt-0.5">Your Message</p>
+                </div>
+                <div className="rounded-lg bg-amber-100 border border-amber-200 px-3 py-2 text-center">
+                  <p className="font-bold text-amber-900 font-mono">{'{{3}}'}</p>
+                  <p className="text-amber-700 mt-0.5">Organization Name</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Manual fields */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="col-span-1">
+                <Field label="Template name" hint="Must match exactly in Meta">
+                  <TextInput value={waMsgTemplate} onChange={setWaMsgTemplate} placeholder="hrbot_message" />
+                </Field>
+              </div>
+              <div>
+                <Field label="Language code" hint="e.g. en, hi, en_US">
+                  <TextInput value={waTemplateLang} onChange={setWaTemplateLang} placeholder="en" />
+                </Field>
+              </div>
+              <div>
+                <Field label="Variables" hint="How many {{x}} in body">
+                  <select
+                    value={waTemplateVars}
+                    onChange={e => setWaTemplateVars(e.target.value)}
+                    className="w-full rounded-lg border border-surface-300 bg-surface-0 px-3 py-2.5 text-sm text-surface-950 focus:outline-none focus:ring-2 focus:ring-brand-500/50"
+                  >
+                    <option value="1">1 — message only</option>
+                    <option value="2">2 — name + message</option>
+                    <option value="3">3 — name + message + org</option>
+                  </select>
+                </Field>
+              </div>
+            </div>
+
+            <p className="text-[11px] text-amber-600">
+              💡 When sending from WA Logs, free-form is tried first. If the 24h window expired, it auto-retries with this template — the recipient sees your exact message.
+            </p>
+          </div>
+        </Section>
+      )}
     </div>
   );
 }

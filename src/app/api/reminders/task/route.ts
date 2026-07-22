@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse }       from 'next/server';
 import { createAdminClient }               from '@/lib/supabase/admin';
 import { notifyTaskDeadlineReminder }      from '@/lib/whatsapp/notify';
+import { isNotificationTypeEnabled }       from '@/lib/utils/notification-settings';
 
 const REMINDER_LABEL: Record<string, string> = {
   '1_hour':  'due in 1 hour',
@@ -52,6 +53,10 @@ export async function POST(req: NextRequest) {
 
   const assignee = (task as any).assignee;
   if (!assignee) return NextResponse.json({ ok: true, skipped: 'no_assignee' });
+
+  if (!(await isNotificationTypeEnabled(db, task.organization_id, 'task_deadline_reminder'))) {
+    return NextResponse.json({ ok: true, skipped: 'org_disabled' });
+  }
 
   const prefs    = assignee.metadata?.task_reminders ?? {};
   if (prefs.enabled === false) return NextResponse.json({ ok: true, skipped: 'notifications_disabled' });

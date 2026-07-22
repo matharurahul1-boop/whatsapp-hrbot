@@ -9,6 +9,7 @@ import { EMPTY_CONTEXT }       from './types';
 import type { AgentTurn, AgentUser, ConversationContext, SupportedLanguage, ToolResult } from './types';
 import { normalizeCommandText, quickTaskListArgs, resolveTaskListPronoun, looksLikeRealPersonName } from './routing';
 import { canApplyForLeave, canApproveLeaveFor } from '@/lib/rbac';
+import { isNotificationTypeEnabled } from '@/lib/utils/notification-settings';
 
 // ── AI backend ────────────────────────────────────────────────────────────────
 // Controlled at runtime via organizations.settings.ai_backend (set from /settings page).
@@ -3196,6 +3197,14 @@ async function sendUserNotifications(
 ): Promise<void> {
   const { createAdminClient } = await import('@/lib/supabase/admin');
   const db = createAdminClient();
+
+  // Currently the only caller of sendUserNotifications is the onboarding-start
+  // tool; if other tools start returning a `notify:` payload in future, this
+  // gate should be split per-origin instead of assuming onboarding_started.
+  if (!(await isNotificationTypeEnabled(db, orgId, 'onboarding_started'))) {
+    console.log(`[Agent] onboarding_started notifications disabled for org ${orgId}, skipping ${notifications.length}`);
+    return;
+  }
 
   for (const notif of notifications) {
     let status: 'sent' | 'failed' = 'failed';

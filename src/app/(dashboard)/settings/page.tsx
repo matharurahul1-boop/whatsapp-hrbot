@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils/cn';
 import { normalizeWaNumber } from '@/lib/utils/phone';
 import { useToast } from '@/components/ui/Toast';
 import { REALTIME_PAGES, type RealtimePage } from '@/lib/utils/realtime-settings';
+import { NOTIFICATION_TYPES, NOTIFICATION_GROUPS, NOTIFICATION_GROUP_LABEL, type NotificationGroup } from '@/lib/utils/notification-settings';
 
 const REALTIME_PAGE_LABEL: Record<RealtimePage, string> = {
   leave: 'Leave', tasks: 'Tasks', attendance: 'Attendance',
@@ -85,6 +86,83 @@ function TextInput({ value, onChange, placeholder, disabled, type = 'text' }: {
   );
 }
 
+function NotificationToggleRow({ label, enabled, editable, saving, onToggle }: {
+  label: string; enabled: boolean; editable: boolean; saving: boolean; onToggle: () => void;
+}) {
+  if (!editable) {
+    return (
+      <div className="flex items-center justify-between py-1.5">
+        <p className="text-sm text-surface-800">{label}</p>
+        <span className={cn(
+          'text-xs font-medium px-2 py-0.5 rounded-full border',
+          enabled ? 'bg-success/10 text-success border-success/20' : 'bg-surface-200 text-surface-500 border-surface-300'
+        )}>
+          {enabled ? 'Active' : 'Off'}
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center justify-between py-1.5 gap-4">
+      <p className="text-sm text-surface-800">{label}</p>
+      <div className="flex items-center gap-2 shrink-0">
+        {saving && <Loader2 className="h-3.5 w-3.5 animate-spin text-brand-500" />}
+        <button
+          type="button"
+          onClick={onToggle}
+          disabled={saving}
+          className={cn(
+            'relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500/50',
+            enabled ? 'bg-brand-500' : 'bg-surface-300',
+            saving && 'opacity-50 cursor-not-allowed'
+          )}
+          aria-label={`Toggle ${label}`}
+        >
+          <span className={cn(
+            'inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform mt-0.5',
+            enabled ? 'translate-x-4' : 'translate-x-0.5'
+          )} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function NotificationTypeGroupList({ channel, toggles, editable, savingKey, onToggle }: {
+  channel: 'whatsapp' | 'in_app';
+  toggles: Record<string, boolean>;
+  editable: boolean;
+  savingKey: string | null;
+  onToggle: (key: string, next: boolean) => void;
+}) {
+  const types = NOTIFICATION_TYPES.filter(t => t.channel === channel || t.channel === 'both');
+  return (
+    <div className="space-y-5">
+      {NOTIFICATION_GROUPS.map((group: NotificationGroup) => {
+        const groupTypes = types.filter(t => t.group === group);
+        if (!groupTypes.length) return null;
+        return (
+          <div key={group} className="space-y-1">
+            <p className="text-[11px] font-semibold text-surface-500 uppercase tracking-wider">
+              {NOTIFICATION_GROUP_LABEL[group]}
+            </p>
+            {groupTypes.map(t => (
+              <NotificationToggleRow
+                key={t.key}
+                label={t.label}
+                enabled={toggles[t.key] !== false}
+                editable={editable}
+                saving={savingKey === t.key}
+                onToggle={() => onToggle(t.key, !(toggles[t.key] !== false))}
+              />
+            ))}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── main page ─────────────────────────────────────────────────────────────────
 export default function SettingsPage() {
   const supabase = createClient();
@@ -149,6 +227,15 @@ export default function SettingsPage() {
     Object.fromEntries(REALTIME_PAGES.map(p => [p, true])) as Record<RealtimePage, boolean>
   );
   const [savingRealtimePage, setSavingRealtimePage] = useState<string | null>(null);
+
+  // Per-notification-type on/off (admin only) — org-wide master switches,
+  // stored in organizations.settings.notification_toggles. Independent of
+  // the personal Task Due Date Reminders preference below, which is a
+  // per-user opt-out layered on top of whichever of these are on.
+  const [notificationToggles, setNotificationToggles] = useState<Record<string, boolean>>(
+    Object.fromEntries(NOTIFICATION_TYPES.map(t => [t.key, true]))
+  );
+  const [savingNotifType, setSavingNotifType] = useState<string | null>(null);
 
   // Leave Policy (HR+) — leave types themselves, plus a role x work_mode
   // entitlement override matrix. Self-contained, same pattern as AI
@@ -243,6 +330,12 @@ export default function SettingsPage() {
           setRealtimePages(Object.fromEntries(
             REALTIME_PAGES.map(p => [p, savedPages[p] !== false])
           ) as Record<RealtimePage, boolean>);
+        }
+        {
+          const savedToggles = (org as any).settings?.notification_toggles ?? {};
+          setNotificationToggles(Object.fromEntries(
+            NOTIFICATION_TYPES.map(t => [t.key, savedToggles[t.key] !== false])
+          ));
         }
         setGroqKeysCount(org.groq_api_keys_count ?? 0);
         setGroqKeys(Array.isArray(org.groq_api_keys) && org.groq_api_keys.length > 0 ? org.groq_api_keys : ['']);
@@ -522,6 +615,27 @@ export default function SettingsPage() {
       }
     } finally {
       setSavingRealtimePage(null);
+    }
+  }
+
+  async function saveNotificationToggle(key: string, next: boolean) {
+    setNotificationToggles(toggles => ({ ...toggles, [key]: next }));
+    setSavingNotifType(key);
+    try {
+      const res = await fetch('/api/organizations/settings', {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ notification_toggles: { [key]: next } }),
+      });
+      if (res.ok) {
+        const label = NOTIFICATION_TYPES.find(t => t.key === key)?.label ?? key;
+        toast(`${label} turned ${next ? 'on' : 'off'}.`);
+      } else {
+        setNotificationToggles(toggles => ({ ...toggles, [key]: !next }));
+        toast('Failed to save notification setting.', 'error');
+      }
+    } finally {
+      setSavingNotifType(null);
     }
   }
 
@@ -1136,24 +1250,18 @@ export default function SettingsPage() {
       {/* ── WhatsApp Messages ── */}
       <Section
         title="WhatsApp Messages"
-        description="Automatic alerts the bot sends over WhatsApp"
+        description={isAdmin
+          ? 'Turn automatic WhatsApp alerts on or off, org-wide'
+          : 'Automatic alerts the bot sends over WhatsApp'}
         icon={<MessageSquare className="h-4 w-4" />}
       >
-        <div className="space-y-3">
-          {[
-            'Task assigned / completed',
-            'Leave approved / rejected',
-            'Daily check-in reminder',
-            'Onboarding updates',
-          ].map(label => (
-            <div key={label} className="flex items-center justify-between py-1.5">
-              <p className="text-sm text-surface-800">{label}</p>
-              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-success/10 text-success border border-success/20">
-                Active
-              </span>
-            </div>
-          ))}
-        </div>
+        <NotificationTypeGroupList
+          channel="whatsapp"
+          toggles={notificationToggles}
+          editable={isAdmin}
+          savingKey={savingNotifType}
+          onToggle={saveNotificationToggle}
+        />
       </Section>
 
       {/* ── In-App Notifications ── */}
@@ -1162,19 +1270,15 @@ export default function SettingsPage() {
         description="Manage alerts shown in the dashboard's notification bell"
         icon={<Bell className="h-4 w-4" />}
       >
-        {/* Auto-alerts also mirrored in-app (read-only) */}
-        <div className="space-y-3 pb-5 border-b border-surface-300">
-          {[
-            'Task assigned / completed',
-            'Leave approved / rejected',
-          ].map(label => (
-            <div key={label} className="flex items-center justify-between py-1.5">
-              <p className="text-sm text-surface-800">{label}</p>
-              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-success/10 text-success border border-success/20">
-                Active
-              </span>
-            </div>
-          ))}
+        {/* Auto-alerts also mirrored in-app */}
+        <div className="pb-5 border-b border-surface-300">
+          <NotificationTypeGroupList
+            channel="in_app"
+            toggles={notificationToggles}
+            editable={isAdmin}
+            savingKey={savingNotifType}
+            onToggle={saveNotificationToggle}
+          />
         </div>
 
         {/* Task due-date reminder preferences */}
@@ -1184,6 +1288,7 @@ export default function SettingsPage() {
               <p className="text-sm font-semibold text-surface-900">Task Due Date Reminders</p>
               <p className="text-xs text-surface-500 mt-0.5">
                 Get notified before a task deadline via WhatsApp and/or the in-app bell
+                {isAdmin && ' — your personal opt-out, on top of the org-wide "Task deadline reminder" switch above.'}
               </p>
             </div>
             {/* Toggle switch */}

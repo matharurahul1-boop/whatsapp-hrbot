@@ -14,8 +14,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient }         from '@/lib/supabase/admin';
 import { sendSmartText }             from '@/lib/whatsapp/client';
+import { isNotificationTypeEnabled } from '@/lib/utils/notification-settings';
 
 const HOUR_MS = 60 * 60 * 1000;
+
+// Per-run cache so orgs with many pending leaves don't re-query their
+// settings row once per leave request per escalation tier.
+function makeToggleChecker(db: ReturnType<typeof createAdminClient>) {
+  const cache = new Map<string, boolean>();
+  return async (orgId: string, type: string): Promise<boolean> => {
+    const key = `${orgId}:${type}`;
+    if (!cache.has(key)) cache.set(key, await isNotificationTypeEnabled(db, orgId, type));
+    return cache.get(key)!;
+  };
+}
 
 // ── Helper: send a WA message, proactively template-routed outside the 24h window ──
 // orgName is accepted for call-site compatibility but no longer used directly —
@@ -69,6 +81,7 @@ export async function POST(req: NextRequest) {
 
   const db  = createAdminClient();
   const now = Date.now();
+  const toggleEnabled = makeToggleChecker(db);
 
   // Fetch all pending leave requests with user + org info
   let pendingQuery = db
@@ -118,7 +131,7 @@ export async function POST(req: NextRequest) {
     const dateRange    = `${leave.start_date} to ${leave.end_date}`;
 
     // ── 24h escalation → notify manager ─────────────────────────────────────
-    if (age >= 24 * HOUR_MS && !leave.escalated_manager_at) {
+    if (age >= 24 * HOUR_MS && !leave.escalated_manager_at && await toggleEnabled(orgId, 'leave_escalation_manager')) {
       // Find manager: either direct manager_id or first HR/manager role in org
       let managerWa: string | null = null;
       let managerName = 'Manager';
@@ -159,7 +172,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ── 48h escalation → notify admin ───────────────────────────────────────
-    if (age >= 48 * HOUR_MS && !leave.escalated_admin_at) {
+    if (age >= 48 * HOUR_MS && !leave.escalated_admin_at && await toggleEnabled(orgId, 'leave_escalation_admin')) {
       const { data: adminUser } = await db
         .from('users')
         .select('full_name, wa_number')
@@ -186,7 +199,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ── 72h: notify the requesting employee of status (once only) ────────
-    if (age >= 72 * HOUR_MS && !leave.escalated_employee_at && employee.wa_number) {
+    if (age >= 72 * HOUR_MS && !leave.escalated_employee_at && employee.wa_number && await toggleEnabled(orgId, 'leave_escalation_employee')) {
       const msg = `📋 Leave Request Update\n\nHi ${employeeName}, your ${leaveType} request (${dateRange}) is still under review. Please follow up with your manager or HR for an update.`;
       try {
         await notifyViaWA(employee.wa_number, msg, orgId, orgName, employeeName);

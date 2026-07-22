@@ -24,6 +24,9 @@ const Schema = z.object({
   // Realtime dashboard auto-refresh, per page — also stored inside organizations.settings JSONB.
   // Partial: only the pages included get updated, others keep their existing value.
   realtime_refresh_pages: z.record(z.string(), z.boolean()).optional(),
+  // Per-notification-type on/off, also stored inside organizations.settings JSONB.
+  // Partial: only the types included get updated, others keep their existing value.
+  notification_toggles: z.record(z.string(), z.boolean()).optional(),
   // Comma-separated Groq keys, stored in organization_secrets alongside wa_access_token
   groq_api_keys:        z.string().min(1).optional(),
 });
@@ -106,7 +109,7 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: msg }, { status: 422 });
   }
 
-  const { ai_backend, realtime_refresh_pages, wa_access_token, groq_api_keys, wa_template_variables, ...directFields } = parsed.data;
+  const { ai_backend, realtime_refresh_pages, notification_toggles, wa_access_token, groq_api_keys, wa_template_variables, ...directFields } = parsed.data;
   const orgId = profile.organization_id;
 
   if (wa_access_token !== undefined || groq_api_keys !== undefined) {
@@ -150,15 +153,16 @@ export async function PATCH(req: NextRequest) {
     if (error) console.error('[org/settings PATCH] wa_template_variables (column may not exist yet):', error.message);
   }
 
-  // Merge ai_backend / realtime_refresh_pages into the settings JSONB column.
-  // realtime_refresh_pages is itself an object, so it needs a nested merge
-  // (current pages ⊕ incoming pages) rather than the shallow spread used for
-  // every other settings key, or toggling one page would wipe the rest.
-  if (ai_backend !== undefined || realtime_refresh_pages !== undefined) {
+  // Merge ai_backend / realtime_refresh_pages / notification_toggles into the
+  // settings JSONB column. The latter two are themselves objects, so they
+  // need a nested merge (current ⊕ incoming) rather than the shallow spread
+  // used for every other settings key, or toggling one entry would wipe the rest.
+  if (ai_backend !== undefined || realtime_refresh_pages !== undefined || notification_toggles !== undefined) {
     const { data: org } = await db
       .from('organizations').select('settings').eq('id', orgId).single();
     const current = (org?.settings as Record<string, unknown>) ?? {};
-    const currentPages = (current.realtime_refresh_pages as Record<string, boolean>) ?? {};
+    const currentPages    = (current.realtime_refresh_pages as Record<string, boolean>) ?? {};
+    const currentToggles  = (current.notification_toggles as Record<string, boolean>) ?? {};
     const { error } = await db
       .from('organizations')
       .update({
@@ -167,6 +171,9 @@ export async function PATCH(req: NextRequest) {
           ...(ai_backend !== undefined && { ai_backend }),
           ...(realtime_refresh_pages !== undefined && {
             realtime_refresh_pages: { ...currentPages, ...realtime_refresh_pages },
+          }),
+          ...(notification_toggles !== undefined && {
+            notification_toggles: { ...currentToggles, ...notification_toggles },
           }),
         },
       })

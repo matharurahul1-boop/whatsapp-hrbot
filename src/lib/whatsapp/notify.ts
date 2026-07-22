@@ -17,6 +17,7 @@ import { sendSmartText } from '@/lib/whatsapp/client';
 import { sendPush } from '@/lib/push/send';
 import { formatDateTime } from '@/lib/utils/date';
 import { canApproveLeaveFor } from '@/lib/rbac';
+import { isNotificationTypeEnabled } from '@/lib/utils/notification-settings';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -92,6 +93,7 @@ export async function notifyTaskAssigned(opts: {
 }): Promise<void> {
   return fire('TaskAssigned', async () => {
     const db = createAdminClient();
+    if (!(await isNotificationTypeEnabled(db, opts.orgId, 'task_assigned'))) return;
     const { data: assignee } = await db
       .from('users').select('full_name, wa_number')
       .eq('id', opts.assigneeId).single();
@@ -129,6 +131,7 @@ export async function notifyTaskCompleted(opts: {
   creatorId: string;
 }): Promise<void> {
   return fire('TaskCompleted', async () => {
+    if (!(await isNotificationTypeEnabled(createAdminClient(), opts.orgId, 'task_completed'))) return;
     const creator = await getWaAndName(opts.creatorId);
 
     const sends: Promise<unknown>[] = [
@@ -169,6 +172,7 @@ export async function notifyTaskUpdated(opts: {
 }): Promise<void> {
   return fire('TaskUpdated', async () => {
     const db = createAdminClient();
+    if (!(await isNotificationTypeEnabled(db, opts.orgId, 'task_updated'))) return;
     const { data: assignee } = await db
       .from('users').select('full_name, wa_number')
       .eq('id', opts.assigneeId).single();
@@ -217,6 +221,7 @@ export async function notifyTaskDeleted(opts: {
 }): Promise<void> {
   return fire('TaskDeleted', async () => {
     const db = createAdminClient();
+    if (!(await isNotificationTypeEnabled(db, opts.orgId, 'task_deleted'))) return;
     const { data: assignee } = await db
       .from('users').select('full_name, wa_number')
       .eq('id', opts.assigneeId).single();
@@ -264,6 +269,7 @@ export async function notifyTaskDeadlineReminder(opts: {
   reminderType?: string | null;
 }): Promise<void> {
   return fire('TaskDeadline', async () => {
+    if (!(await isNotificationTypeEnabled(createAdminClient(), opts.orgId, 'task_deadline_reminder'))) return;
     // Format full ISO datetime in IST (e.g. "15 Jul 2026, 02:30 PM")
     const d = new Date(opts.deadline);
     const deadlineStr = isNaN(d.getTime())
@@ -312,6 +318,7 @@ export async function notifyLeaveApprovalNeeded(opts: {
 }): Promise<void> {
   return fire('LeaveApprovalNeeded', async () => {
     const db = createAdminClient();
+    if (!(await isNotificationTypeEnabled(db, opts.orgId, 'leave_approval_needed'))) return;
     const { data: candidates } = await db
       .from('users')
       .select('id, full_name, wa_number, role')
@@ -368,6 +375,7 @@ export async function notifyLeaveDecision(opts: {
 }): Promise<void> {
   return fire('LeaveDecision', async () => {
     const db = createAdminClient();
+    if (!(await isNotificationTypeEnabled(db, opts.orgId, 'leave_decision'))) return;
     const target = await getWaAndName(opts.employeeId);
 
     const isSingle = opts.startDate === opts.endDate;
@@ -457,6 +465,7 @@ export async function notifyLeaveCancelled(opts: {
 }): Promise<void> {
   return fire('LeaveCancelled', async () => {
     const db = createAdminClient();
+    if (!(await isNotificationTypeEnabled(db, opts.orgId, 'leave_cancelled'))) return;
     const { data: candidates } = await db
       .from('users')
       .select('id, full_name, wa_number, role')
@@ -494,6 +503,7 @@ export async function notifyCheckInReminder(opts: {
   employeeName: string;
 }): Promise<void> {
   return fire('CheckInReminder', async () => {
+    if (!(await isNotificationTypeEnabled(createAdminClient(), opts.orgId, 'attendance_checkin_reminder'))) return;
     const msg =
       `🌅 *Good morning, ${firstName(opts.employeeName)}!*\n\n` +
       `You haven't checked in yet today.\n\n` +
@@ -512,6 +522,7 @@ export async function notifyCheckOutReminder(opts: {
   checkInTime: string;
 }): Promise<void> {
   return fire('CheckOutReminder', async () => {
+    if (!(await isNotificationTypeEnabled(createAdminClient(), opts.orgId, 'attendance_checkout_reminder'))) return;
     const cinStr = new Date(opts.checkInTime).toLocaleTimeString('en-IN', {
       timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit',
     });
@@ -536,6 +547,7 @@ export async function notifyWelcome(opts: {
   companyName: string;
 }): Promise<void> {
   return fire('Welcome', async () => {
+    if (!(await isNotificationTypeEnabled(createAdminClient(), opts.orgId, 'onboarding_welcome'))) return;
     const msg =
       `👋 *Welcome to ${opts.companyName}, ${firstName(opts.employeeName)}!*\n\n` +
       `I'm your AI HR assistant on WhatsApp. Here's what I can help you with:\n\n` +
@@ -563,6 +575,7 @@ export async function notifyAccountCreated(opts: {
   loginUrl: string;
 }): Promise<void> {
   return fire('AccountCreated', async () => {
+    if (!(await isNotificationTypeEnabled(createAdminClient(), opts.orgId, 'onboarding_account_created'))) return;
     const msg =
       `👋 *Welcome to ${opts.companyName}, ${firstName(opts.employeeName)}!*\n\n` +
       `An account has been created for you. Here are your login details:\n\n` +
@@ -598,6 +611,11 @@ export async function broadcastMessage(opts: {
   filter?: BroadcastFilter;
 }): Promise<{ sent: number; skipped: number }> {
   const db = createAdminClient();
+
+  if (!(await isNotificationTypeEnabled(db, opts.orgId, 'hr_broadcast'))) {
+    console.log('[Notify:Broadcast] skipped — disabled for org');
+    return { sent: 0, skipped: 0 };
+  }
 
   let query = db
     .from('users')

@@ -27,6 +27,7 @@ import {
   notifyCheckOutReminder,
   notifyTaskDeadlineReminder,
 } from '@/lib/whatsapp/notify';
+import { isNotificationTypeEnabled } from '@/lib/utils/notification-settings';
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
 
@@ -124,6 +125,8 @@ async function runCheckinReminders(): Promise<number> {
     .not('wa_phone_number_id', 'is', null);
 
   for (const org of orgs ?? []) {
+    if (!(await isNotificationTypeEnabled(db, org.id, 'attendance_checkin_reminder'))) continue;
+
     const { data: employees } = await db
       .from('users')
       .select('id, full_name, wa_number')
@@ -172,6 +175,8 @@ async function runCheckoutReminders(): Promise<number> {
     .not('wa_phone_number_id', 'is', null);
 
   for (const org of orgs ?? []) {
+    if (!(await isNotificationTypeEnabled(db, org.id, 'attendance_checkout_reminder'))) continue;
+
     const { data: pendingCheckouts } = await db
       .from('attendance_records')
       .select(`
@@ -223,6 +228,8 @@ async function runDeadlineReminders(): Promise<number> {
     .not('wa_phone_number_id', 'is', null);
 
   for (const org of orgs ?? []) {
+    if (!(await isNotificationTypeEnabled(db, org.id, 'task_deadline_reminder'))) continue;
+
     for (const [targetDate, reminderKey, label] of [
       [today,    'same_day', 'due today'],
       [tomorrow, '1_day',    'due tomorrow'],
@@ -305,12 +312,23 @@ async function fireBotReminders(): Promise<number> {
   if (!reminders?.length) return 0;
 
   const firedIds: string[] = [];
+  const toggleCache = new Map<string, boolean>();
 
   for (const rem of reminders) {
     if (!rem.wa_number || !rem.custom_message) {
       firedIds.push(rem.id);
       continue;
     }
+
+    // Disabled orgs still get their queued one-off reminder cleared (it's
+    // tied to a specific fire_at moment that will have passed by the time
+    // this type is re-enabled), just not sent.
+    const orgId = rem.organization_id ?? '';
+    if (orgId) {
+      if (!toggleCache.has(orgId)) toggleCache.set(orgId, await isNotificationTypeEnabled(db, orgId, 'bot_reminder'));
+      if (!toggleCache.get(orgId)) { firedIds.push(rem.id); continue; }
+    }
+
     try {
       const { data: recipient } = await db.from('users').select('full_name')
         .eq('wa_number', rem.wa_number).eq('organization_id', rem.organization_id ?? '').maybeSingle();

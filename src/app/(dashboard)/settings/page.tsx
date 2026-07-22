@@ -7,7 +7,7 @@ import {
   Building2, Bell, Shield, Phone,
   Save, Loader2, CheckCircle2, AlertCircle,
   Eye, EyeOff, Copy, Check, Bot, KeyRound, Plus, X,
-  CalendarDays, RefreshCw,
+  CalendarDays, RefreshCw, MessageSquare,
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import { normalizeWaNumber } from '@/lib/utils/phone';
@@ -1133,26 +1133,43 @@ export default function SettingsPage() {
         </form>
       </Section>
 
-      {/* ── Notifications ── */}
+      {/* ── WhatsApp Messages ── */}
       <Section
-        title="Notifications"
-        description="Manage how and when you receive alerts and reminders"
+        title="WhatsApp Messages"
+        description="Automatic alerts the bot sends over WhatsApp"
+        icon={<MessageSquare className="h-4 w-4" />}
+      >
+        <div className="space-y-3">
+          {[
+            'Task assigned / completed',
+            'Leave approved / rejected',
+            'Daily check-in reminder',
+            'Onboarding updates',
+          ].map(label => (
+            <div key={label} className="flex items-center justify-between py-1.5">
+              <p className="text-sm text-surface-800">{label}</p>
+              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-success/10 text-success border border-success/20">
+                Active
+              </span>
+            </div>
+          ))}
+        </div>
+      </Section>
+
+      {/* ── In-App Notifications ── */}
+      <Section
+        title="In-App Notifications"
+        description="Manage alerts shown in the dashboard's notification bell"
         icon={<Bell className="h-4 w-4" />}
       >
-        {/* Auto-alerts (read-only) */}
+        {/* Auto-alerts also mirrored in-app (read-only) */}
         <div className="space-y-3 pb-5 border-b border-surface-300">
-          <p className="text-[11px] font-semibold text-surface-500 uppercase tracking-wider">Auto alerts</p>
           {[
-            { label: 'Task assigned / completed',  channel: 'WhatsApp + In-app' },
-            { label: 'Leave approved / rejected',  channel: 'WhatsApp + In-app' },
-            { label: 'Daily check-in reminder',    channel: 'WhatsApp'          },
-            { label: 'Onboarding updates',         channel: 'WhatsApp'          },
-          ].map(n => (
-            <div key={n.label} className="flex items-center justify-between py-1.5">
-              <div>
-                <p className="text-sm text-surface-800">{n.label}</p>
-                <p className="text-xs text-surface-500">{n.channel}</p>
-              </div>
+            'Task assigned / completed',
+            'Leave approved / rejected',
+          ].map(label => (
+            <div key={label} className="flex items-center justify-between py-1.5">
+              <p className="text-sm text-surface-800">{label}</p>
               <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-success/10 text-success border border-success/20">
                 Active
               </span>

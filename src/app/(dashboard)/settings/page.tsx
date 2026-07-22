@@ -7,7 +7,7 @@ import {
   Building2, Bell, Shield, Phone,
   Save, Loader2, CheckCircle2, AlertCircle,
   Eye, EyeOff, Copy, Check, Bot, KeyRound, Plus, X,
-  CalendarDays, RefreshCw, MessageSquare,
+  CalendarDays, RefreshCw, MessageSquare, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import { normalizeWaNumber } from '@/lib/utils/phone';
@@ -194,6 +194,7 @@ export default function SettingsPage() {
   const [groqKeysCount,   setGroqKeysCount]   = useState(0);
   const [groqKeysSource,  setGroqKeysSource]  = useState<'org' | 'server'>('server');
   const [visibleGroqKeys, setVisibleGroqKeys] = useState<Set<number>>(new Set());
+  const [groqKeysExpanded, setGroqKeysExpanded] = useState(false);
   const [savingGroq,      setSavingGroq]      = useState(false);
   const [groqSaved,       setGroqSaved]       = useState(false);
   const [groqError,       setGroqError]       = useState('');
@@ -349,8 +350,8 @@ export default function SettingsPage() {
     setLoading(false);
   }
 
-  async function handleSaveProfile(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSaveProfile(e?: React.FormEvent) {
+    e?.preventDefault();
     setSaving(true);
     setError('');
 
@@ -673,8 +674,8 @@ export default function SettingsPage() {
           <p className="text-sm text-surface-600 mt-1">Manage your WhatsApp number, organization and integrations</p>
         </div>
         <button
-          type="submit"
-          form="settings-main-form"
+          type="button"
+          onClick={() => handleSaveProfile()}
           disabled={saving || !isDirty}
           className="flex items-center gap-2 rounded-lg bg-brand-500 hover:bg-brand-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold px-5 py-2.5 transition-colors shadow-glow shrink-0"
         >
@@ -697,7 +698,7 @@ export default function SettingsPage() {
         </div>
       )}
 
-      <form id="settings-main-form" onSubmit={handleSaveProfile} className="space-y-6">
+      <div className="space-y-6">
         {/* ── WhatsApp Number ── */}
         <Section
           title="WhatsApp"
@@ -707,6 +708,73 @@ export default function SettingsPage() {
           <Field label="WhatsApp number" hint="Include country code e.g. 919876543210 (no + sign)">
             <TextInput value={waNumber} onChange={setWaNumber} placeholder="919876543210" type="tel" />
           </Field>
+        </Section>
+
+        {/* ── Role info ── */}
+        <Section
+          title="Permissions"
+          description="Your current role and access level"
+          icon={<Shield className="h-4 w-4" />}
+        >
+          <div className="flex items-center gap-3">
+            <span className="inline-flex items-center rounded-full border border-brand-500/30 bg-brand-500/10 px-3 py-1 text-xs font-semibold text-brand-400 capitalize">
+              {role.replace('_', ' ')}
+            </span>
+            <span className="text-xs text-surface-600">
+              {role === 'super_admin' || role === 'admin'
+                ? 'Full access to all features including organization settings'
+                : role === 'hr'
+                ? 'Can manage employees, leave and onboarding'
+                : role === 'manager'
+                ? 'Can manage team tasks, attendance and approve leave'
+                : 'Access to your own tasks, leave and attendance'}
+            </span>
+          </div>
+        </Section>
+
+        {/* ── Change Password ── */}
+        <Section
+          title="Change Password"
+          description="Update your Supabase Auth password"
+          icon={<Shield className="h-4 w-4" />}
+        >
+          <form onSubmit={handleChangePassword} className="space-y-4">
+            {pwError && (
+              <div className="flex items-center gap-2 rounded-lg border border-danger/20 bg-danger/10 px-3 py-2.5 text-sm text-danger">
+                <AlertCircle className="h-4 w-4 shrink-0" /> {pwError}
+              </div>
+            )}
+            {pwSaved && (
+              <div className="flex items-center gap-2 rounded-lg border border-success/20 bg-success/10 px-3 py-2.5 text-sm text-success">
+                <CheckCircle2 className="h-4 w-4 shrink-0" /> Password updated successfully!
+              </div>
+            )}
+            <Field label="New password" hint="Minimum 6 characters">
+              <div className="relative">
+                <input
+                  type={showPw ? 'text' : 'password'}
+                  value={newPw}
+                  onChange={e => setNewPw(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full rounded-lg border border-surface-300 bg-surface-0 pl-3 pr-10 py-2.5 text-sm text-surface-950 placeholder:text-surface-500 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500"
+                />
+                <button type="button" onClick={() => setShowPw(s => !s)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-surface-500 hover:text-surface-800">
+                  {showPw ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+            </Field>
+            <div className="flex justify-end">
+              <button
+                type="submit"
+                disabled={savingPw || !newPw}
+                className="flex items-center gap-2 rounded-lg border border-surface-300 bg-surface-0 hover:bg-surface-200 disabled:opacity-50 text-surface-800 text-sm font-medium px-4 py-2 transition-colors"
+              >
+                {savingPw ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                {savingPw ? 'Updating…' : 'Update password'}
+              </button>
+            </div>
+          </form>
         </Section>
 
         {/* ── Leave Policy (HR+) ── */}
@@ -962,67 +1030,88 @@ export default function SettingsPage() {
             description="Free-tier keys used to run the WhatsApp bot — rotate here if one expires or hits its rate limit"
             icon={<KeyRound className="h-4 w-4" />}
           >
-            <p className="text-xs text-surface-600">
-              {groqKeysSource === 'org'
-                ? `${groqKeysCount} org-specific key${groqKeysCount === 1 ? '' : 's'} currently active.`
-                : 'No org-specific keys saved yet — showing the server-default key(s) currently powering the bot. Edit and save to switch to your own.'}
-            </p>
-            {groqError && (
-              <div className="flex items-center gap-2 rounded-lg border border-danger/20 bg-danger/10 px-3 py-2.5 text-sm text-danger">
-                <AlertCircle className="h-4 w-4 shrink-0" /> {groqError}
-              </div>
-            )}
-            <Field label="Groq API keys" hint="Replaces the entire list — include every key you want active, not just the new one.">
-              <div className="space-y-2">
-                {groqKeys.map((key, i) => (
-                  <div key={i} className="relative flex items-center gap-2">
-                    <div className="relative flex-1">
-                      <input
-                        type={visibleGroqKeys.has(i) ? 'text' : 'password'}
-                        autoComplete="off"
-                        data-lpignore="true"
-                        value={key}
-                        onChange={e => updateGroqKeyField(i, e.target.value)}
-                        placeholder={`key-${i + 1}...`}
-                        className="w-full rounded-lg border border-surface-300 bg-surface-0 pl-3 pr-10 py-2.5 text-sm text-surface-950 placeholder:text-surface-500 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500 font-mono"
-                      />
-                      <button type="button" onClick={() => toggleGroqKeyVisibility(i)}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded text-surface-500 hover:text-surface-800 transition-colors">
-                        {visibleGroqKeys.has(i) ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                      </button>
-                    </div>
-                    {groqKeys.length > 1 && (
-                      <button type="button" onClick={() => removeGroqKeyField(i)}
-                        className="p-2 rounded-lg text-surface-500 hover:text-danger hover:bg-danger/10 transition-colors shrink-0">
-                        <X className="h-4 w-4" />
-                      </button>
-                    )}
+            <button
+              type="button"
+              onClick={() => setGroqKeysExpanded(v => !v)}
+              className="w-full flex items-center justify-between gap-3 rounded-lg border border-surface-300 bg-surface-0 hover:bg-surface-200 px-3.5 py-2.5 text-left transition-colors"
+            >
+              <span className="flex items-center gap-2 text-xs text-surface-600">
+                <KeyRound className="h-3.5 w-3.5 text-surface-500 shrink-0" />
+                {groqKeysSource === 'org'
+                  ? `${groqKeysCount} org-specific key${groqKeysCount === 1 ? '' : 's'} currently active`
+                  : `${groqKeys.filter(k => k.trim()).length} server-default key${groqKeys.filter(k => k.trim()).length === 1 ? '' : 's'} currently powering the bot`}
+              </span>
+              <span className="flex items-center gap-1 text-xs font-medium text-brand-500 shrink-0">
+                {groqKeysExpanded ? 'Hide' : 'Manage keys'}
+                {groqKeysExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+              </span>
+            </button>
+
+            {groqKeysExpanded && (
+              <>
+                {groqKeysSource !== 'org' && (
+                  <p className="text-xs text-surface-500">
+                    No org-specific keys saved yet — showing the server-default key(s). Edit and save to switch to your own.
+                  </p>
+                )}
+                {groqError && (
+                  <div className="flex items-center gap-2 rounded-lg border border-danger/20 bg-danger/10 px-3 py-2.5 text-sm text-danger">
+                    <AlertCircle className="h-4 w-4 shrink-0" /> {groqError}
                   </div>
-                ))}
-                <button
-                  type="button"
-                  onClick={addGroqKeyField}
-                  className="flex items-center gap-1.5 text-sm font-medium text-brand-500 hover:text-brand-400 transition-colors"
-                >
-                  <Plus className="h-3.5 w-3.5" /> Add Groq API key
-                </button>
-              </div>
-            </Field>
-            <div className="flex justify-end">
-              <button
-                type="button"
-                onClick={saveGroqKeys}
-                disabled={savingGroq || groqKeys.every(k => !k.trim())}
-                className="flex items-center gap-2 rounded-lg border border-surface-300 bg-surface-0 hover:bg-surface-200 disabled:opacity-50 text-surface-800 text-sm font-medium px-4 py-2 transition-colors"
-              >
-                {savingGroq
-                  ? <Loader2     className="h-3.5 w-3.5 animate-spin" />
-                  : groqSaved
-                    ? <CheckCircle2 className="h-3.5 w-3.5 text-success" />
-                    : <Save         className="h-3.5 w-3.5" />}
-                {savingGroq ? 'Saving…' : groqSaved ? 'Saved!' : 'Save Groq keys'}
-              </button>
-            </div>
+                )}
+                <Field label="Groq API keys" hint="Replaces the entire list — include every key you want active, not just the new one.">
+                  <div className="space-y-2">
+                    {groqKeys.map((key, i) => (
+                      <div key={i} className="relative flex items-center gap-2">
+                        <div className="relative flex-1">
+                          <input
+                            type={visibleGroqKeys.has(i) ? 'text' : 'password'}
+                            autoComplete="off"
+                            data-lpignore="true"
+                            value={key}
+                            onChange={e => updateGroqKeyField(i, e.target.value)}
+                            placeholder={`key-${i + 1}...`}
+                            className="w-full rounded-lg border border-surface-300 bg-surface-0 pl-3 pr-10 py-2.5 text-sm text-surface-950 placeholder:text-surface-500 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500 font-mono"
+                          />
+                          <button type="button" onClick={() => toggleGroqKeyVisibility(i)}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded text-surface-500 hover:text-surface-800 transition-colors">
+                            {visibleGroqKeys.has(i) ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                          </button>
+                        </div>
+                        {groqKeys.length > 1 && (
+                          <button type="button" onClick={() => removeGroqKeyField(i)}
+                            className="p-2 rounded-lg text-surface-500 hover:text-danger hover:bg-danger/10 transition-colors shrink-0">
+                            <X className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={addGroqKeyField}
+                      className="flex items-center gap-1.5 text-sm font-medium text-brand-500 hover:text-brand-400 transition-colors"
+                    >
+                      <Plus className="h-3.5 w-3.5" /> Add Groq API key
+                    </button>
+                  </div>
+                </Field>
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={saveGroqKeys}
+                    disabled={savingGroq || groqKeys.every(k => !k.trim())}
+                    className="flex items-center gap-2 rounded-lg border border-surface-300 bg-surface-0 hover:bg-surface-200 disabled:opacity-50 text-surface-800 text-sm font-medium px-4 py-2 transition-colors"
+                  >
+                    {savingGroq
+                      ? <Loader2     className="h-3.5 w-3.5 animate-spin" />
+                      : groqSaved
+                        ? <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+                        : <Save         className="h-3.5 w-3.5" />}
+                    {savingGroq ? 'Saving…' : groqSaved ? 'Saved!' : 'Save Groq keys'}
+                  </button>
+                </div>
+              </>
+            )}
           </Section>
         )}
 
@@ -1068,73 +1157,7 @@ export default function SettingsPage() {
           </Section>
         )}
 
-        {/* ── Role info ── */}
-        <Section
-          title="Permissions"
-          description="Your current role and access level"
-          icon={<Shield className="h-4 w-4" />}
-        >
-          <div className="flex items-center gap-3">
-            <span className="inline-flex items-center rounded-full border border-brand-500/30 bg-brand-500/10 px-3 py-1 text-xs font-semibold text-brand-400 capitalize">
-              {role.replace('_', ' ')}
-            </span>
-            <span className="text-xs text-surface-600">
-              {role === 'super_admin' || role === 'admin'
-                ? 'Full access to all features including organization settings'
-                : role === 'hr'
-                ? 'Can manage employees, leave and onboarding'
-                : role === 'manager'
-                ? 'Can manage team tasks, attendance and approve leave'
-                : 'Access to your own tasks, leave and attendance'}
-            </span>
-          </div>
-        </Section>
-      </form>
-
-      {/* ── Change Password ── */}
-      <Section
-        title="Change Password"
-        description="Update your Supabase Auth password"
-        icon={<Shield className="h-4 w-4" />}
-      >
-        <form onSubmit={handleChangePassword} className="space-y-4">
-          {pwError && (
-            <div className="flex items-center gap-2 rounded-lg border border-danger/20 bg-danger/10 px-3 py-2.5 text-sm text-danger">
-              <AlertCircle className="h-4 w-4 shrink-0" /> {pwError}
-            </div>
-          )}
-          {pwSaved && (
-            <div className="flex items-center gap-2 rounded-lg border border-success/20 bg-success/10 px-3 py-2.5 text-sm text-success">
-              <CheckCircle2 className="h-4 w-4 shrink-0" /> Password updated successfully!
-            </div>
-          )}
-          <Field label="New password" hint="Minimum 6 characters">
-            <div className="relative">
-              <input
-                type={showPw ? 'text' : 'password'}
-                value={newPw}
-                onChange={e => setNewPw(e.target.value)}
-                placeholder="••••••••"
-                className="w-full rounded-lg border border-surface-300 bg-surface-0 pl-3 pr-10 py-2.5 text-sm text-surface-950 placeholder:text-surface-500 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500"
-              />
-              <button type="button" onClick={() => setShowPw(s => !s)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-surface-500 hover:text-surface-800">
-                {showPw ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-              </button>
-            </div>
-          </Field>
-          <div className="flex justify-end">
-            <button
-              type="submit"
-              disabled={savingPw || !newPw}
-              className="flex items-center gap-2 rounded-lg border border-surface-300 bg-surface-0 hover:bg-surface-200 disabled:opacity-50 text-surface-800 text-sm font-medium px-4 py-2 transition-colors"
-            >
-              {savingPw ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-              {savingPw ? 'Updating…' : 'Update password'}
-            </button>
-          </div>
-        </form>
-      </Section>
+      </div>
 
       {/* ── WhatsApp Messages ── */}
       <Section

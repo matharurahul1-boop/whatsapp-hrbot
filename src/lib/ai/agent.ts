@@ -665,14 +665,15 @@ const HRBOT_TOOLS: any[] = [
   },
   {
     name: 'create_task',
-    description: 'Create a new task. ONLY call AFTER user confirms AND you have title + deadline. NEVER call without both. Priority is optional — defaults to medium if the user does not mention one.',
+    description: 'Create a new task. ONLY call AFTER user confirms AND you have title + deadline. NEVER call without both. Priority is optional — defaults to medium if the user does not mention one. Title and description may be SYNTHESIZED from rambling/conversational input (see system prompt) rather than stated verbatim by the user.',
     parameters: {
       type: 'OBJECT',
       properties: {
-        title:    { type: 'STRING', description: 'Short, clear task title' },
-        assignee: { type: 'STRING', description: 'Assignee name or "me". Omit if self.' },
-        deadline: { type: 'STRING', description: 'REQUIRED. Due date and time as "YYYY-MM-DD HH:MM" (24h IST). Use 17:00 (5 PM) if user gives only a date with no time. E.g. "2026-07-10 17:00"' },
-        priority: { type: 'STRING', description: 'OPTIONAL. low | medium | high | urgent. Defaults to medium if omitted.' },
+        title:       { type: 'STRING', description: 'Short, clear task title. If the user never states one outright, synthesize a concise title from whatever subject/person/topic they did mention.' },
+        assignee:    { type: 'STRING', description: 'Assignee name or "me". Omit if self.' },
+        deadline:    { type: 'STRING', description: 'REQUIRED. Due date and time as "YYYY-MM-DD HH:MM" (24h IST). Use 17:00 (5 PM) if user gives only a date with no time. E.g. "2026-07-10 17:00"' },
+        priority:    { type: 'STRING', description: 'OPTIONAL. low | medium | high | urgent. Defaults to medium if omitted.' },
+        description: { type: 'STRING', description: 'OPTIONAL. Extra context worth keeping — e.g. other details mentioned that did not fit in the title.' },
       },
       required: ['title', 'deadline'],
     },
@@ -1019,6 +1020,12 @@ reject_leave, cancel_leave, check_in, check_out, set_reminder):
 💬 *Description* (Optional)"
 If only ONE of title/deadline is missing, do NOT dump the full template — briefly acknowledge what you already understood (deadline, assignee, priority, etc. — whatever the user gave) and ask specifically for the one missing piece, without calling the tool yet. Example: user said "create a task for Tushar, due day after tomorrow 3:30pm, priority medium" (no title) → reply "Got it — due *12 Jul 2026, 03:30 PM* for *Tushar*, medium priority. What should I title this task?" NEVER re-ask for a field the user already provided. If the user never mentions a priority, default it to medium — do not ask for it separately. Once BOTH required fields are known, call create_task directly per rule 1 above — do not type your own confirmation sentence first.
 5. For create_task, ALWAYS pass the assignee to the tool using the EXACT name the user typed — do NOT resolve or expand it to a full name (e.g. pass "Tushar", not "Tushar Sharma"). Omit it (or pass "you") when self-assigned.
+6. Recognizing task-creation intent from rambling or voice-transcribed input: a message does not need to say "create a task" or "assign this" to be a task-creation request. If the user describes a meeting, appointment, follow-up, or commitment — even in a meandering, filler-laden, multi-topic message (common in voice-note transcripts, which often include false starts like "are you there", "can you hear me", side comments, and topic changes) — treat it as an implicit create_task request and extract what you can:
+   - *title*: if the user never states one outright, SYNTHESIZE a short, concrete title from whatever subject/person/topic was actually mentioned (e.g. a call about "the copper manufacturing pipe" with "Maansingh" → "Meeting with Maansingh — copper manufacturing pipe tracking"). Never use a literal transcript fragment or filler phrase as the title.
+   - *deadline*: use the LATER, actually-settled date/time if the user floats one option then changes it (e.g. "maybe tomorrow... no, how about Tuesday around 12pm" → the deadline is Tuesday ~12:00 PM, not tomorrow).
+   - *assignee*, *priority*, *description*: extract only if genuinely implied by the message; otherwise leave at their defaults.
+   Once you've synthesized title + deadline this way, follow the normal Confirmation rule above — show the synthesized fields back for confirmation so the user can correct anything wrong, rather than calling the tool silently.
+   Do NOT fall back to a generic "I'm not sure I caught that clearly, could you clarify?" reply when the input describes an actionable meeting/commitment — that just makes the user repeat everything from scratch. Only ask a genuine clarifying question if the message truly gives you nothing to work with (no topic, no person, no time at all), or is clearly unrelated to work (personal chit-chat, a question, a complaint) — in that case respond normally instead of forcing it into a task.
 
 ## CRITICAL: Never lose context mid-collection
 If you just asked for missing details (task fields, leave type/dates, reminder text, etc.) and the user's new message answers them, your IMMEDIATE next action MUST be to call the tool directly per the Confirmation rule above — NOT to say "What else can I help with?", and NOT to type your own "Go ahead? (Yes / No)" sentence first.
@@ -1208,6 +1215,11 @@ User: "Please create a task for Tushar. The due date is the day after tomorrow a
 You: Got it — due *${dat2.display}, 03:30 PM* for *Tushar*, medium priority. What should I title this task?
 User: "Review Q3 budget" → You: I'll create task *Review Q3 budget* for *Tushar* due *${dat2.display}, 03:30 PM* with *medium* priority. Go ahead? (Yes / No)
 (Do NOT ask again for the deadline, assignee, or priority here — they were already given.)
+
+Task creation — implicit intent from a rambling voice transcript (no "create a task" wording, no stated title):
+User: "Are you there? Can you hear me? Anyway, you know the copper manufacturing pipe thing with Maansingh, we need to track the team on that. I'm free tomorrow but he said no, so let's say the day after tomorrow around 12pm instead, okay?"
+You: I'll create task *Meeting with Maansingh — copper manufacturing pipe tracking* for *you* due *${dat2.display}, 12:00 PM* with *medium* priority. Go ahead? (Yes / No)
+(Filler like "are you there"/"can you hear me"/"okay" is ignored; the title is synthesized from the topic + person since none was stated; the deadline is the LATER settled time — day after tomorrow — not the first-floated "tomorrow". Do NOT reply with a generic "I'm not sure I caught that, could you clarify?" here — the message clearly describes an actionable meeting, so extract and confirm instead of asking the user to start over.)
 
 Task update:
 User: "update the assigned to of Design Review to Rahul" → You: I'll update *Design Review* — set *assignee* to *Rahul*. Go ahead? (Yes / No)

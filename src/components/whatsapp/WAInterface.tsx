@@ -634,7 +634,9 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
     setSummaryText('');
     setShowSummary(false);
     if (activeConvo) {
-      fetchSuggestions(activeConvo);
+      // Suggestions feed the reply-chip UI in the compose footer, which is
+      // hidden for other people's (read-only) conversations — skip the call.
+      if (isSelfConvo) fetchSuggestions(activeConvo);
       fetchSentiment(activeConvo);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1110,34 +1112,40 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
                   </div>
                   <p className="text-sm" style={{ color: '#8696A0' }}>No messages yet — send the first one!</p>
                 </div>
-                {/* Send box */}
-                <div className="shrink-0 px-3 pb-3 pt-2" style={{ background: '#0B141A' }}>
-                  <div className="flex items-end gap-2 px-3 py-2 rounded-2xl" style={{ background: '#202C33' }}>
-                    <textarea
-                      ref={textareaRef} rows={1} value={replyText}
-                      onChange={handleTextareaChange} onKeyDown={handleKeyDown}
-                      placeholder={isSelfConvo
-                        ? `Message the bot (as ${userWaNumber})…`
-                        : `Message ${name}…`}
-                      className="flex-1 bg-transparent text-sm outline-none resize-none placeholder-[#8696A0] leading-relaxed py-1"
-                      style={{ color: '#E9EDEF', maxHeight: '120px', scrollbarWidth: 'none' }}
-                    />
-                    {replyText.trim() ? (
-                      <button onClick={handleSend} disabled={sending}
-                        className="p-2 rounded-full shrink-0 mb-0.5 flex items-center justify-center"
-                        style={{ background: '#00A884', width: 36, height: 36 }}>
-                        <Send size={17} style={{ color: '#fff', marginLeft: 1 }} />
-                      </button>
-                    ) : (
-                      <button className="p-2 rounded-full hover:bg-white/10 shrink-0 mb-0.5">
-                        <Mic size={22} style={{ color: '#8696A0' }} />
-                      </button>
-                    )}
+                {/* Send box — self-chat only; other people's chats are read-only */}
+                {isSelfConvo ? (
+                  <div className="shrink-0 px-3 pb-3 pt-2" style={{ background: '#0B141A' }}>
+                    <div className="flex items-end gap-2 px-3 py-2 rounded-2xl" style={{ background: '#202C33' }}>
+                      <textarea
+                        ref={textareaRef} rows={1} value={replyText}
+                        onChange={handleTextareaChange} onKeyDown={handleKeyDown}
+                        placeholder={`Message the bot (as ${userWaNumber})…`}
+                        className="flex-1 bg-transparent text-sm outline-none resize-none placeholder-[#8696A0] leading-relaxed py-1"
+                        style={{ color: '#E9EDEF', maxHeight: '120px', scrollbarWidth: 'none' }}
+                      />
+                      {replyText.trim() ? (
+                        <button onClick={handleSend} disabled={sending}
+                          className="p-2 rounded-full shrink-0 mb-0.5 flex items-center justify-center"
+                          style={{ background: '#00A884', width: 36, height: 36 }}>
+                          <Send size={17} style={{ color: '#fff', marginLeft: 1 }} />
+                        </button>
+                      ) : (
+                        <button className="p-2 rounded-full hover:bg-white/10 shrink-0 mb-0.5">
+                          <Mic size={22} style={{ color: '#8696A0' }} />
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-center text-[10px] mt-1.5" style={{ color: '#4A5568' }}>
+                      Enter to send · message will arrive on +{selectedNumber}
+                    </p>
                   </div>
-                  <p className="text-center text-[10px] mt-1.5" style={{ color: '#4A5568' }}>
-                    Enter to send · message will arrive on +{selectedNumber}
-                  </p>
-                </div>
+                ) : (
+                  <div className="shrink-0 px-3 py-3 text-center" style={{ background: '#0B141A' }}>
+                    <p className="text-xs" style={{ color: '#8696A0' }}>
+                      🔒 Read-only — this is someone else's conversation.
+                    </p>
+                  </div>
+                )}
               </div>
             );
           })()
@@ -1529,9 +1537,9 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
                     const isOut     = isSelfConvo
                       ? msg.direction === 'incoming'
                       : msg.direction === 'outgoing';
-                    const showAvatar = !isOut && (
-                      idx === 0 || msgs[idx - 1]?.direction !== msg.direction
-                    );
+                    // Grouping only — which side (if any) actually renders an
+                    // avatar for this row is decided per-side further below.
+                    const showAvatar = idx === 0 || msgs[idx - 1]?.direction !== msg.direction;
                     const time    = formatTime(msg.wa_timestamp ?? msg.created_at);
                     const text    = msg.message_text ?? `[${msg.message_type}]`;
                     const isMedia = !msg.message_text && msg.message_type !== 'text';
@@ -1653,6 +1661,16 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
                             {isOut && <StatusTick status={msg.delivery_status} size={13} />}
                           </div>
                         </div>
+
+                        {/* Right-side avatar — your own avatar, self-chat only */}
+                        {isOut && isSelfConvo && (
+                          <div className="shrink-0 mb-1">
+                            {showAvatar
+                              ? <Avatar name={msg.user?.full_name ?? 'You'} src={msg.user?.avatar_url ?? null} size={28} />
+                              : <div style={{ width: 28 }} />
+                            }
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -1672,7 +1690,14 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
               </button>
             )}
 
-            {/* ── Reply input footer ── */}
+            {/* ── Reply input footer — self-chat only; other people's chats are read-only ── */}
+            {!isSelfConvo ? (
+              <div className="shrink-0 px-3 py-3 text-center" style={{ background: '#0B141A' }}>
+                <p className="text-xs" style={{ color: '#8696A0' }}>
+                  🔒 Read-only — this is someone else's conversation.
+                </p>
+              </div>
+            ) : (
             <div
               className="shrink-0 px-3 pb-3 pt-2"
               style={{ background: '#0B141A' }}
@@ -1878,6 +1903,7 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
                 </p>
               )}
             </div>
+            )}
           </>
         ) : null}
       </div>

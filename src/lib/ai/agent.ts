@@ -524,6 +524,19 @@ async function canonicalizeConfirmation(
   let tool = toolIn;
   const args = { ...inputArgs };
 
+  // buildToolConfirmation renders a literal "?" placeholder for any field
+  // that wasn't supplied (e.g. "with *?* priority"). If that PRELIMINARY,
+  // uncanonicalized confirmation text is the one that gets shown to the
+  // user (CONFIRM_BEFORE_EXEC builds it before this function ever runs),
+  // the central "Go ahead?" handler later re-parses that same text via
+  // parseConfirmationMessage — which reads the literal "?" back out as if
+  // the user had actually typed it. Strip it back to "not provided" here,
+  // before any validation/defaulting below runs, so it falls through to
+  // the normal defaults instead of failing as an invalid value.
+  for (const key of ['priority', 'deadline', 'title'] as const) {
+    if (args[key] === '?') delete args[key];
+  }
+
   // "Assign task X to Y" when no task named X exists reads as a request to
   // CREATE task X assigned to Y, not to reassign something that doesn't
   // exist — switch tools here (before confirmation text is built) rather

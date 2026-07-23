@@ -1753,9 +1753,13 @@ async function runMasterAgentInner(
 
     // Persist context_state based on what the reply contains:
     // - "Go ahead? (Yes / No)"  → CONFIRMING with stored payload (fast next-turn)
-    // - ctxRef.handled = true   → runGroqLoop already saved a special state (e.g. EDITING)
+    // - ctxRef.handled = true   → runGroqLoop already saved a special state (e.g. EDITING,
+    //   or resolveTaskDisambiguation's own CONFIRMING save) — MUST skip reprocessing here
+    //   even if the reply text happens to say "Go ahead?", or re-parsing it via regex
+    //   loses context that only existed in the original structured args (e.g.
+    //   assignee_hint, which never appears literally in the confirmation sentence).
     // - anything else           → reset to IDLE (clear stale flow state)
-    const isConfirmPrompt = /go ahead\?/i.test(finalReply) || /\(yes \/ no\)/i.test(finalReply);
+    const isConfirmPrompt = !ctxRef.handled && (/go ahead\?/i.test(finalReply) || /\(yes \/ no\)/i.test(finalReply));
     // For update_task deadline confirmations, rewrite the raw "YYYY-MM-DD HH:MM" in the
     // text to a human-readable "D Mon YYYY, H:MM AM/PM IST" before showing/saving.
     let displayReply = finalReply;
@@ -1959,6 +1963,12 @@ async function runGroqLoop(
   // its own previous message.
   if (context.flow_state === 'DISAMBIGUATING_TASK' && context.confirm_payload) {
     console.log(`[Agent] Resolving task disambiguation: "${message.trim()}"`);
+    // resolveTaskDisambiguation manages its own context_state save (CONFIRMING on
+    // success, DISAMBIGUATING_TASK again if still ambiguous) — mark handled so the
+    // central isConfirmPrompt block below doesn't re-parse and re-canonicalize its
+    // return value from scratch, which would silently drop the assignee_hint that
+    // only exists in the structured args, not in the confirmation text itself.
+    ctxRef.handled = true;
     return resolveTaskDisambiguation(
       message.trim(),
       context.confirm_payload as { tool: string; args: Record<string, string> },

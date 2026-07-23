@@ -678,7 +678,14 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       };
     }
 
-    const formatTask = (t: any, i: number) => {
+    // Numbering is a single running counter across the ENTIRE list — Overdue,
+    // Due today, and Upcoming are visual groupings only, not separate
+    // sequences. This lets the user say "update/delete task 5" and have it
+    // resolve unambiguously against the one list they were just shown,
+    // instead of restarting at 1 in each section.
+    let taskDisplayNum = 0;
+    const formatTask = (t: any) => {
+      taskDisplayNum++;
       const pEmoji = priorityEmoji(t.priority);
       let due = '';
       if (t.deadline) {
@@ -686,7 +693,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
         due = ` — ${d.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}`;
       }
       const assignee = (wantsAll || (!!slots.assignee_name && !assigneeNameIsBogus)) && t.assignee?.full_name ? ` _(${t.assignee.full_name})_` : '';
-      return `${i + 1}. ${pEmoji} *${t.title}*${due}${assignee} · ${statusLabel(t.status)}`;
+      return `${taskDisplayNum}. ${pEmoji} *${t.title}*${due}${assignee} · ${statusLabel(t.status)}`;
     };
 
     const lines: string[] = [];
@@ -725,7 +732,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
           ? `✅ *${user_role === 'manager' ? 'Team' : 'All'}${doneFilterLabel} completed tasks (${tasks.length})${excludeHeaderSuffix}:*`
           : `✅ *Your${doneFilterLabel} completed tasks (${tasks.length})${excludeHeaderSuffix}:*`;
       lines.push(header, '');
-      (tasks as any[]).forEach((t, i) => lines.push(formatTask(t, i)));
+      (tasks as any[]).forEach((t) => lines.push(formatTask(t)));
     } else {
       const statusLabelText = statusFilter === 'in_progress' ? 'In Progress' : statusFilter === 'todo' ? 'To Do' : statusFilter === 'cancelled' ? 'Cancelled' : statusFilter === 'active' ? 'Pending' : null;
       const filterLabel = [priorityLabel, deadlineHeaderLabel, statusLabelText].filter(Boolean).join(' ') || null;
@@ -743,18 +750,18 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       if (overdue.length > 0) {
         lines.push('');
         lines.push(lang === 'hi' ? `🔴 *ओवरड्यू:*` : `🔴 *Overdue:*`);
-        overdue.forEach((t, i) => lines.push(formatTask(t, i)));
+        overdue.forEach((t) => lines.push(formatTask(t)));
       }
       if (dueToday.length > 0) {
         lines.push('');
         lines.push(lang === 'hi' ? `📅 *आज देय:*` : `📅 *Due today:*`);
-        dueToday.forEach((t, i) => lines.push(formatTask(t, i)));
+        dueToday.forEach((t) => lines.push(formatTask(t)));
       }
       const REST_DISPLAY_CAP = 10;
       if (rest.length > 0) {
         lines.push('');
         lines.push(lang === 'hi' ? `⏳ *आगामी:*` : `⏳ *Upcoming:*`);
-        rest.slice(0, REST_DISPLAY_CAP).forEach((t, i) => lines.push(formatTask(t, i)));
+        rest.slice(0, REST_DISPLAY_CAP).forEach((t) => lines.push(formatTask(t)));
         if (rest.length > REST_DISPLAY_CAP) {
           const more = rest.length - REST_DISPLAY_CAP;
           lines.push(lang === 'hi' ? `_...और ${more} टास्क_` : `_...and ${more} more_`);

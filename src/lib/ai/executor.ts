@@ -320,6 +320,11 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     let assignedTo   = user_id;
     let assigneeName = user_name ?? (lang === 'hi' ? 'आप' : 'You');
+    // Set when the assignee name couldn't be confidently resolved and we've
+    // fallen back to the creator — surfaced as a note on the success reply
+    // so the user notices immediately instead of finding out later, and can
+    // reassign with a follow-up "assign this task to <name>" if it's wrong.
+    let assigneeUnclear: string | null = null;
 
     // Treat any self-referential word as "assign to self" (Groq may pass "me", "myself", "you", "mine" etc.)
     const ASSIGNEE_SELF_RE = /^(me|myself|mine|my|i|you|yourself|self|own)$/i;
@@ -352,18 +357,17 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
           if (score > bestScore) { bestScore = score; resolvedUser = u; }
         }
         if (bestScore < 0.65) {
-          const names = ((allActive ?? []) as { full_name: string }[]).map(u => `· ${u.full_name}`).join('\n') || '(none)';
-          return {
-            success: false,
-            reply: lang === 'hi'
-              ? `❌ *${slots.assignee}* नाम का कोई active user नहीं मिला।\n\nउपलब्ध:\n${names}`
-              : `❌ No active user found matching *${slots.assignee}*.\n\nAvailable:\n${names}`,
-          };
+          // Genuinely unclear name (common with garbled voice transcripts) —
+          // default to the creator rather than blocking task creation.
+          resolvedUser = null;
+          assigneeUnclear = slots.assignee!;
         }
       }
 
-      assignedTo   = resolvedUser!.id;
-      assigneeName = resolvedUser!.full_name;
+      if (resolvedUser) {
+        assignedTo   = resolvedUser.id;
+        assigneeName = resolvedUser.full_name;
+      }
     }
 
     // Idempotency is scoped to the assignee. Different employees may validly
@@ -469,9 +473,15 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       n8n.notifyTaskAssigned(org_id, task.id, assignedTo).catch(() => {});
     }
 
+    const unclearNote = assigneeUnclear
+      ? (lang === 'hi'
+          ? `\n\n⚠️ *${assigneeUnclear}* नाम confidently match नहीं हुआ — task आपको (creator) assign कर दिया। Reassign karne ke liye: "assign this task to <name>".`
+          : `\n\n⚠️ Couldn't confidently match assignee *"${assigneeUnclear}"* — assigned to you instead. Reply "assign this task to <name>" to fix it.`)
+      : '';
+
     return {
       success: true,
-      reply:   REPLIES.taskCreated(slots.title!, assigneeName, formatDateTime(deadlineISO), taskPriority, lang),
+      reply:   REPLIES.taskCreated(slots.title!, assigneeName, formatDateTime(deadlineISO), taskPriority, lang) + unclearNote,
     };
   },
 

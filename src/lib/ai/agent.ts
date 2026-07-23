@@ -597,7 +597,7 @@ async function canonicalizeConfirmation(
     args.task_title = matches[0].title;
   }
 
-  const canonicalUser = async (written: string): Promise<{ name?: string; error?: string }> => {
+  const canonicalUser = async (written: string): Promise<{ name?: string; error?: string; notFound?: boolean }> => {
     const requested = written.trim();
     if (!requested || /^(me|myself|mine|my|i|you|yourself|self|own)$/i.test(requested)) return { name: requested };
     const { createAdminClient } = await import('@/lib/supabase/admin');
@@ -625,7 +625,12 @@ async function canonicalizeConfirmation(
       return { error: `Multiple people closely match *${requested}*:\n${tied.map(u => `· ${u.name}`).join('\n')}\n\nPlease use the full name.` };
     }
     const available = members.map(u => u.full_name).join(', ');
-    return { error: `❌ No active team member matches *${requested}*.${available ? `\n\nAvailable: ${available}` : ''}` };
+    // Distinguished from the "multiple people match" branches above: this is
+    // the genuinely "unclear name" case (nothing scored close enough to be
+    // confident), as opposed to a name that's clearly recognized but shared
+    // by more than one person. Callers that want the "default to whoever
+    // created the task" fallback behavior key off `notFound`.
+    return { error: `❌ No active team member matches *${requested}*.${available ? `\n\nAvailable: ${available}` : ''}`, notFound: true };
   };
 
   const canonicalPriority = (value: string): string | null => PRIORITY_CANONICAL[value.trim().toLowerCase()] ?? null;
@@ -651,8 +656,21 @@ async function canonicalizeConfirmation(
   }
   if (tool === 'create_task' && args.assignee) {
     const result = await canonicalUser(args.assignee);
-    if (result.error) return { tool, args, error: result.error };
-    args.assignee = result.name!;
+    if (result.error) {
+      if (result.notFound) {
+        // The assignee name doesn't confidently match anyone (common with
+        // voice-transcribed names that Whisper garbled) — per business rule,
+        // default to whoever is creating the task rather than blocking task
+        // creation entirely. Note the original text so the confirmation
+        // prompt can flag it and the user can reassign in a follow-up if wrong.
+        args._assignee_unclear = args.assignee;
+        args.assignee = 'you';
+      } else {
+        return { tool, args, error: result.error };
+      }
+    } else {
+      args.assignee = result.name!;
+    }
   }
   // The model occasionally miscomputes a deadline itself (e.g. "1:30pm" →
   // "25:30" by double-adding the PM offset) when a phrasing doesn't match
@@ -1424,8 +1442,11 @@ function buildToolConfirmation(tool: string, args: Record<string, string>): stri
     const deadline = parsedDeadline ? `${formatDateTime(parsedDeadline)} IST` : (args.deadline ?? '?');
     const deadlineNote = args._deadline_defaulted ? ' (today, default)' : '';
     const priorityNote = args._priority_defaulted ? ' (default)' : '';
+    const assigneeNote = args._assignee_unclear
+      ? ` (couldn't confidently match "${args._assignee_unclear}" — assigned to you instead)`
+      : '';
     const description = args.description ? ` Description: "${args.description.slice(0, 80)}".` : '';
-    return `I'll create task *${args.title ?? '?'}* for *${assignee}* due *${deadline}*${deadlineNote} with *${args.priority ?? '?'}* priority${priorityNote}.${description} Go ahead? (Yes / No)`;
+    return `I'll create task *${args.title ?? '?'}* for *${assignee}*${assigneeNote} due *${deadline}*${deadlineNote} with *${args.priority ?? '?'}* priority${priorityNote}.${description} Go ahead? (Yes / No)`;
   }
   if (tool === 'update_task') {
     const field = args.update_field ?? '';

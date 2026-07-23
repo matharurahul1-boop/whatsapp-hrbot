@@ -149,6 +149,9 @@ function Avatar({ name, src, size = 40 }: { name: string; src?: string | null; s
 
 export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber, userRole = 'hr', userWaNumber }: Props) {
   const { toast } = useToast();
+  // Only super_admin can see other contacts' chats / the org address book —
+  // every other role is scoped to their own conversation with the bot.
+  const isSuperAdmin = userRole === 'super_admin';
   const [search,          setSearch]          = useState('');
   const [selectedNumber,  setSelectedNumber]  = useState<string | null>(null);
   const [allLogs,         setAllLogs]         = useState<WaLog[]>(logs);
@@ -832,9 +835,9 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
           </div>
         </div>
 
-        {/* ── Tabs: Chats / Contacts ── */}
+        {/* ── Tabs: Chats / Contacts (Contacts is super_admin-only) ── */}
         <div className="flex shrink-0" style={{ background: '#111B21', borderBottom: '1px solid #2A3942' }}>
-          {(['chats', 'contacts'] as const).map(tab => (
+          {(isSuperAdmin ? (['chats', 'contacts'] as const) : (['chats'] as const)).map(tab => (
             <button
               key={tab}
               onClick={() => setLeftTab(tab)}

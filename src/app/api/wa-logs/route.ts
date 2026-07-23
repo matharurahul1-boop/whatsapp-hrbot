@@ -69,9 +69,10 @@ export async function GET(req: NextRequest) {
       `, { count: 'exact' })
       .eq('organization_id', profile.organization_id);
 
-    // Employees: scope to own wa_number + outgoing messages they sent.
-    // Everyone else (manager/hr/admin/super_admin) sees the whole organization.
-    if (profile.role === 'employee' && userWaNumber) {
+    // Only super_admin sees the whole organization's chats. Every other role
+    // (including manager/hr/admin) is scoped to own wa_number + outgoing
+    // messages they personally sent.
+    if (profile.role !== 'super_admin' && userWaNumber) {
       query = query.or(`wa_number.eq.${userWaNumber},and(direction.eq.outgoing,user_id.eq.${user.id})`);
     }
 

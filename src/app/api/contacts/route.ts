@@ -14,8 +14,12 @@ export async function GET() {
 
   const db = createAdminClient();
   const { data: profile } = await db
-    .from('users').select('organization_id').eq('id', user.id).single();
+    .from('users').select('organization_id, role').eq('id', user.id).single();
   if (!profile) return NextResponse.json({ error: 'No profile' }, { status: 403 });
+  // The org address book lets you message any listed contact as the business
+  // account — only super_admin retains that reach; everyone else is scoped
+  // to their own WhatsApp chat only.
+  if (profile.role !== 'super_admin') return NextResponse.json({ contacts: [] });
 
   const { data, error } = await db
     .from('wa_contacts')
@@ -43,8 +47,10 @@ export async function POST(req: NextRequest) {
 
   const db = createAdminClient();
   const { data: profile } = await db
-    .from('users').select('organization_id').eq('id', user.id).single();
+    .from('users').select('organization_id, role').eq('id', user.id).single();
   if (!profile) return NextResponse.json({ error: 'No profile' }, { status: 403 });
+  if (profile.role !== 'super_admin')
+    return NextResponse.json({ error: 'Only super_admin can manage contacts' }, { status: 403 });
 
   const { data, error } = await db
     .from('wa_contacts')
@@ -73,8 +79,10 @@ export async function DELETE(req: NextRequest) {
 
   const db = createAdminClient();
   const { data: profile } = await db
-    .from('users').select('organization_id').eq('id', user.id).single();
+    .from('users').select('organization_id, role').eq('id', user.id).single();
   if (!profile) return NextResponse.json({ error: 'No profile' }, { status: 403 });
+  if (profile.role !== 'super_admin')
+    return NextResponse.json({ error: 'Only super_admin can manage contacts' }, { status: 403 });
 
   const { error } = await db
     .from('wa_contacts')

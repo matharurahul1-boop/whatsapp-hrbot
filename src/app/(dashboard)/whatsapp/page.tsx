@@ -36,7 +36,9 @@ export default async function WhatsAppLogsPage() {
 
   // Normalize the user's wa_number (remove +, spaces, dashes)
   const userWaNumber = normalizeWa(profile.wa_number);
-  const canViewOrganizationChats = profile.role !== 'employee';
+  // Only super_admin sees every contact's chat history — every other role
+  // (including manager/hr/admin) is scoped to their own conversation only.
+  const canViewOrganizationChats = profile.role === 'super_admin';
 
   // No wa_number linked → show empty state with Meta number prompt
   if (!userWaNumber && !canViewOrganizationChats) {

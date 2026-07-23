@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient }              from '@/lib/supabase/server';
 import { createAdminClient }         from '@/lib/supabase/admin';
 import { sendSmartText }             from '@/lib/whatsapp/client';
-import { isManagerOrAbove }          from '@/lib/rbac';
 
 // POST /api/wa-send
 // Body: { to, message, orgId, contactName? }
@@ -27,9 +26,12 @@ export async function POST(req: NextRequest) {
 
   if (!profile) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  // Only managers and above can send WhatsApp messages via this endpoint
-  if (!isManagerOrAbove(profile.role)) {
-    return NextResponse.json({ error: 'Only managers and above can send WhatsApp messages' }, { status: 403 });
+  // Sending AS the business account TO another contact — only super_admin
+  // retains this. Every other role is scoped to their own chat, where
+  // messages go through /api/wa-simulate instead (see WAInterface's
+  // isSelfConvo branch).
+  if (profile.role !== 'super_admin') {
+    return NextResponse.json({ error: 'Only super_admin can send WhatsApp messages to other contacts' }, { status: 403 });
   }
 
   const body = await req.json();

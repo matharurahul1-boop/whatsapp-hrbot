@@ -11,6 +11,7 @@ export type FlowState =
   | 'AWAITING_LEAVE_REASON' // apply_leave proposed without a reason; next message supplies it
   | 'AUDIO_FIELD_VALUE'  // Field selected; waiting for the new value to apply
   | 'RESOLVING_TASK_OWNER' // "update <name>'s task" was ambiguous; next message is the full name
+  | 'DISAMBIGUATING_TASK'  // "Multiple tasks match" on update/delete; next message names the assignee
   | 'EXECUTING'          // Running tool (internal, not persisted long)
   | 'COMPLETE';       // Flow done, about to reset
 

@@ -1762,7 +1762,18 @@ async function runMasterAgentInner(
         const checked = await canonicalizeConfirmation(parsed.tool, parsed.args, orgId);
         if (checked.error) {
           displayReply = checked.error;
-          await saveContext(conversation_id, { ...EMPTY_CONTEXT, language: context.language }).catch(() => {});
+          // A "Multiple tasks match" error keeps the task title alive as
+          // DISAMBIGUATING_TASK state instead of wiping context — otherwise
+          // the next turn ("the one assigned to X") has nothing but raw
+          // history text to re-derive the title from, which the model
+          // proved unreliable at (see resolveTaskDisambiguation).
+          const stillAmbiguous = (checked.tool === 'update_task' || checked.tool === 'delete_task')
+            && /^Multiple tasks match/.test(checked.error);
+          await saveContext(conversation_id, {
+            ...EMPTY_CONTEXT,
+            language: context.language,
+            ...(stillAmbiguous && { flow_state: 'DISAMBIGUATING_TASK', confirm_payload: { tool: checked.tool, args: checked.args } }),
+          }).catch(() => {});
         } else {
           // Rebuild from canonical arguments so misspellings are never echoed in
           // the confirmation and the stored payload exactly matches the display.
@@ -1842,6 +1853,55 @@ async function resolveTaskOwnerForUpdate(
   return `${result.reply}\n\nReply with the task title you'd like to update.`;
 }
 
+// Handles a reply to "Multiple tasks match X: ... say who it's assigned to
+// to pick one" (set by canonicalizeConfirmation's task-existence check).
+// Enforced deterministically — the model proved unreliable at re-issuing the
+// same update_task/delete_task call with the task title carried over from
+// its own previous message; it would just repeat the identical ambiguous
+// confirmation instead of adding the new assignee_hint.
+async function resolveTaskDisambiguation(
+  reply:          string,
+  payload:        { tool: string; args: Record<string, string> },
+  orgId:          string,
+  conversationId: string,
+  language:       SupportedLanguage,
+): Promise<string> {
+  if (isNo(reply)) {
+    await saveContext(conversationId, { ...EMPTY_CONTEXT, language }).catch(() => {});
+    return 'Got it, cancelled. What else can I help with? 😊';
+  }
+
+  // Extract just the person's name from common phrasings ("the one assigned
+  // to X", "assigned to X", "X's one") rather than passing the whole
+  // sentence as the hint — falls back to the raw reply for a bare name.
+  const hintMatch = reply.match(/assigned\s+to\s+(.+)/i) ?? reply.match(/^(.+?)['’]s\b/);
+  const assigneeHint = (hintMatch ? hintMatch[1] : reply).replace(/[.?!]+$/, '').trim();
+  if (!assigneeHint) {
+    return 'Please say who it\'s assigned to (e.g. "assigned to Tushar") to pick one.';
+  }
+
+  const checked = await canonicalizeConfirmation(payload.tool, { ...payload.args, assignee_hint: assigneeHint }, orgId);
+  if (checked.error) {
+    const stillAmbiguous = /^Multiple tasks match/.test(checked.error);
+    await saveContext(conversationId, {
+      ...EMPTY_CONTEXT,
+      language,
+      ...(stillAmbiguous && { flow_state: 'DISAMBIGUATING_TASK', confirm_payload: { tool: checked.tool, args: checked.args } }),
+    }).catch(() => {});
+    return checked.error;
+  }
+
+  const displayReply = buildToolConfirmation(checked.tool, checked.args);
+  await saveContext(conversationId, {
+    ...EMPTY_CONTEXT,
+    language,
+    flow_state:      'CONFIRMING',
+    confirm_message: displayReply,
+    confirm_payload: { tool: checked.tool, args: checked.args },
+  }).catch(() => {});
+  return displayReply;
+}
+
 // ─── Gemini tool-use loop ─────────────────────────────────────────────────────
 
 async function runGroqLoop(
@@ -1885,6 +1945,20 @@ async function runGroqLoop(
     const personName = message.trim();
     console.log(`[Agent] Resolving ambiguous task-owner name: "${personName}"`);
     return resolveTaskOwnerForUpdate(personName, user, orgId, conversationId, context.language);
+  }
+
+  // ── 0a1b. DISAMBIGUATING_TASK state — user is answering "which one? say who
+  // it's assigned to" after a "Multiple tasks match" error on update/delete.
+  // Treat this reply as the assignee hint and retry deterministically, rather
+  // than letting the model try (and fail) to re-derive the task title from
+  // its own previous message.
+  if (context.flow_state === 'DISAMBIGUATING_TASK' && context.confirm_payload) {
+    console.log(`[Agent] Resolving task disambiguation: "${message.trim()}"`);
+    return resolveTaskDisambiguation(
+      message.trim(),
+      context.confirm_payload as { tool: string; args: Record<string, string> },
+      orgId, conversationId, context.language,
+    );
   }
 
   // ── 0a2. AWAITING_LEAVE_REASON state — user is answering "what's the reason

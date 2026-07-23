@@ -517,11 +517,61 @@ function confirmationNameSimilarity(a: string, b: string): number {
 }
 
 async function canonicalizeConfirmation(
-  tool: string,
+  toolIn: string,
   inputArgs: Record<string, string>,
   orgId: string,
-): Promise<{ args: Record<string, string>; error?: string }> {
+): Promise<{ tool: string; args: Record<string, string>; error?: string }> {
+  let tool = toolIn;
   const args = { ...inputArgs };
+
+  // "Assign task X to Y" when no task named X exists reads as a request to
+  // CREATE task X assigned to Y, not to reassign something that doesn't
+  // exist — switch tools here (before confirmation text is built) rather
+  // than showing "I'll reassign X..." only to fail after Yes.
+  if (tool === 'assign_task' && args.task_title?.trim()) {
+    const { createAdminClient } = await import('@/lib/supabase/admin');
+    const db = createAdminClient();
+    const { data: matches } = await db.from('tasks').select('id, title')
+      .eq('organization_id', orgId).ilike('title', `%${args.task_title.trim()}%`).is('deleted_at', null).limit(10);
+    if (!matches || matches.length === 0) {
+      tool = 'create_task';
+      args.title = args.task_title;
+      delete args.task_title;
+    } else if (matches.length > 1) {
+      const titles = matches.map(t => `· *${t.title}*`).join('\n');
+      return { tool, args, error: `Multiple tasks match *"${args.task_title}"*:\n${titles}\n\nPlease use the full task name.` };
+    }
+    // else exactly one match — proceed as assign_task below (unchanged).
+  }
+
+  // Verify the task actually exists BEFORE building an "I'll update/delete
+  // X..." confirmation, instead of showing one that only fails after the
+  // user says Yes. Also supports assignee_hint to disambiguate tasks that
+  // share an identical title, which title alone can never distinguish.
+  if ((tool === 'update_task' || tool === 'delete_task') && args.task_title?.trim()) {
+    const titleQuery = args.task_title.trim();
+    const { createAdminClient } = await import('@/lib/supabase/admin');
+    const db = createAdminClient();
+    const { data: allMatches } = await db.from('tasks')
+      .select('id, title, assignee:users!tasks_assignee_id_fkey(full_name)')
+      .eq('organization_id', orgId).ilike('title', `%${titleQuery}%`).is('deleted_at', null).limit(10);
+    const assigneeHint = args.assignee_hint?.trim().toLowerCase();
+    const matches = (assigneeHint
+      ? (allMatches ?? []).filter((t: any) => (t.assignee?.full_name ?? '').toLowerCase().includes(assigneeHint))
+      : allMatches) as any[] | null;
+    if (!matches || matches.length === 0) {
+      return { tool, args, error: assigneeHint
+        ? `❌ No task named *"${titleQuery}"* is assigned to *${args.assignee_hint}*.`
+        : `❌ Couldn't find task *"${titleQuery}"*. Check the name and try again.` };
+    }
+    if (matches.length > 1) {
+      const titles = matches.map(t => `· *${t.title}* — assigned to ${t.assignee?.full_name ?? 'unassigned'}`).join('\n');
+      return { tool, args, error: `Multiple tasks match *"${titleQuery}"*:\n${titles}\n\nPlease use the full task name, or say who it's assigned to (e.g. "...assigned to Tushar") to pick one.` };
+    }
+    // Exactly one — pin to its exact title so the confirmation text and the
+    // later DB lookup in executor.ts are unambiguous.
+    args.task_title = matches[0].title;
+  }
 
   const canonicalUser = async (written: string): Promise<{ name?: string; error?: string }> => {
     const requested = written.trim();
@@ -559,15 +609,25 @@ async function canonicalizeConfirmation(
 
   if (tool === 'create_task' && !args.priority) {
     args.priority = 'medium';
+    args._priority_defaulted = '1'; // read by buildToolConfirmation to say "(default)"; harmless extra key for execution
   }
   if (tool === 'create_task' && args.priority) {
     const value = canonicalPriority(args.priority);
-    if (!value) return { args, error: `❌ Unknown priority *${args.priority}*. Use: low, medium, high, or urgent.` };
+    if (!value) return { tool, args, error: `❌ Unknown priority *${args.priority}*. Use: low, medium, high, or urgent.` };
     args.priority = value;
+  }
+  // Deadline also defaults (today 17:00 IST) rather than being asked for —
+  // executor.ts applies the same default independently, but doing it here too
+  // means the CONFIRMATION TEXT shown to the user reflects the real date
+  // instead of a literal "?" placeholder.
+  if (tool === 'create_task' && !args.deadline) {
+    const { todayISO } = await import('@/lib/utils/date');
+    args.deadline = `${todayISO()} 17:00`;
+    args._deadline_defaulted = '1';
   }
   if (tool === 'create_task' && args.assignee) {
     const result = await canonicalUser(args.assignee);
-    if (result.error) return { args, error: result.error };
+    if (result.error) return { tool, args, error: result.error };
     args.assignee = result.name!;
   }
   // The model occasionally miscomputes a deadline itself (e.g. "1:30pm" →
@@ -577,16 +637,16 @@ async function canonicalizeConfirmation(
   // unchecked, producing a confirmation that only fails *after* the user
   // says Yes — catch it here instead and ask for a valid deadline.
   if (tool === 'create_task' && args.deadline && !parseDeadlineString(args.deadline)) {
-    return { args, error: '❌ That deadline doesn\'t look valid. Please provide a date and time, e.g. "tomorrow 1:30pm" or "10 Jul 2026 3pm".' };
+    return { tool, args, error: '❌ That deadline doesn\'t look valid. Please provide a date and time, e.g. "tomorrow 1:30pm" or "10 Jul 2026 3pm".' };
   }
   if (tool === 'assign_task' && args.assignee) {
     const result = await canonicalUser(args.assignee);
-    if (result.error) return { args, error: result.error };
+    if (result.error) return { tool, args, error: result.error };
     args.assignee = result.name!;
   }
   if ((tool === 'approve_leave' || tool === 'reject_leave') && args.employee_name) {
     const result = await canonicalUser(args.employee_name);
-    if (result.error) return { args, error: result.error };
+    if (result.error) return { tool, args, error: result.error };
     args.employee_name = result.name!;
   }
   if (tool === 'update_task') {
@@ -597,22 +657,22 @@ async function canonicalizeConfirmation(
       if (!field || !args[valueKey]) continue;
       if (field === 'priority') {
         const value = canonicalPriority(args[valueKey]);
-        if (!value) return { args, error: `❌ Unknown priority *${args[valueKey]}*. Use: low, medium, high, or urgent.` };
+        if (!value) return { tool, args, error: `❌ Unknown priority *${args[valueKey]}*. Use: low, medium, high, or urgent.` };
         args[valueKey] = value;
       } else if (field === 'status') {
         const value = canonicalStatus(args[valueKey]);
-        if (!value) return { args, error: `❌ Unknown status *${args[valueKey]}*. Use: to do, in progress, done, or cancelled.` };
+        if (!value) return { tool, args, error: `❌ Unknown status *${args[valueKey]}*. Use: to do, in progress, done, or cancelled.` };
         args[valueKey] = value;
       } else if (field === 'assignee') {
         const result = await canonicalUser(args[valueKey]);
-        if (result.error) return { args, error: result.error };
+        if (result.error) return { tool, args, error: result.error };
         args[valueKey] = result.name!;
       } else if (field === 'deadline' && !parseDeadlineString(args[valueKey])) {
-        return { args, error: '❌ That deadline doesn\'t look valid. Please provide a date and time, e.g. "tomorrow 1:30pm" or "10 Jul 2026 3pm".' };
+        return { tool, args, error: '❌ That deadline doesn\'t look valid. Please provide a date and time, e.g. "tomorrow 1:30pm" or "10 Jul 2026 3pm".' };
       }
     }
   }
-  return { args };
+  return { tool, args };
 }
 
 // Execute from parsed confirmation — used as history-text fallback when context_state has no payload.
@@ -625,7 +685,7 @@ async function executeFromConfirmation(
   if (!parsed) return null;
   const checked = await canonicalizeConfirmation(parsed.tool, parsed.args, orgId);
   if (checked.error) return checked.error;
-  return dispatchTool(parsed.tool, checked.args, user, orgId);
+  return dispatchTool(checked.tool, checked.args, user, orgId);
 }
 
 // ─── Tool definitions (Gemini native FunctionDeclaration format) ───────────────
@@ -665,17 +725,17 @@ const HRBOT_TOOLS: any[] = [
   },
   {
     name: 'create_task',
-    description: 'Create a new task. ONLY call AFTER user confirms AND you have title + deadline. NEVER call without both. Priority is optional — defaults to medium if the user does not mention one. Title and description may be SYNTHESIZED from rambling/conversational input (see system prompt) rather than stated verbatim by the user.',
+    description: 'Create a new task. ONLY call AFTER user confirms AND you have a title (deadline and priority both have defaults and are never blocking). Title and description may be SYNTHESIZED from rambling/conversational input (see system prompt) rather than stated verbatim by the user.',
     parameters: {
       type: 'OBJECT',
       properties: {
-        title:       { type: 'STRING', description: 'Short, clear task title. If the user never states one outright, synthesize a concise title from whatever subject/person/topic they did mention.' },
+        title:       { type: 'STRING', description: 'REQUIRED. Short, clear task title. If the user never states one outright, synthesize a concise title from whatever subject/person/topic they did mention.' },
         assignee:    { type: 'STRING', description: 'Assignee name or "me". Omit if self.' },
-        deadline:    { type: 'STRING', description: 'REQUIRED. Due date and time as "YYYY-MM-DD HH:MM" (24h IST). Use 17:00 (5 PM) if user gives only a date with no time. E.g. "2026-07-10 17:00"' },
+        deadline:    { type: 'STRING', description: 'OPTIONAL. Due date and time as "YYYY-MM-DD HH:MM" (24h IST). Use 17:00 (5 PM) if user gives only a date with no time. E.g. "2026-07-10 17:00". If the user never mentions ANY deadline, OMIT this field entirely — it defaults to today at 17:00 (5 PM) IST automatically. Do not ask the user for it.' },
         priority:    { type: 'STRING', description: 'OPTIONAL. low | medium | high | urgent. Defaults to medium if omitted.' },
         description: { type: 'STRING', description: 'OPTIONAL. Extra context worth keeping — e.g. other details mentioned that did not fit in the title.' },
       },
-      required: ['title', 'deadline'],
+      required: ['title'],
     },
   },
   {
@@ -685,6 +745,7 @@ const HRBOT_TOOLS: any[] = [
       type: 'OBJECT',
       properties: {
         task_title:     { type: 'STRING', description: 'Current title (or part) of the task to update' },
+        assignee_hint:  { type: 'STRING', description: 'OPTIONAL. Only pass this if the user specifies who the task is assigned to (e.g. "update the task X assigned to Tushar") — used to disambiguate when multiple tasks share the same title.' },
         update_field:   { type: 'STRING', enum: ['title', 'deadline', 'priority', 'assignee', 'status'], description: 'Field to update — must be exactly one of the enum values' },
         update_value:   { type: 'STRING', description: 'New value for the field' },
         update_field_2: { type: 'STRING', enum: ['title', 'deadline', 'priority', 'assignee', 'status'], description: 'Optional second field to update simultaneously' },
@@ -707,7 +768,10 @@ const HRBOT_TOOLS: any[] = [
     description: 'Delete a task. Only call AFTER user confirms.',
     parameters: {
       type: 'OBJECT',
-      properties: { task_title: { type: 'STRING' } },
+      properties: {
+        task_title:    { type: 'STRING' },
+        assignee_hint: { type: 'STRING', description: 'OPTIONAL. Only pass this if the user specifies who the task is assigned to (e.g. "delete task X assigned to Tushar") — used to disambiguate when multiple tasks share the same title.' },
+      },
       required: ['task_title'],
     },
   },
@@ -905,8 +969,9 @@ function buildSystemPrompt(user: AgentUser): string {
     const dy = String(ist.getDate()).padStart(2, '0');
     return { display, iso: `${yr}-${mo}-${dy}` };
   }
-  const tmr  = exampleDate(1);  // tomorrow
-  const dat2 = exampleDate(2);  // day after tomorrow
+  const todayEx = exampleDate(0); // today — the default create_task deadline date when none is given
+  const tmr     = exampleDate(1); // tomorrow
+  const dat2    = exampleDate(2); // day after tomorrow
 
   // Pre-computed "next <weekday>" dates — models are unreliable at doing this
   // day-of-week arithmetic themselves (e.g. once claiming "19 Jul" was a
@@ -1011,14 +1076,10 @@ reject_leave, cancel_leave, check_in, check_out, set_reminder):
    and calling the tool.
 3. If the user replies No / Nahi / Cancel to the system's confirmation → say "Got it, cancelled.
    What else can I help with?"
-4. For create_task ONLY: *title* and *deadline* are the only required fields (priority/assignee/description are optional and default to medium/you/none). If BOTH are missing from the user's message, ask for everything using this format (no tool call yet — this is a question, not a confirmation):
-"Sure! Please provide the following:
-📝 *Title* (Required)
-📅 *Deadline* (Required) — e.g. tomorrow 5pm (defaults to 5:00 PM IST if no time given)
-🔴 *Priority* (Optional — defaults to Medium if not provided) — High / Medium / Low / Urgent
-👤 *Assign To* (Optional — defaults to you if not provided)
-💬 *Description* (Optional)"
-If only ONE of title/deadline is missing, do NOT dump the full template — briefly acknowledge what you already understood (deadline, assignee, priority, etc. — whatever the user gave) and ask specifically for the one missing piece, without calling the tool yet. Example: user said "create a task for Tushar, due day after tomorrow 3:30pm, priority medium" (no title) → reply "Got it — due *12 Jul 2026, 03:30 PM* for *Tushar*, medium priority. What should I title this task?" NEVER re-ask for a field the user already provided. If the user never mentions a priority, default it to medium — do not ask for it separately. Once BOTH required fields are known, call create_task directly per rule 1 above — do not type your own confirmation sentence first.
+4. For create_task ONLY: *title* is the ONLY field you ever need to ask about — deadline, priority, assignee, and description all have defaults (deadline → today at 17:00/5 PM IST, priority → medium, assignee → the caller, description → none) and must NEVER block or delay creating the task. If title is missing, ask for ONLY the title (no tool call yet — this is a question, not a confirmation):
+"Sure! What should I title this task?"
+(If the user also omitted deadline/priority/assignee at the same time, do NOT ask about those too — they'll default silently. Only ask about a field that has no default, which today means title alone.)
+Once title is known (from this message, given directly, or synthesized per rule 6 below), call create_task directly per rule 1 above — do not type your own confirmation sentence first, and do not ask about deadline/priority/assignee unless the user is clearly still mid-sentence about one of them.
 5. For create_task, ALWAYS pass the assignee to the tool using the EXACT name the user typed — do NOT resolve or expand it to a full name (e.g. pass "Tushar", not "Tushar Sharma"). Omit it (or pass "you") when self-assigned.
 6. Recognizing task-creation intent from rambling or voice-transcribed input: a message does not need to say "create a task" or "assign this" to be a task-creation request. If the user describes a meeting, appointment, follow-up, or commitment — even in a meandering, filler-laden, multi-topic message (common in voice-note transcripts, which often include false starts like "are you there", "can you hear me", side comments, and topic changes) — treat it as an implicit create_task request and extract what you can:
    - *title*: if the user never states one outright, SYNTHESIZE a short, concrete title from whatever subject/person/topic was actually mentioned (e.g. a call about "the copper manufacturing pipe" with "Maansingh" → "Meeting with Maansingh — copper manufacturing pipe tracking"). Never use a literal transcript fragment or filler phrase as the title.
@@ -1101,9 +1162,11 @@ Completion (confirm before calling):
 - "done with X" / "finished X" / "mark X done" / "X is complete" / "X complete kar diya" / "completed X" / "X ho gaya" / "X task mark as done"
 → confirm: "Mark *X* as complete? (Yes / No)" → complete_task(task_title="X")
 
-Deletion (confirm before calling):
-- "delete X" / "remove X task" / "X task delete karo" / "X hatao"
+Deletion — recognize ALL of these as the same delete_task intent (confirm before calling):
+- "delete X" / "remove X" / "forget X" / "forget about X" / "discard X" / "scrap X" / "drop X" / "trash X" / "get rid of X" / "clear X" (as in clear the task, not clear a field) / "remove X task" / "X task delete karo" / "X hatao" / "X mita do" / "X ko bhool jao"
 → confirm: "Delete task *X*? (Yes / No)" → delete_task(task_title="X")
+"Forget" is a delete synonym, not a memory/conversation-reset instruction — "forget X" always means delete_task, never "forget what I said" or "forget our conversation" (there is no such feature).
+"Forget/delete ALL the tasks" (or "all my tasks", "every task") means: list every one of the caller's own non-deleted tasks, then ask for confirmation to delete them one at a time in the SAME way as a single delete — do NOT default to a "which tasks should be completed" or any other listing/selection flow; the intent is always deletion, consistently, regardless of phrasing.
 
 If task name is missing ("mark done", "delete task"), ask "Which task?"
 
@@ -1200,14 +1263,11 @@ User: "create task Sample Task Beta for Alex Morgan due day after tomorrow 9am p
 You: I'll create task *Sample Task Beta* for *Alex Morgan* due *${dat2.display}, 09:00 AM* with *medium* priority. Go ahead? (Yes / No)
 User: "yes" → [call create_task(title="Sample Task Beta", assignee="Alex Morgan", deadline="${dat2.iso} 09:00", priority="medium")]
 
-Task creation — multi-turn, nothing given yet (ask ALL fields at once in one message):
-User: "I want to create a task" → You:
-Sure! Please provide the following:
-📝 *Title* (Required)
-📅 *Deadline* (Required) — e.g. tomorrow 5pm (defaults to 5:00 PM IST if no time given)
-🔴 *Priority* (Optional — defaults to Medium if not provided) — High / Medium / Low / Urgent
-👤 *Assign To* (Optional — defaults to you if not provided)
-💬 *Description* (Optional)
+Task creation — nothing given yet (only title has no default, so it's the only thing to ask for):
+User: "I want to create a task" → You: Sure! What should I title this task?
+User: "Fix login bug" → You: I'll create task *Fix login bug* for *you* due *${todayEx.display}, 05:00 PM* with *medium* priority (default). Go ahead? (Yes / No)
+User: "yes" → [call create_task(title="Fix login bug")]
+(Deadline defaulted to today 5 PM and priority to medium since neither was mentioned — do NOT ask about them separately.)
 User: "Fix login bug, tomorrow 5pm, high priority" → You: I'll create task *Fix login bug* for *you* due *${tmr.display}, 05:00 PM* with *high* priority. Go ahead? (Yes / No)
 User: "yes" → [call create_task(title="Fix login bug", deadline="${tmr.iso} 17:00", priority="high")]
 
@@ -1302,7 +1362,7 @@ User: "onboarding status" → [call onboarding_status(), return verbatim]` : ''}
 ## Rules
 - NEVER use example data as real values. "e.g. Fix bug – 20 Jun" is a format example, not a real task.
 - NEVER respond with task/leave/attendance data as plain text — always call the tool.
-- Match the user's language — English, Hindi, or Hinglish.`;
+- Match the user's language, with ONE exception: if the user writes in Hindi — whether in Devanagari script or transliterated — reply in Hinglish (Hindi words spelled in Roman/English letters, naturally mixed with English), NEVER in Devanagari script. E.g. write "Kal shaam 6 baje" not "कल शाम 6 बजे", and "Task ban gaya!" not "टास्क बन गया!". English input still gets an English reply as normal.`;
 }
 
 // ─── Groq filler stripper ─────────────────────────────────────────────────────
@@ -1330,8 +1390,10 @@ function buildToolConfirmation(tool: string, args: Record<string, string>): stri
     const assignee = args.assignee && !/^(me|myself|self|you)$/i.test(args.assignee) ? args.assignee : 'you';
     const parsedDeadline = parseDeadlineString(args.deadline ?? '');
     const deadline = parsedDeadline ? `${formatDateTime(parsedDeadline)} IST` : (args.deadline ?? '?');
+    const deadlineNote = args._deadline_defaulted ? ' (today, default)' : '';
+    const priorityNote = args._priority_defaulted ? ' (default)' : '';
     const description = args.description ? ` Description: "${args.description.slice(0, 80)}".` : '';
-    return `I'll create task *${args.title ?? '?'}* for *${assignee}* due *${deadline}* with *${args.priority ?? '?'}* priority.${description} Go ahead? (Yes / No)`;
+    return `I'll create task *${args.title ?? '?'}* for *${assignee}* due *${deadline}*${deadlineNote} with *${args.priority ?? '?'}* priority${priorityNote}.${description} Go ahead? (Yes / No)`;
   }
   if (tool === 'update_task') {
     const field = args.update_field ?? '';
@@ -1693,13 +1755,16 @@ async function runMasterAgentInner(
         } else {
           // Rebuild from canonical arguments so misspellings are never echoed in
           // the confirmation and the stored payload exactly matches the display.
-          displayReply = buildToolConfirmation(parsed.tool, checked.args);
+          // Uses checked.tool, not parsed.tool — canonicalizeConfirmation may
+          // have switched e.g. assign_task → create_task when the target task
+          // didn't exist yet.
+          displayReply = buildToolConfirmation(checked.tool, checked.args);
           await saveContext(conversation_id, {
             ...EMPTY_CONTEXT,
             language:        context.language,
             flow_state:      'CONFIRMING',
             confirm_message: displayReply,
-            confirm_payload: { tool: parsed.tool, args: checked.args },
+            confirm_payload: { tool: checked.tool, args: checked.args },
           }).catch(() => {});
         }
       }
@@ -2485,7 +2550,7 @@ async function runGroqLoop(
   const CREATE_TASK_BARE = /^(?:please\s+)?(?:create|add|make|new)\s+(?:a\s+)?(?:task|todo|work\s*item|reminder)\s*[!.?]*$/i;
     if (CREATE_TASK_BARE.test(normalizedMessage)) {
     console.log(`[Agent] Create-task quick-form: "${message}"`);
-    return 'Sure! Please provide the following:\n📝 *Title* (Required)\n📅 *Deadline* (Required) — e.g. tomorrow 5pm (defaults to 5:00 PM IST if no time given)\n🔴 *Priority* (Optional — defaults to Medium if not provided) — High / Medium / Low / Urgent\n👤 *Assign To* (Optional — defaults to you if not provided)\n💬 *Description* (Optional)';
+    return 'Sure! What should I title this task?';
   }
 
   // ── 2. Confirmation / context injection ──────────────────────────────────

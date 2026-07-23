@@ -960,7 +960,7 @@ async function handleAudioMessage(from: string, mediaId: string, orgId: string):
   }
 
   if (result === 'unsupported_language') {
-    await sendText(from, '❌ Sorry, I could only understand voice messages in English or Hindi. Please try again in one of those languages, or send a text message instead.', orgId).catch(() => {});
+    await sendText(from, "❌ Sorry, I couldn't understand that voice message. Please try again, or send a text message instead.", orgId).catch(() => {});
     return;
   }
 

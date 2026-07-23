@@ -69,11 +69,21 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (!profile || !task) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   if (task.organization_id !== profile.organization_id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  // Only the assignee, the creator ("assigned by"), or manager+ may update a task.
-  const actorIsAssignee = task.assignee_id === user.id;
-  const actorIsCreator   = task.created_by === user.id;
-  if (!actorIsAssignee && !actorIsCreator && !isManagerOrAbove(profile.role)) {
-    return NextResponse.json({ error: 'You can only update tasks assigned to you or created by you' }, { status: 403 });
+  // Only the assignee, the creator ("assigned by"), or manager+ may update a task —
+  // EXCEPT an employee who is the assignee: employees can never update a task
+  // assigned to them (even one they created themselves), only its creator (if
+  // not also an employee-assignee) or a manager+ can. Mirrors executor.ts's
+  // UPDATE_TASK so the same rule applies from WhatsApp and this dashboard.
+  const isPrivileged        = isManagerOrAbove(profile.role);
+  const isBlockedAsAssignee = task.assignee_id === user.id && isEmployee(profile.role);
+  const actorIsAssignee     = task.assignee_id === user.id && !isBlockedAsAssignee;
+  const actorIsCreator      = task.created_by === user.id && !isBlockedAsAssignee;
+  if (!actorIsAssignee && !actorIsCreator && !isPrivileged) {
+    return NextResponse.json({
+      error: isBlockedAsAssignee
+        ? "You can't update a task that's assigned to you — please ask your manager or HR to do that."
+        : 'You can only update tasks assigned to you or created by you',
+    }, { status: 403 });
   }
 
   // Convert datetime-local (IST browser value) to UTC for storage, or null to clear
@@ -212,11 +222,21 @@ export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id:
   if (!profile || !task) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   if (task.organization_id !== profile.organization_id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  // Only the assignee, the creator ("assigned by"), or manager+ may delete a task.
-  const actorIsAssignee = task.assignee_id === user.id;
-  const actorIsCreator   = task.created_by === user.id;
-  if (!actorIsAssignee && !actorIsCreator && !isManagerOrAbove(profile.role)) {
-    return NextResponse.json({ error: 'You can only delete tasks assigned to you or created by you' }, { status: 403 });
+  // Only the assignee, the creator ("assigned by"), or manager+ may delete a task —
+  // EXCEPT an employee who is the assignee: employees can never delete a task
+  // assigned to them (even one they created themselves), only its creator (if
+  // not also an employee-assignee) or a manager+ can. Mirrors executor.ts's
+  // DELETE_TASK so the same rule applies from WhatsApp and this dashboard.
+  const isPrivileged        = isManagerOrAbove(profile.role);
+  const isBlockedAsAssignee = task.assignee_id === user.id && isEmployee(profile.role);
+  const actorIsAssignee     = task.assignee_id === user.id && !isBlockedAsAssignee;
+  const actorIsCreator      = task.created_by === user.id && !isBlockedAsAssignee;
+  if (!actorIsAssignee && !actorIsCreator && !isPrivileged) {
+    return NextResponse.json({
+      error: isBlockedAsAssignee
+        ? "You can't delete a task that's assigned to you — please ask your manager or HR to do that."
+        : 'You can only delete tasks assigned to you or created by you',
+    }, { status: 403 });
   }
 
   await db.from('tasks').update({ deleted_at: new Date().toISOString() }).eq('id', id);

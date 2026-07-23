@@ -384,19 +384,23 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     }
 
     // Build deadline as UTC (no-tz string) so the timestamp column stores UTC.
+    // Deadline is optional from the caller's perspective — same-day 5 PM IST is
+    // the default when nothing was mentioned at all, same as priority defaults
+    // to medium, rather than blocking task creation on an extra round-trip.
     let deadlineISO: string | null = null;
     if (slots.deadline) {
       const parts = slots.deadline.split(' ');
       deadlineISO = parseDeadlineToUTC(parts[0] ?? '', parts[1] ?? '17:00');
+    } else {
+      deadlineISO = parseDeadlineToUTC(todayISO(), '17:00');
     }
 
-    // Enforce required fields — reject early with an actionable prompt
     if (!deadlineISO) {
       return {
         success: false,
         reply: lang === 'hi'
-          ? '❌ डेडलाइन बताएं — तारीख और समय (जैसे: कल शाम 5 बजे, 10 July 5pm)'
-          : '❌ Please provide a deadline — date and time. (e.g. tomorrow 5pm, July 10 at 3pm)',
+          ? '❌ डेडलाइन का format सही नहीं है। Example: "6 Jul 2026 5pm"'
+          : '❌ That deadline doesn\'t look valid. Please provide a date and time, e.g. "tomorrow 1:30pm" or "10 Jul 2026 3pm".',
       };
     }
     const PRIORITY_MAP: Record<string, string> = {
@@ -834,7 +838,8 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     return { success: true, reply: REPLIES.taskCompleted(task.title, lang) };
   },
 
-  async ASSIGN_TASK({ slots, org_id, user_id, user_role }): Promise<ToolResult> {
+  async ASSIGN_TASK(input): Promise<ToolResult> {
+    const { slots, org_id, user_id, user_role } = input;
     const db   = createAdminClient();
     const lang = (slots._lang as 'en' | 'hi') ?? 'en';
 
@@ -852,6 +857,13 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
         ? `"${slots.title}" से मेल खाते कई tasks हैं:\n${titles}\n\nकृपया पूरा task नाम बताएं।`
         : `Multiple tasks match *"${slots.title}"*:\n${titles}\n\nPlease use the full task name.`
       };
+    }
+
+    // "Assign task X to Y" when no task named X exists yet reads as a request
+    // to CREATE task X assigned to Y, not to reassign something that doesn't
+    // exist — fall through to task creation instead of a dead-end "not found".
+    if ((taskRows?.length ?? 0) === 0) {
+      return TOOL_MAP.CREATE_TASK!(input);
     }
 
     const task = taskRows?.[0];
@@ -918,33 +930,57 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     const query = db
       .from('tasks')
-      .select('id, title, assignee_id, created_by, priority, deadline')
+      .select('id, title, assignee_id, created_by, priority, deadline, assignee:users!tasks_assignee_id_fkey(full_name)')
       .eq('organization_id', org_id)
       .ilike('title', `%${slots.title}%`)
       .is('deleted_at', null)
-      .limit(3);
+      .limit(10);
 
-    const { data: tasks, error: deleteLookupError } = await query;
+    const { data: allMatches, error: deleteLookupError } = await query;
     if (deleteLookupError) throw deleteLookupError;
 
+    // When multiple tasks share the same (or overlapping) title — including
+    // ones with an IDENTICAL title, which title alone can never disambiguate —
+    // narrow by assignee_hint if the user gave one ("...assigned to Tushar").
+    const assigneeHint = slots.assignee_hint?.trim().toLowerCase();
+    const tasks = assigneeHint
+      ? (allMatches ?? []).filter((t: any) => (t.assignee?.full_name ?? '').toLowerCase().includes(assigneeHint))
+      : allMatches;
+
     if ((tasks?.length ?? 0) > 1) {
-      const titles = tasks!.map((t: any) => `· *${t.title}*`).join('\n');
+      const titles = tasks!.map((t: any) => `· *${t.title}* — assigned to ${t.assignee?.full_name ?? 'unassigned'}`).join('\n');
       return { success: false, reply: lang === 'hi'
-        ? `"${slots.title}" से मेल खाते कई tasks हैं:\n${titles}\n\nकृपया पूरा task नाम बताएं।`
-        : `Multiple tasks match *"${slots.title}"*:\n${titles}\n\nPlease use the full task name to avoid deleting the wrong one.`
+        ? `"${slots.title}" से मेल खाते कई tasks हैं:\n${titles}\n\nकृपया पूरा task नाम बताएं, या बताएं कि किसे assign किया गया है (जैसे "...assigned to Tushar")।`
+        : `Multiple tasks match *"${slots.title}"*:\n${titles}\n\nPlease use the full task name, or say who it's assigned to (e.g. "...assigned to Tushar") to pick one.`
       };
     }
 
     const task = tasks?.[0];
-    if (!task) return { success: false, reply: REPLIES.taskNotFound(slots.title!, lang) };
+    if (!task) {
+      if (assigneeHint) {
+        return { success: false, reply: lang === 'hi'
+          ? `❌ "${slots.title}" नाम का कोई task *${slots.assignee_hint}* को assigned नहीं मिला।`
+          : `❌ No task named *"${slots.title}"* is assigned to *${slots.assignee_hint}*.` };
+      }
+      return { success: false, reply: REPLIES.taskNotFound(slots.title!, lang) };
+    }
 
-    // Only the assignee, the creator ("assigned by"), or manager+ may delete a task.
-    const actorIsAssignee = task.assignee_id === user_id;
-    const actorIsCreator   = task.created_by === user_id;
-    if (!actorIsAssignee && !actorIsCreator && !isManagerOrAbove(user_role)) {
+    // Only the assignee, the creator ("assigned by"), or manager+ may delete a task —
+    // EXCEPT an employee who is the assignee: employees can never delete a task
+    // assigned to them (even one they created themselves), only its creator (if
+    // not also an employee-assignee) or a manager+ can.
+    const isPrivileged     = isManagerOrAbove(user_role);
+    const isBlockedAsAssignee = task.assignee_id === user_id && user_role === 'employee';
+    const actorIsAssignee  = task.assignee_id === user_id && !isBlockedAsAssignee;
+    const actorIsCreator   = task.created_by === user_id && !isBlockedAsAssignee;
+    if (!actorIsAssignee && !actorIsCreator && !isPrivileged) {
       return { success: false, reply: lang === 'hi'
-        ? '🚫 आप सिर्फ अपने assigned/created tasks delete कर सकते हैं, या manager/HR/admin होने पर कोई भी task।'
-        : '🚫 You can only delete tasks assigned to you or created by you — unless you\'re a manager, HR, or admin.' };
+        ? isBlockedAsAssignee
+          ? '🚫 आपको assign किए गए task को आप खुद delete नहीं कर सकते — अपने manager या HR से संपर्क करें।'
+          : '🚫 आप सिर्फ अपने assigned/created tasks delete कर सकते हैं, या manager/HR/admin होने पर कोई भी task।'
+        : isBlockedAsAssignee
+          ? '🚫 You can\'t delete a task that\'s assigned to you — please ask your manager or HR to do that.'
+          : '🚫 You can only delete tasks assigned to you or created by you — unless you\'re a manager, HR, or admin.' };
     }
 
     const deletedAt = new Date().toISOString();
@@ -1006,29 +1042,52 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       .eq('organization_id', org_id)
       .ilike('title', `%${taskTitle}%`)
       .is('deleted_at', null)
-      .limit(3);
+      .limit(10);
 
-    const { data: tasks, error: updateLookupError } = await query;
+    const { data: allMatches, error: updateLookupError } = await query;
     if (updateLookupError) throw updateLookupError;
 
+    // Narrow by assignee_hint if the user gave one — needed when multiple
+    // tasks share an IDENTICAL title, which title alone can never disambiguate.
+    const assigneeHint = slots.assignee_hint?.trim().toLowerCase();
+    const tasks = assigneeHint
+      ? (allMatches ?? []).filter((t: any) => (t.assignee?.full_name ?? '').toLowerCase().includes(assigneeHint))
+      : allMatches;
+
     if ((tasks?.length ?? 0) > 1) {
-      const titles = (tasks as any[]).map(t => `· *${t.title}*`).join('\n');
+      const titles = (tasks as any[]).map(t => `· *${t.title}* — assigned to ${t.assignee?.full_name ?? 'unassigned'}`).join('\n');
       return { success: false, reply: lang === 'hi'
-        ? `"${taskTitle}" से मेल खाते कई tasks हैं:\n${titles}\n\nकृपया पूरा task नाम बताएं।`
-        : `Multiple tasks match *"${taskTitle}"*:\n${titles}\n\nPlease use the full task name.`
+        ? `"${taskTitle}" से मेल खाते कई tasks हैं:\n${titles}\n\nकृपया पूरा task नाम बताएं, या बताएं कि किसे assign किया गया है (जैसे "...assigned to Tushar")।`
+        : `Multiple tasks match *"${taskTitle}"*:\n${titles}\n\nPlease use the full task name, or say who it's assigned to (e.g. "...assigned to Tushar") to pick one.`
       };
     }
 
     const task = (tasks as any[])?.[0];
-    if (!task) return { success: false, reply: REPLIES.taskNotFound(taskTitle, lang) };
+    if (!task) {
+      if (assigneeHint) {
+        return { success: false, reply: lang === 'hi'
+          ? `❌ "${taskTitle}" नाम का कोई task *${slots.assignee_hint}* को assigned नहीं मिला।`
+          : `❌ No task named *"${taskTitle}"* is assigned to *${slots.assignee_hint}*.` };
+      }
+      return { success: false, reply: REPLIES.taskNotFound(taskTitle, lang) };
+    }
 
-    // Only the assignee, the creator ("assigned by"), or manager+ may update a task.
-    const actorIsAssignee = task.assignee_id === user_id;
-    const actorIsCreator   = task.created_by === user_id;
-    if (!actorIsAssignee && !actorIsCreator && !isManagerOrAbove(user_role)) {
+    // Only the assignee, the creator ("assigned by"), or manager+ may update a task —
+    // EXCEPT an employee who is the assignee: employees can never update a task
+    // assigned to them (even one they created themselves), only its creator (if
+    // not also an employee-assignee) or a manager+ can.
+    const isPrivileged     = isManagerOrAbove(user_role);
+    const isBlockedAsAssignee = task.assignee_id === user_id && user_role === 'employee';
+    const actorIsAssignee  = task.assignee_id === user_id && !isBlockedAsAssignee;
+    const actorIsCreator   = task.created_by === user_id && !isBlockedAsAssignee;
+    if (!actorIsAssignee && !actorIsCreator && !isPrivileged) {
       return { success: false, reply: lang === 'hi'
-        ? '🚫 आप सिर्फ अपने assigned/created tasks update कर सकते हैं, या manager/HR/admin होने पर कोई भी task।'
-        : '🚫 You can only update tasks assigned to you or created by you — unless you\'re a manager, HR, or admin.' };
+        ? isBlockedAsAssignee
+          ? '🚫 आपको assign किए गए task को आप खुद update नहीं कर सकते — अपने manager या HR से संपर्क करें।'
+          : '🚫 आप सिर्फ अपने assigned/created tasks update कर सकते हैं, या manager/HR/admin होने पर कोई भी task।'
+        : isBlockedAsAssignee
+          ? '🚫 You can\'t update a task that\'s assigned to you — please ask your manager or HR to do that.'
+          : '🚫 You can only update tasks assigned to you or created by you — unless you\'re a manager, HR, or admin.' };
     }
 
     const patch: Record<string, unknown> = {};

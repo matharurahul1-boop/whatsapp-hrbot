@@ -466,8 +466,12 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
     router.refresh();
   }
 
-  const canEdit = (_t: Task) => true;
-  const canDelete = userRole !== 'employee';
+  // Employees can never update/delete a task assigned to them, even one they
+  // created themselves — matches the same rule enforced server-side in
+  // src/app/api/tasks/[id]/route.ts and the WhatsApp bot (executor.ts).
+  const isBlockedAsAssignee = (t: Task) => userRole === 'employee' && t.assignee?.id === userId;
+  const canEdit = (t: Task) => !isBlockedAsAssignee(t);
+  const canDelete = (t: Task) => userRole !== 'employee' && !isBlockedAsAssignee(t);
 
   const now = new Date();
   const overdueCount = localTasks.filter(t =>
@@ -611,7 +615,7 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
                       No tasks
                     </div>
                   ) : cards.map(task => (
-                    <TaskCard key={task.id} task={task} canEdit={canEdit(task)} canDelete={canDelete} employees={employees} onStatusChange={updateTaskStatus} />
+                    <TaskCard key={task.id} task={task} canEdit={canEdit(task)} canDelete={canDelete(task)} employees={employees} onStatusChange={updateTaskStatus} />
                   ))}
                 </div>
               </div>
@@ -758,7 +762,7 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
                       key={task.id}
                       task={task}
                       canEdit={canEdit(task)}
-                      canDelete={canDelete}
+                      canDelete={canDelete(task)}
                       employees={employees}
                       onStatusChange={updateTaskStatus}
                     />

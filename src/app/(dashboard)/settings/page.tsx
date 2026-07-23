@@ -39,6 +39,24 @@ const APPLICANT_ROLE_LABEL: Record<string, string> = {
   employee: 'Employee', manager: 'Manager', hr_assistant: 'HR Assistant', hr: 'HR',
 };
 
+// ── Section filter (jump-to dropdown) ───────────────────────────────────────
+// `requires` gates which sections show up in the dropdown per role, mirroring
+// each section's own isAdmin/isHrOrAbove guard below — kept as a single
+// source of truth so the two never drift out of sync.
+const SETTINGS_SECTIONS = [
+  { id: 'whatsapp',      label: 'WhatsApp',              requires: 'all'   },
+  { id: 'permissions',   label: 'Permissions',            requires: 'all'   },
+  { id: 'password',      label: 'Change Password',        requires: 'all'   },
+  { id: 'leave-policy',  label: 'Leave Policy',           requires: 'hr'    },
+  { id: 'ai-assistant',  label: 'AI Assistant',           requires: 'admin' },
+  { id: 'groq-keys',     label: 'Groq API Keys',          requires: 'admin' },
+  { id: 'live-updates',  label: 'Live Updates',           requires: 'admin' },
+  { id: 'wa-messages',   label: 'WhatsApp Messages',      requires: 'all'   },
+  { id: 'notifications', label: 'In-App Notifications',   requires: 'all'   },
+  { id: 'organization',  label: 'Organization',           requires: 'admin' },
+] as const;
+type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number]['id'];
+
 // ── tiny helpers ─────────────────────────────────────────────────────────────
 function Section({ title, description, icon, children }: {
   title: string; description: string;
@@ -257,6 +275,13 @@ export default function SettingsPage() {
   const [userId, setUserId] = useState('');
   const isAdmin     = ['super_admin', 'admin'].includes(role);
   const isHrOrAbove = ['super_admin', 'admin', 'hr'].includes(role);
+
+  // Jump-to section dropdown — defaults to WhatsApp since every role can see
+  // it (unlike the admin/HR-only sections further down the list).
+  const [activeSection, setActiveSection] = useState<SettingsSectionId>('whatsapp');
+  const availableSections = SETTINGS_SECTIONS.filter(s =>
+    s.requires === 'all' || (s.requires === 'hr' && isHrOrAbove) || (s.requires === 'admin' && isAdmin)
+  );
 
   useEffect(() => { loadData(); }, []);
 
@@ -684,6 +709,20 @@ export default function SettingsPage() {
         </button>
       </div>
 
+      {/* Jump to section */}
+      <div className="flex items-center gap-3">
+        <label className="text-xs font-medium text-surface-600 shrink-0">Jump to</label>
+        <select
+          value={activeSection}
+          onChange={e => setActiveSection(e.target.value as SettingsSectionId)}
+          className="rounded-lg border border-surface-300 bg-surface-0 px-3 py-2 text-sm text-surface-950 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500"
+        >
+          {availableSections.map(s => (
+            <option key={s.id} value={s.id}>{s.label}</option>
+          ))}
+        </select>
+      </div>
+
       {/* Success / Error banners */}
       {saved && (
         <div className="flex items-center gap-2 rounded-lg border border-success/20 bg-success/10 px-4 py-3 text-sm text-success">
@@ -700,6 +739,7 @@ export default function SettingsPage() {
 
       <div className="space-y-6">
         {/* ── WhatsApp Number ── */}
+        {activeSection === 'whatsapp' && (
         <Section
           title="WhatsApp"
           description="Your personal WhatsApp number for receiving HR notifications"
@@ -709,8 +749,10 @@ export default function SettingsPage() {
             <TextInput value={waNumber} onChange={setWaNumber} placeholder="919876543210" type="tel" />
           </Field>
         </Section>
+        )}
 
         {/* ── Role info ── */}
+        {activeSection === 'permissions' && (
         <Section
           title="Permissions"
           description="Your current role and access level"
@@ -731,8 +773,10 @@ export default function SettingsPage() {
             </span>
           </div>
         </Section>
+        )}
 
         {/* ── Change Password ── */}
+        {activeSection === 'password' && (
         <Section
           title="Change Password"
           description="Update your Supabase Auth password"
@@ -776,9 +820,10 @@ export default function SettingsPage() {
             </div>
           </form>
         </Section>
+        )}
 
         {/* ── Leave Policy (HR+) ── */}
-        {isHrOrAbove && (
+        {isHrOrAbove && activeSection === 'leave-policy' && (
           <Section
             title="Leave Policy"
             description="Manage leave types and how many days each role gets, by work mode"
@@ -948,7 +993,7 @@ export default function SettingsPage() {
         )}
 
         {/* ── AI Backend (admin only) ── */}
-        {isAdmin && (
+        {isAdmin && activeSection === 'ai-assistant' && (
           <Section
             title="AI Assistant"
             description="Choose which AI model powers the WhatsApp HR bot"
@@ -1024,7 +1069,7 @@ export default function SettingsPage() {
         )}
 
         {/* ── Groq API keys (admin only) ── */}
-        {isAdmin && (
+        {isAdmin && activeSection === 'groq-keys' && (
           <Section
             title="Groq API Keys"
             description="Free-tier keys used to run the WhatsApp bot — rotate here if one expires or hits its rate limit"
@@ -1116,7 +1161,7 @@ export default function SettingsPage() {
         )}
 
         {/* ── Live page updates (admin only) ── */}
-        {isAdmin && (
+        {isAdmin && activeSection === 'live-updates' && (
           <Section
             title="Live Updates"
             description="Auto-refresh each page the moment its data changes — set per page"
@@ -1160,6 +1205,7 @@ export default function SettingsPage() {
       </div>
 
       {/* ── WhatsApp Messages ── */}
+      {activeSection === 'wa-messages' && (
       <Section
         title="WhatsApp Messages"
         description={isAdmin
@@ -1175,8 +1221,10 @@ export default function SettingsPage() {
           onToggle={saveNotificationToggle}
         />
       </Section>
+      )}
 
       {/* ── In-App Notifications ── */}
+      {activeSection === 'notifications' && (
       <Section
         title="In-App Notifications"
         description="Manage alerts shown in the dashboard's notification bell"
@@ -1241,9 +1289,10 @@ export default function SettingsPage() {
           </button>
         </div>
       </Section>
+      )}
 
       {/* ── Organization (admin only) ── */}
-      {isAdmin && (
+      {isAdmin && activeSection === 'organization' && (
         <Section
           title="Organization"
           description="Company name and WhatsApp Business API configuration"

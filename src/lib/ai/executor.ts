@@ -966,13 +966,13 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     }
 
     // Only the assignee, the creator ("assigned by"), or manager+ may delete a task —
-    // EXCEPT an employee who is the assignee: employees can never delete a task
-    // assigned to them (even one they created themselves), only its creator (if
-    // not also an employee-assignee) or a manager+ can.
-    const isPrivileged     = isManagerOrAbove(user_role);
-    const isBlockedAsAssignee = task.assignee_id === user_id && user_role === 'employee';
-    const actorIsAssignee  = task.assignee_id === user_id && !isBlockedAsAssignee;
-    const actorIsCreator   = task.created_by === user_id && !isBlockedAsAssignee;
+    // EXCEPT an employee who is assigned a task BY SOMEONE ELSE: they can't
+    // delete it themselves. If they created it (self-assigned), they retain
+    // full control, same as before.
+    const isPrivileged  = isManagerOrAbove(user_role);
+    const actorIsCreator  = task.created_by === user_id;
+    const isBlockedAsAssignee = task.assignee_id === user_id && user_role === 'employee' && !actorIsCreator;
+    const actorIsAssignee = task.assignee_id === user_id && !isBlockedAsAssignee;
     if (!actorIsAssignee && !actorIsCreator && !isPrivileged) {
       return { success: false, reply: lang === 'hi'
         ? isBlockedAsAssignee
@@ -1073,13 +1073,13 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     }
 
     // Only the assignee, the creator ("assigned by"), or manager+ may update a task —
-    // EXCEPT an employee who is the assignee: employees can never update a task
-    // assigned to them (even one they created themselves), only its creator (if
-    // not also an employee-assignee) or a manager+ can.
-    const isPrivileged     = isManagerOrAbove(user_role);
-    const isBlockedAsAssignee = task.assignee_id === user_id && user_role === 'employee';
-    const actorIsAssignee  = task.assignee_id === user_id && !isBlockedAsAssignee;
-    const actorIsCreator   = task.created_by === user_id && !isBlockedAsAssignee;
+    // EXCEPT an employee who is assigned a task BY SOMEONE ELSE: they can't
+    // update it themselves. If they created it (self-assigned), they retain
+    // full control, same as before.
+    const isPrivileged  = isManagerOrAbove(user_role);
+    const actorIsCreator  = task.created_by === user_id;
+    const isBlockedAsAssignee = task.assignee_id === user_id && user_role === 'employee' && !actorIsCreator;
+    const actorIsAssignee = task.assignee_id === user_id && !isBlockedAsAssignee;
     if (!actorIsAssignee && !actorIsCreator && !isPrivileged) {
       return { success: false, reply: lang === 'hi'
         ? isBlockedAsAssignee

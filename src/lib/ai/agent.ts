@@ -1025,11 +1025,12 @@ function buildSystemPrompt(user: AgentUser): string {
 - Users: list all org members`;
   } else {
     permissionsBlock = `## Your permissions (employee)
-- Tasks: view all organization tasks, create tasks for anyone, update any task field, assign/reassign and complete any task
-- Task deletion: employees CANNOT delete tasks
+- Tasks: view all organization tasks, create tasks for anyone, complete any task
+- Tasks you created yourself (self-assigned): full control — update any field, delete it
+- Tasks assigned to you BY SOMEONE ELSE: you CANNOT update or delete them (not even the deadline/priority/status) — only the person who assigned it, or a manager/HR/admin, can. Explain this plainly if asked to change one.
 - Leave: apply for your own leave, check your own balance, cancel your own leave — cannot approve/reject
 - Attendance: check in / check out, view your own attendance history
-- CANNOT do: delete tasks, approve/reject leave, view attendance team data, list users
+- CANNOT do: update or delete a task assigned to you by someone else, approve/reject leave, view attendance team data, list users
 - If asked to do something outside these permissions, explain you don't have access and suggest contacting a manager or HR`;
   }
 

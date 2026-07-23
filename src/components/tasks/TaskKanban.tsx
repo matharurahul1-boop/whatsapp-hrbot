@@ -466,12 +466,13 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
     router.refresh();
   }
 
-  // Employees can never update/delete a task assigned to them, even one they
-  // created themselves — matches the same rule enforced server-side in
-  // src/app/api/tasks/[id]/route.ts and the WhatsApp bot (executor.ts).
-  const isBlockedAsAssignee = (t: Task) => userRole === 'employee' && t.assignee?.id === userId;
+  // Employees assigned a task BY SOMEONE ELSE can't update/delete it — but if
+  // they created it themselves (self-assigned), they retain full control.
+  // Matches the same rule enforced server-side in src/app/api/tasks/[id]/route.ts
+  // and the WhatsApp bot (executor.ts).
+  const isBlockedAsAssignee = (t: Task) => userRole === 'employee' && t.assignee?.id === userId && t.created_by !== userId;
   const canEdit = (t: Task) => !isBlockedAsAssignee(t);
-  const canDelete = (t: Task) => userRole !== 'employee' && !isBlockedAsAssignee(t);
+  const canDelete = (t: Task) => (userRole !== 'employee' || t.created_by === userId) && !isBlockedAsAssignee(t);
 
   const now = new Date();
   const overdueCount = localTasks.filter(t =>

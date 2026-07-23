@@ -323,20 +323,28 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
 
     if (isSelfConvo) {
       // ── SIMULATE mode: user messaging the bot from portal ──────────────
-      // Optimistic INCOMING bubble (user's message, appears on left)
+      // Optimistic INCOMING bubble (user's message, appears on the right
+      // in your own chat — see isOut flip in the render loop).
+      // Conversations group by `user?.id ?? wa_number` (see the `conversations`
+      // useMemo) — carry over the same user object the rest of this thread
+      // uses, so this bubble lands in the existing bucket instead of a new
+      // one keyed by wa_number, which would make the whole history vanish
+      // from view for as long as this optimistic entry exists (the real
+      // wa-simulate round trip can take several seconds).
+      const knownUser = activeConvo?.messages.find(m => m.user)?.user ?? null;
       const optId = `opt_${Date.now()}`;
       const optIn: WaLog = {
         id:              optId,
         wa_number:       selectedNumber,
         contact_name:    null,
-        direction:       'incoming',   // appears on LEFT (like a real WA message to the bot)
+        direction:       'incoming',
         message_type:    'text',
         message_text:    text,
         delivery_status: 'received',
         failure_reason:  null,
         wa_timestamp:    new Date().toISOString(),
         created_at:      new Date().toISOString(),
-        user:            null,
+        user:            knownUser,
       };
       setAllLogs(prev => [...prev, optIn]);
 
@@ -377,7 +385,10 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
 
     } else {
       // ── SEND mode: business sends to contact ───────────────────────────
-      // Optimistic OUTGOING bubble (appears on right)
+      // Optimistic OUTGOING bubble (appears on right). Same grouping-key
+      // fix as the self-convo branch above — carry over the thread's
+      // existing user object so this doesn't briefly bucket separately.
+      const knownUser = activeConvo?.messages.find(m => m.user)?.user ?? null;
       const optimisticId = `opt_${Date.now()}`;
       const optimistic: WaLog = {
         id:              optimisticId,
@@ -390,7 +401,7 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
         failure_reason:  null,
         wa_timestamp:    new Date().toISOString(),
         created_at:      new Date().toISOString(),
-        user:            null,
+        user:            knownUser,
       };
       setAllLogs(prev => [...prev, optimistic]);
 
@@ -1509,7 +1520,15 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
 
                   {/* Messages */}
                   {msgs.map((msg, idx) => {
-                    const isOut     = msg.direction === 'outgoing';
+                    // In your own chat, "outgoing" (direction-wise) is the
+                    // bot's reply and "incoming" is what you typed — flip
+                    // which side each renders on so your own messages sit
+                    // on the right, like every other chat app. Other
+                    // people's chats (super_admin view) keep the normal
+                    // WhatsApp Business convention: incoming=left, outgoing=right.
+                    const isOut     = isSelfConvo
+                      ? msg.direction === 'incoming'
+                      : msg.direction === 'outgoing';
                     const showAvatar = !isOut && (
                       idx === 0 || msgs[idx - 1]?.direction !== msg.direction
                     );

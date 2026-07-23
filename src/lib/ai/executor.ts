@@ -942,9 +942,16 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
     // When multiple tasks share the same (or overlapping) title — including
     // ones with an IDENTICAL title, which title alone can never disambiguate —
     // narrow by assignee_hint if the user gave one ("...assigned to Tushar").
-    const assigneeHint = slots.assignee_hint?.trim().toLowerCase();
+    // Fuzzy match, not exact substring — a typo'd hint shouldn't silently
+    // match nothing and fall back to the unfiltered multi-match list.
+    const assigneeHint = slots.assignee_hint?.trim();
     const tasks = assigneeHint
-      ? (allMatches ?? []).filter((t: any) => (t.assignee?.full_name ?? '').toLowerCase().includes(assigneeHint))
+      ? (allMatches ?? []).filter((t: any) => {
+          const name = t.assignee?.full_name ?? '';
+          if (!name) return false;
+          const score = Math.max(...[name, ...name.split(' ')].map(n => nameSimilarity(assigneeHint, n)));
+          return score >= 0.65;
+        })
       : allMatches;
 
     if ((tasks?.length ?? 0) > 1) {
@@ -1049,9 +1056,16 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     // Narrow by assignee_hint if the user gave one — needed when multiple
     // tasks share an IDENTICAL title, which title alone can never disambiguate.
-    const assigneeHint = slots.assignee_hint?.trim().toLowerCase();
+    // Fuzzy match, not exact substring — a typo'd hint shouldn't silently
+    // match nothing and fall back to the unfiltered multi-match list.
+    const assigneeHint = slots.assignee_hint?.trim();
     const tasks = assigneeHint
-      ? (allMatches ?? []).filter((t: any) => (t.assignee?.full_name ?? '').toLowerCase().includes(assigneeHint))
+      ? (allMatches ?? []).filter((t: any) => {
+          const name = t.assignee?.full_name ?? '';
+          if (!name) return false;
+          const score = Math.max(...[name, ...name.split(' ')].map(n => nameSimilarity(assigneeHint, n)));
+          return score >= 0.65;
+        })
       : allMatches;
 
     if ((tasks?.length ?? 0) > 1) {

@@ -555,9 +555,17 @@ async function canonicalizeConfirmation(
     const { data: allMatches } = await db.from('tasks')
       .select('id, title, assignee:users!tasks_assignee_id_fkey(full_name)')
       .eq('organization_id', orgId).ilike('title', `%${titleQuery}%`).is('deleted_at', null).limit(10);
-    const assigneeHint = args.assignee_hint?.trim().toLowerCase();
+    const assigneeHint = args.assignee_hint?.trim();
+    // Fuzzy match, not exact substring — a typo'd hint like "prnay" should
+    // still resolve to "Pranay Khadse" instead of matching nothing and
+    // silently falling through to the unfiltered multi-match list again.
     const matches = (assigneeHint
-      ? (allMatches ?? []).filter((t: any) => (t.assignee?.full_name ?? '').toLowerCase().includes(assigneeHint))
+      ? (allMatches ?? []).filter((t: any) => {
+          const name = t.assignee?.full_name ?? '';
+          if (!name) return false;
+          const score = Math.max(...[name, ...name.split(/\s+/)].map((n: string) => confirmationNameSimilarity(assigneeHint, n)));
+          return score >= 0.65;
+        })
       : allMatches) as any[] | null;
     if (!matches || matches.length === 0) {
       return { tool, args, error: assigneeHint
@@ -1170,6 +1178,8 @@ Deletion — recognize ALL of these as the same delete_task intent (confirm befo
 "Forget/delete ALL the tasks" (or "all my tasks", "every task") means: list every one of the caller's own non-deleted tasks, then ask for confirmation to delete them one at a time in the SAME way as a single delete — do NOT default to a "which tasks should be completed" or any other listing/selection flow; the intent is always deletion, consistently, regardless of phrasing.
 
 If task name is missing ("mark done", "delete task"), ask "Which task?"
+
+Disambiguation retry — if your LAST message was "Multiple tasks match *X*: ... say who it's assigned to to pick one" and the user's reply only names a person (not the task title again, e.g. "the one assigned to Tushar" / "Tushar's one" / just "Tushar"), do NOT treat this as a new, separate request — re-issue the SAME update_task/delete_task call using the task title from your last message plus assignee_hint set to whatever name the user just gave, even if misspelled (assignee_hint is fuzzy-matched, so "prnay" still resolves to "Pranay"). Never repeat the same "Multiple tasks match" message verbatim without adding the new assignee_hint — that traps the user in a loop.
 
 ## Attendance
 Read-only (call IMMEDIATELY, no confirmation):

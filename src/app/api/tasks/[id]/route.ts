@@ -78,7 +78,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const actorIsCreator  = task.created_by === user.id;
   const isBlockedAsAssignee = task.assignee_id === user.id && isEmployee(profile.role) && !actorIsCreator;
   const actorIsAssignee = task.assignee_id === user.id && !isBlockedAsAssignee;
-  if (!actorIsAssignee && !actorIsCreator && !isPrivileged) {
+  // Toggling your own task's completion (the dashboard's quick-complete
+  // checkbox, which flips status done<->todo) mirrors WhatsApp's
+  // COMPLETE_TASK, which has no ownership restriction — being the assignee
+  // is enough, even for an employee otherwise blocked from touching a task
+  // assigned to them. Scoped to a pure status change (the only field) so it
+  // can't be used to sneak other edits through alongside it.
+  const isTogglingOwnCompletion = Object.keys(parsed.data).length === 1
+    && parsed.data.status !== undefined && task.assignee_id === user.id;
+  if (!actorIsAssignee && !actorIsCreator && !isPrivileged && !isTogglingOwnCompletion) {
     return NextResponse.json({
       error: isBlockedAsAssignee
         ? "You can't update a task that's assigned to you — please ask your manager or HR to do that."

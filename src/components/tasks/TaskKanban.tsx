@@ -295,8 +295,8 @@ function MultiSelectDropdown({
 
 /* ── Inline list-row quick toggle (mirrors TaskCard quickToggle) ── */
 function ListRow({
-  task, canEdit, canDelete, employees, onStatusChange,
-}: { task: Task; canEdit: boolean; canDelete: boolean; employees: Employee[]; onStatusChange: (id: string, status: string) => void }) {
+  task, canEdit, canDelete, canComplete, employees, onStatusChange,
+}: { task: Task; canEdit: boolean; canDelete: boolean; canComplete: boolean; employees: Employee[]; onStatusChange: (id: string, status: string) => void }) {
   const [status,   setStatus]   = useState<TaskStatus>(task.status as TaskStatus);
   const [updating, setUpdating] = useState(false);
 
@@ -307,7 +307,7 @@ function ListRow({
 
   async function quickToggle(e: React.MouseEvent) {
     e.stopPropagation();
-    if (updating || !canEdit) return;
+    if (updating || !canComplete) return;
     const next: TaskStatus = status === 'done' ? 'todo' : 'done';
     setUpdating(true);
     const prev = status;
@@ -340,7 +340,7 @@ function ListRow({
       <div className="w-5 shrink-0 flex items-center">
         <button
           onClick={quickToggle}
-          disabled={updating || !canEdit}
+          disabled={updating || !canComplete}
           className={cn(
             'transition-colors disabled:opacity-30',
             status === 'done' ? 'text-success hover:text-surface-500' : 'text-surface-400 hover:text-success'
@@ -473,6 +473,10 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
   const isBlockedAsAssignee = (t: Task) => userRole === 'employee' && t.assignee?.id === userId && t.created_by !== userId;
   const canEdit = (t: Task) => !isBlockedAsAssignee(t);
   const canDelete = (t: Task) => (userRole !== 'employee' || t.created_by === userId) && !isBlockedAsAssignee(t);
+  // Toggling completion mirrors WhatsApp's COMPLETE_TASK, which has no
+  // ownership restriction — being the assignee is enough even when
+  // isBlockedAsAssignee would otherwise block editing this task.
+  const canComplete = (t: Task) => !isBlockedAsAssignee(t) || t.assignee?.id === userId;
 
   const now = new Date();
   const overdueCount = localTasks.filter(t =>
@@ -616,7 +620,7 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
                       No tasks
                     </div>
                   ) : cards.map(task => (
-                    <TaskCard key={task.id} task={task} canEdit={canEdit(task)} canDelete={canDelete(task)} employees={employees} onStatusChange={updateTaskStatus} />
+                    <TaskCard key={task.id} task={task} canEdit={canEdit(task)} canDelete={canDelete(task)} canComplete={canComplete(task)} employees={employees} onStatusChange={updateTaskStatus} />
                   ))}
                 </div>
               </div>
@@ -764,6 +768,7 @@ export default function TaskKanban({ tasks, userId, userRole, employees }: TaskK
                       task={task}
                       canEdit={canEdit(task)}
                       canDelete={canDelete(task)}
+                      canComplete={canComplete(task)}
                       employees={employees}
                       onStatusChange={updateTaskStatus}
                     />

@@ -57,12 +57,18 @@ interface TaskCardProps {
   };
   canEdit:        boolean;
   canDelete?:     boolean;
+  // Marking a task done has no ownership restriction on WhatsApp (COMPLETE_TASK) —
+  // being the assignee is enough, even for an employee otherwise blocked from
+  // editing a task assigned to them by someone else. Defaults to canEdit so
+  // any caller that hasn't been updated keeps its previous behavior.
+  canComplete?:   boolean;
   employees:      Employee[];
   listMode?:      boolean;
   onStatusChange?: (id: string, status: string) => void;
 }
 
-export default function TaskCard({ task, canEdit, canDelete = false, employees, listMode = false, onStatusChange }: TaskCardProps) {
+export default function TaskCard({ task, canEdit, canDelete = false, canComplete, employees, listMode = false, onStatusChange }: TaskCardProps) {
+  const canToggleComplete = canComplete ?? canEdit;
   const router = useRouter();
   const [editOpen,      setEditOpen]      = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -166,7 +172,7 @@ export default function TaskCard({ task, canEdit, canDelete = false, employees, 
   // Quick toggle done/todo without opening modal
   async function quickToggle(e: React.MouseEvent) {
     e.stopPropagation();
-    if (updating || !canEdit) return;
+    if (updating || !canToggleComplete) return;
     const next: TaskStatus = status === 'done' ? 'todo' : 'done';
     setUpdating(true);
     const prev = status;
@@ -323,7 +329,7 @@ export default function TaskCard({ task, canEdit, canDelete = false, employees, 
         <div className="flex items-start gap-2">
           <button
             onClick={quickToggle}
-            disabled={updating || !canEdit}
+            disabled={updating || !canToggleComplete}
             className={cn(
               'mt-0.5 shrink-0 transition-colors disabled:opacity-30',
               status === 'done' ? 'text-success hover:text-surface-600' : 'text-surface-500 hover:text-success'

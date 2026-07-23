@@ -1120,8 +1120,8 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
                         ref={textareaRef} rows={1} value={replyText}
                         onChange={handleTextareaChange} onKeyDown={handleKeyDown}
                         placeholder={`Message the bot (as ${userWaNumber})…`}
-                        className="flex-1 bg-transparent text-sm outline-none resize-none placeholder-[#8696A0] leading-relaxed py-1"
-                        style={{ color: '#E9EDEF', maxHeight: '120px', scrollbarWidth: 'none' }}
+                        className="flex-1 bg-transparent text-sm outline-none resize-none placeholder-[#8696A0] leading-relaxed py-1 focus-visible:outline-none focus-visible:ring-0"
+                        style={{ color: '#E9EDEF', maxHeight: '120px', scrollbarWidth: 'none', border: 'none' }}
                       />
                       {replyText.trim() ? (
                         <button onClick={handleSend} disabled={sending}
@@ -1837,11 +1837,12 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
                     onChange={handleTextareaChange}
                     onKeyDown={handleKeyDown}
                     placeholder="Type a message"
-                    className="flex-1 bg-transparent text-sm outline-none resize-none placeholder-[#8696A0] leading-relaxed py-1"
+                    className="flex-1 bg-transparent text-sm outline-none resize-none placeholder-[#8696A0] leading-relaxed py-1 focus-visible:outline-none focus-visible:ring-0"
                     style={{
                       color:        '#E9EDEF',
                       maxHeight:    '120px',
                       scrollbarWidth: 'none',
+                      border:       'none',
                     }}
                   />
                 )}

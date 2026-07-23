@@ -1553,11 +1553,13 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
                           isOut ? 'justify-end' : 'justify-start'
                         )}
                       >
-                        {/* Incoming avatar */}
+                        {/* Left-side avatar — the bot in your own chat, the contact otherwise */}
                         {!isOut && (
                           <div className="shrink-0 mb-1">
                             {showAvatar
-                              ? <Avatar name={activeConvo.name} src={activeConvo.avatar} size={28} />
+                              ? isSelfConvo
+                                ? <Avatar name="HRBot" src={null} size={28} />
+                                : <Avatar name={activeConvo.name} src={activeConvo.avatar} size={28} />
                               : <div style={{ width: 28 }} />
                             }
                           </div>
@@ -1594,10 +1596,11 @@ export default function WAInterface({ logs, orgId, orgName = 'HRBot', metaNumber
                             }}
                           />
 
-                          {/* Sender name (incoming only, group-style) */}
-                          {!isOut && showAvatar && activeConvo.name !== `+${activeConvo.wa_number}` && (
+                          {/* Sender name — "HRBot" for the bot's replies in your own
+                              chat, the contact's name otherwise (group-style) */}
+                          {!isOut && showAvatar && (isSelfConvo || activeConvo.name !== `+${activeConvo.wa_number}`) && (
                             <p className="text-xs font-semibold mb-0.5" style={{ color: '#00A884' }}>
-                              {activeConvo.name}
+                              {isSelfConvo ? 'HRBot' : activeConvo.name}
                             </p>
                           )}
 

@@ -1301,6 +1301,11 @@ User: "Hi, is this Pranay? I'm calling regarding your order for the copper pipes
 You: I'll create task *Copper pipe installation* for *you* due *${dat2.display}, 12:00 PM* with *medium* priority. Go ahead? (Yes / No)
 (This reads like a vendor's side of a phone call — "your order", "for you", "I'll schedule it" — but the person who sent it to you still wants this appointment tracked. NEVER reply "you might have the wrong number" or redirect them to contact someone else — that is wrong here. Extract the settled time — Tuesday ~12 PM, not the first-offered "tomorrow morning" — and confirm a task exactly as in every other case in this rule.)
 
+Task creation — Hindi voice note, title must be transliterated to Hinglish (never Devanagari):
+User (voice transcript in Hindi): "आज धूप निकली है, इसके बारे में एक टास्क बना दो"
+You: I'll create task *Aaj dhoop nikli hai* for *you* due *${todayEx.display}, 05:00 PM* with *medium* priority (default). Go ahead? (Yes / No)
+(The title is "Aaj dhoop nikli hai" — Hinglish, Roman letters — NEVER "आज धूप निकली है" in Devanagari. This applies to every field you synthesize, not just your own reply text: if the transcript or message was in Hindi, transliterate before it ever reaches a tool call, so nothing gets saved to the database in Devanagari script.)
+
 Task update:
 User: "update the assigned to of Design Review to Rahul" → You: I'll update *Design Review* — set *assignee* to *Rahul*. Go ahead? (Yes / No)
 User: "change deadline of Fix Bug to tomorrow 3pm" → You: I'll update *Fix Bug* — set *deadline* to *${tmr.display}, 03:00 PM*. Go ahead? (Yes / No)
@@ -1376,7 +1381,7 @@ User: "onboarding status" → [call onboarding_status(), return verbatim]` : ''}
 ## Rules
 - NEVER use example data as real values. "e.g. Fix bug – 20 Jun" is a format example, not a real task.
 - NEVER respond with task/leave/attendance data as plain text — always call the tool.
-- Match the user's language, with ONE exception: if the user writes in Hindi — whether in Devanagari script or transliterated — reply in Hinglish (Hindi words spelled in Roman/English letters, naturally mixed with English), NEVER in Devanagari script. E.g. write "Kal shaam 6 baje" not "कल शाम 6 बजे", and "Task ban gaya!" not "टास्क बन गया!". English input still gets an English reply as normal.`;
+- Match the user's language, with ONE exception: if the user writes or speaks in Hindi — whether in Devanagari script, transliterated text, or a Hindi voice note — respond in Hinglish (Hindi words spelled in Roman/English letters, naturally mixed with English), NEVER in Devanagari script. E.g. write "Kal shaam 6 baje" not "कल शाम 6 बजे", and "Task ban gaya!" not "टास्क बन गया!". This applies to EVERY piece of text you produce, not just conversational replies — task titles, descriptions, and any other field value you synthesize or extract from the user's words must ALSO be transliterated into Hinglish before being passed to a tool call. NEVER pass a title/description containing Devanagari characters to create_task or any other tool — if what the user said was in Hindi, write the title in Hinglish (e.g. a task about "आज धूप निकली है" becomes title "Aaj dhoop nikli hai", not the Devanagari original). English input still gets an English reply and English-lettered field values as normal.`;
 }
 
 // ─── Groq filler stripper ─────────────────────────────────────────────────────

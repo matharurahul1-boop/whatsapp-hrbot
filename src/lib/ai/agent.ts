@@ -556,6 +556,7 @@ async function canonicalizeConfirmation(
       .select('id, title, assignee:users!tasks_assignee_id_fkey(full_name)')
       .eq('organization_id', orgId).ilike('title', `%${titleQuery}%`).is('deleted_at', null).limit(10);
     const assigneeHint = args.assignee_hint?.trim();
+    console.log(`[Agent] Task-existence debug — titleQuery="${titleQuery}" assigneeHint="${assigneeHint}" allMatches=`, JSON.stringify(allMatches));
     // Fuzzy match, not exact substring — a typo'd hint like "prnay" should
     // still resolve to "Pranay Khadse" instead of matching nothing and
     // silently falling through to the unfiltered multi-match list again.
@@ -564,9 +565,11 @@ async function canonicalizeConfirmation(
           const name = t.assignee?.full_name ?? '';
           if (!name) return false;
           const score = Math.max(...[name, ...name.split(/\s+/)].map((n: string) => confirmationNameSimilarity(assigneeHint, n)));
+          console.log(`[Agent] Task-existence debug — candidate="${t.title}" assignee="${name}" score=${score}`);
           return score >= 0.65;
         })
       : allMatches) as any[] | null;
+    console.log(`[Agent] Task-existence debug — final matches.length=${matches?.length}`);
     if (!matches || matches.length === 0) {
       return { tool, args, error: assigneeHint
         ? `❌ No task named *"${titleQuery}"* is assigned to *${args.assignee_hint}*.`
@@ -1876,11 +1879,13 @@ async function resolveTaskDisambiguation(
   // sentence as the hint — falls back to the raw reply for a bare name.
   const hintMatch = reply.match(/assigned\s+to\s+(.+)/i) ?? reply.match(/^(.+?)['’]s\b/);
   const assigneeHint = (hintMatch ? hintMatch[1] : reply).replace(/[.?!]+$/, '').trim();
+  console.log(`[Agent] Disambiguation debug — reply="${reply}" extracted assigneeHint="${assigneeHint}" payload.args=`, JSON.stringify(payload.args));
   if (!assigneeHint) {
     return 'Please say who it\'s assigned to (e.g. "assigned to Tushar") to pick one.';
   }
 
   const checked = await canonicalizeConfirmation(payload.tool, { ...payload.args, assignee_hint: assigneeHint }, orgId);
+  console.log(`[Agent] Disambiguation debug — canonicalizeConfirmation returned tool="${checked.tool}" error="${checked.error}"`);
   if (checked.error) {
     const stillAmbiguous = /^Multiple tasks match/.test(checked.error);
     await saveContext(conversationId, {

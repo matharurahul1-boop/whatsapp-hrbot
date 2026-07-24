@@ -1,26 +1,38 @@
+// Preset options for the Department/Job-title dropdowns shown at org creation
+// (New Organization), joining an org (/join), and adding a team member
+// (CreateAccountModal). Kept industry-neutral rather than software-company-
+// specific — this product is sold to many kinds of organizations (law firms,
+// hospitals, retail, agencies, etc.), not just software teams. Every field
+// using these still falls through to a free-text "Other" option via
+// SelectOrCustom, so this list only needs to cover the common cases well,
+// not be exhaustive.
 export const DEPARTMENT_OPTIONS: string[] = [
-  'Engineering',
+  'Engineering / IT',
   'Product',
   'Design',
   'Quality Assurance',
   'Human Resources',
   'Sales',
   'Marketing',
-  'Finance',
+  'Finance / Accounts',
   'Operations',
   'Customer Support',
-  'IT / DevOps',
   'Administration',
-  'Legal',
+  'Legal / Compliance',
   'Business Development',
+  'Procurement',
+  'Clinical / Medical',
+  'Nursing',
+  'Retail / Store Operations',
+  'Warehouse / Logistics',
+  'Manufacturing / Production',
+  'Research & Development',
+  'Training',
 ];
 
 export const JOB_TITLE_OPTIONS: string[] = [
   'Software Engineer',
   'Senior Software Engineer',
-  'Full Stack Developer',
-  'Frontend Developer',
-  'Backend Developer',
   'QA Engineer',
   'UI/UX Designer',
   'Product Manager',
@@ -30,6 +42,17 @@ export const JOB_TITLE_OPTIONS: string[] = [
   'Team Lead',
   'HR Executive',
   'HR Manager',
+  'Accountant',
+  'Sales Executive',
+  'Marketing Executive',
+  'Operations Executive',
+  'Customer Support Executive',
+  'Associate',
+  'Consultant',
+  'Attorney / Lawyer',
+  'Physician / Doctor',
+  'Nurse',
+  'Store Manager',
   'Manager',
   'Director',
   'Administrator',

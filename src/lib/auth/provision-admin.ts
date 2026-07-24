@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { normalizeWaNumber } from '@/lib/utils/phone';
+import { AttendancePolicySchema } from '@/lib/validation/attendance-policy-schema';
+import { composeAttendancePolicySummary, ATTENDANCE_POLICY_DEFAULTS } from '@/lib/utils/attendance-policy-shared';
+import type { AttendancePolicy } from '@/lib/utils/attendance-policy-shared';
 
 const AdminWorkspaceBaseSchema = z.object({
   fullName: z.string().trim().min(2, 'Full name must be at least 2 characters').max(100),
@@ -14,6 +17,11 @@ const AdminWorkspaceBaseSchema = z.object({
   timezone: z.string().trim().min(1).max(80).default('Asia/Kolkata'),
   workdayStart: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).default('09:00'),
   workdayEnd: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).default('18:00'),
+  // Optional — filled in when the creator completes the Attendance Policy
+  // wizard as part of org setup (New Organization page). Left out entirely
+  // when skipped; the new org's admin can still configure it later from
+  // Settings → Attendance Policy, same as any existing org.
+  attendancePolicy: AttendancePolicySchema.optional(),
 });
 
 const validWorkday = (data: { workdayStart: string; workdayEnd: string }) => data.workdayStart < data.workdayEnd;
@@ -138,6 +146,23 @@ export async function provisionAdminWorkspace(
       })),
     );
     if (balanceError) throw new Error(`Failed to initialize leave balances: ${balanceError.message}`);
+
+    // Attendance policy is optional — only written when the creator actually
+    // completed the wizard during setup. Skipping it entirely (rather than
+    // writing a defaulted, is_configured:false row) keeps this consistent
+    // with an org that configures it later from Settings: no row until
+    // someone deliberately confirms one.
+    if (input.attendancePolicy) {
+      const merged = { ...ATTENDANCE_POLICY_DEFAULTS, ...input.attendancePolicy } as AttendancePolicy;
+      const { error: policyError } = await db.from('attendance_policies').insert({
+        organization_id: orgId,
+        ...input.attendancePolicy,
+        summary_text: composeAttendancePolicySummary(merged),
+        is_configured: true,
+        configured_by: user.id,
+      });
+      if (policyError) throw new Error(`Failed to save attendance policy: ${policyError.message}`);
+    }
 
     return { orgId, alreadyExists: false };
   } catch (error) {

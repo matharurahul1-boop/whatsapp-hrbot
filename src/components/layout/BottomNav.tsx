@@ -27,7 +27,7 @@ const MORE_ITEMS = [
   { href: '/employees',  label: 'Team',       Icon: Users,         color: 'text-pink-400',    roles: MGR },
   { href: '/whatsapp',   label: 'WA Logs',    Icon: MessageSquare, color: 'text-green-400',   roles: ALL },
   { href: '/policy',     label: 'Policy',     Icon: FileText,      color: 'text-blue-400',    roles: HR  },
-  { href: '/organizations/new', label: 'New Org', Icon: Building2, color: 'text-orange-400',  roles: ADMIN },
+  { href: '/organizations', label: 'Orgs', Icon: Building2, color: 'text-orange-400',  roles: ADMIN },
   { href: '/settings',   label: 'Settings',   Icon: Settings,      color: 'text-surface-400', roles: ALL },
 ];
 

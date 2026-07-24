@@ -4,7 +4,7 @@ import { useState }    from 'react';
 import { useRouter }   from 'next/navigation';
 import {
   Zap, AlertCircle, Loader2,
-  LogOut, Building2, User, ArrowRight, Phone, BriefcaseBusiness, Users,
+  LogOut, Building2, User, ArrowRight, Phone, BriefcaseBusiness,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
@@ -21,7 +21,6 @@ export default function SetupForm({ userId, email, prefillName }: Props) {
   const [fullName, setFullName] = useState(prefillName);
   const [orgName,  setOrgName]  = useState('');
   const [waNumber, setWaNumber] = useState('');
-  const [department, setDepartment] = useState('Human Resources');
   const [designation, setDesignation] = useState('Administrator');
   const [companySize, setCompanySize] = useState('1-10');
   const [loading,  setLoading]  = useState(false);
@@ -29,7 +28,7 @@ export default function SetupForm({ userId, email, prefillName }: Props) {
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
-    if (!fullName.trim() || !orgName.trim() || !waNumber.trim() || !department.trim() || !designation.trim()) return;
+    if (!fullName.trim() || !orgName.trim() || !waNumber.trim() || !designation.trim()) return;
     setLoading(true);
     setError('');
 
@@ -38,7 +37,7 @@ export default function SetupForm({ userId, email, prefillName }: Props) {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          fullName, orgName, waNumber, department, designation, companySize,
+          fullName, orgName, waNumber, designation, companySize,
           timezone: 'Asia/Kolkata', workdayStart: '09:00', workdayEnd: '18:00',
         }),
       });
@@ -148,20 +147,11 @@ export default function SetupForm({ userId, email, prefillName }: Props) {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <label className="label">Department</label>
-                <div className="relative">
-                  <Users className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-surface-500 pointer-events-none" />
-                  <input value={department} onChange={e => setDepartment(e.target.value)} required className="input pl-9" />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <label className="label">Job title</label>
-                <div className="relative">
-                  <BriefcaseBusiness className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-surface-500 pointer-events-none" />
-                  <input value={designation} onChange={e => setDesignation(e.target.value)} required className="input pl-9" />
-                </div>
+            <div className="space-y-1.5">
+              <label className="label">Job title</label>
+              <div className="relative">
+                <BriefcaseBusiness className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-surface-500 pointer-events-none" />
+                <input value={designation} onChange={e => setDesignation(e.target.value)} required className="input pl-9" />
               </div>
             </div>
 
@@ -178,7 +168,7 @@ export default function SetupForm({ userId, email, prefillName }: Props) {
 
             <button
               type="submit"
-              disabled={loading || !fullName.trim() || !orgName.trim() || !waNumber.trim() || !department.trim() || !designation.trim()}
+              disabled={loading || !fullName.trim() || !orgName.trim() || !waNumber.trim() || !designation.trim()}
               className="w-full flex items-center justify-center gap-2 h-10 rounded-lg bg-brand-gradient text-white text-sm font-semibold mt-1 transition-all shadow-glow-sm hover:opacity-90 disabled:opacity-50"
             >
               {loading

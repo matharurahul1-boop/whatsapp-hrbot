@@ -4,14 +4,12 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   User, Mail, Lock, Eye, EyeOff, ArrowRight, Loader2, AlertCircle, CheckCircle2,
-  Building2, Phone, BriefcaseBusiness, Users, Clock3, ChevronLeft, ChevronRight, SkipForward,
+  Building2, Phone, BriefcaseBusiness, Clock3, ChevronLeft, ChevronRight, SkipForward,
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import type { AttendancePolicy } from '@/lib/utils/attendance-policy-shared';
 import { ATTENDANCE_POLICY_DEFAULTS, composeAttendancePolicySummary } from '@/lib/utils/attendance-policy-shared';
 import { AttendancePolicySteps, ATTENDANCE_STAGE_TITLES, StepShell } from '@/components/settings/AttendancePolicySteps';
-import { SelectOrCustom } from '@/components/ui/SelectOrCustom';
-import { DEPARTMENT_OPTIONS } from '@/lib/constants/org-fields';
 
 type FormStage = 'org' | 'attendance' | 'review';
 
@@ -23,7 +21,6 @@ export function NewOrganizationForm() {
   const [name,        setName]        = useState('');
   const [waNumber,    setWaNumber]    = useState('');
   const [email,       setEmail]       = useState('');
-  const [department,  setDepartment]  = useState('Human Resources');
   const [designation, setDesignation] = useState('Administrator');
   const [orgName,      setOrgName]      = useState('');
   const [companySize,  setCompanySize]  = useState('1-10');
@@ -66,7 +63,7 @@ export function NewOrganizationForm() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           fullName: name, orgName, email, password, waNumber,
-          department, designation, companySize,
+          designation, companySize,
           timezone: 'Asia/Kolkata', workdayStart, workdayEnd,
           attendancePolicy,
         }),
@@ -133,17 +130,6 @@ export function NewOrganizationForm() {
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-surface-500 pointer-events-none" />
                 <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="admin@company.com" required autoComplete="off" className="input pl-9" />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <label className="label">Department</label>
-              <div className="relative">
-                <Users className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-surface-500 pointer-events-none z-10" />
-                <SelectOrCustom
-                  value={department} onChange={setDepartment}
-                  options={DEPARTMENT_OPTIONS} placeholder="Select department" required
-                  className="input pl-9"
-                />
               </div>
             </div>
             <div className="space-y-1.5">
@@ -276,7 +262,7 @@ export function NewOrganizationForm() {
             sub="Nothing is created until you confirm."
           >
             <div className="rounded-lg border border-surface-300 bg-surface-200/50 px-4 py-3 text-sm text-surface-800 space-y-1">
-              <p><span className="text-surface-500">Admin:</span> {name} ({email}), {designation} — {department}</p>
+              <p><span className="text-surface-500">Admin:</span> {name} ({email}), {designation}</p>
               <p><span className="text-surface-500">Workspace:</span> {orgName}, {companySize} employees, {workdayStart}–{workdayEnd}</p>
             </div>
             {skipAttendance ? (

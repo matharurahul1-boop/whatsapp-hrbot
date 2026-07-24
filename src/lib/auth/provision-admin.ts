@@ -11,7 +11,12 @@ const AdminWorkspaceBaseSchema = z.object({
   waNumber: z.string().transform(value => normalizeWaNumber(value)).pipe(
     z.string().min(10, 'Enter a valid WhatsApp number with country code').max(15),
   ),
-  department: z.string().trim().min(2).max(80),
+  // Department doesn't cleanly apply to a founding admin (they might be the
+  // owner, IT, HR — anything) — optional here, unlike a real employee join
+  // where it's required. Job title is kept since "Administrator"/"Owner"/
+  // "Founder" is still meaningful context for the account that's setting
+  // the workspace up.
+  department: z.string().trim().max(80).optional(),
   designation: z.string().trim().min(2).max(80),
   companySize: z.enum(['1-10', '11-50', '51-200', '201-500', '501+']),
   timezone: z.string().trim().min(1).max(80).default('Asia/Kolkata'),
@@ -110,7 +115,7 @@ export async function provisionAdminWorkspace(
       role: 'admin',
       wa_number: input.waNumber,
       whatsapp_number: input.waNumber,
-      department: input.department,
+      department: input.department || 'Administration',
       designation: input.designation,
       onboarding_status: 'completed',
       is_active: true,

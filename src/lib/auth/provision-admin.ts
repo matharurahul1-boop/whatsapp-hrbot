@@ -114,7 +114,6 @@ export async function provisionAdminWorkspace(
       email: user.email,
       role: 'admin',
       wa_number: input.waNumber,
-      whatsapp_number: input.waNumber,
       department: input.department || 'Administration',
       designation: input.designation,
       onboarding_status: 'completed',

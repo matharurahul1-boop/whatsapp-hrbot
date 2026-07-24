@@ -10,6 +10,8 @@ import { cn } from '@/lib/utils/cn';
 import type { AttendancePolicy } from '@/lib/utils/attendance-policy-shared';
 import { ATTENDANCE_POLICY_DEFAULTS, composeAttendancePolicySummary } from '@/lib/utils/attendance-policy-shared';
 import { AttendancePolicySteps, ATTENDANCE_STAGE_TITLES, StepShell } from '@/components/settings/AttendancePolicySteps';
+import { SelectOrCustom } from '@/components/ui/SelectOrCustom';
+import { DEPARTMENT_OPTIONS } from '@/lib/constants/org-fields';
 
 type FormStage = 'org' | 'attendance' | 'review';
 
@@ -136,8 +138,12 @@ export function NewOrganizationForm() {
             <div className="space-y-1.5">
               <label className="label">Department</label>
               <div className="relative">
-                <Users className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-surface-500 pointer-events-none" />
-                <input type="text" value={department} onChange={e => setDepartment(e.target.value)} required className="input pl-9" />
+                <Users className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-surface-500 pointer-events-none z-10" />
+                <SelectOrCustom
+                  value={department} onChange={setDepartment}
+                  options={DEPARTMENT_OPTIONS} placeholder="Select department" required
+                  className="input pl-9"
+                />
               </div>
             </div>
             <div className="space-y-1.5">

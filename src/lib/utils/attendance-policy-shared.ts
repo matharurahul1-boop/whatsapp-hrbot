@@ -31,6 +31,10 @@ export interface AttendancePolicy {
   capture_methods: string[];
   geo_fence_locations: GeoFence[];
   has_field_employees: boolean;
+  // Only meaningful when has_field_employees is true — asked as a follow-up,
+  // not bundled into the same toggle, so "field employees exist but no
+  // separate policy needed" is distinguishable from "no field employees."
+  field_employees_separate_policy: boolean;
   wfh_enabled: boolean;
   wfh_requires_approval: boolean;
   wfh_counts_as_attendance: boolean;
@@ -49,6 +53,8 @@ export interface AttendancePolicy {
   escalation_notify: 'manager' | 'hr' | 'both';
   escalation_frequency: 'realtime' | 'weekly' | 'monthly';
   employee_dashboard_visible: boolean;
+  // Only meaningful when employee_dashboard_visible is true.
+  employee_dashboard_detail: 'summary' | 'detailed';
 
   summary_text: string | null;
   is_configured: boolean;
@@ -74,6 +80,7 @@ export const ATTENDANCE_POLICY_DEFAULTS: AttendancePolicy = {
   capture_methods: ['web'],
   geo_fence_locations: [],
   has_field_employees: false,
+  field_employees_separate_policy: false,
   wfh_enabled: false,
   wfh_requires_approval: true,
   wfh_counts_as_attendance: true,
@@ -88,6 +95,7 @@ export const ATTENDANCE_POLICY_DEFAULTS: AttendancePolicy = {
   escalation_notify: 'manager',
   escalation_frequency: 'weekly',
   employee_dashboard_visible: true,
+  employee_dashboard_detail: 'summary',
   summary_text: null,
   is_configured: false,
 };
@@ -137,6 +145,12 @@ export function composeAttendancePolicySummary(p: AttendancePolicy): string {
 
   lines.push(`Attendance captured via ${p.capture_methods.map(m => ATTENDANCE_CAPTURE_LABEL[m] ?? m).join(', ')}${p.geo_fence_locations.length ? `, geo-fenced to ${p.geo_fence_locations.length} location(s)` : ''}.`);
 
+  if (p.has_field_employees) {
+    lines.push(p.field_employees_separate_policy
+      ? 'Field/remote employees follow a separate attendance policy.'
+      : 'Field employees exist but follow the same attendance policy as everyone else.');
+  }
+
   if (p.wfh_enabled) {
     lines.push(`Work-from-home is a separate category${p.wfh_requires_approval ? ', requires approval,' : ''} and ${p.wfh_counts_as_attendance ? 'counts' : "doesn't count"} toward attendance the same as office days.`);
   }
@@ -151,7 +165,11 @@ export function composeAttendancePolicySummary(p: AttendancePolicy): string {
 
   lines.push(`${p.holidays.length} holiday(s) on the calendar. Approved leave ${p.auto_sync_leave_attendance ? 'will not' : 'may'} show as absent.`);
 
-  lines.push(`Repeated lateness/absenteeism notifies ${p.escalation_notify === 'both' ? 'manager & HR' : p.escalation_notify.toUpperCase()}, ${p.escalation_frequency}. Employees ${p.employee_dashboard_visible ? 'can' : "can't"} see their own attendance summary.`);
+  lines.push(`Repeated lateness/absenteeism notifies ${p.escalation_notify === 'both' ? 'manager & HR' : p.escalation_notify.toUpperCase()}, ${p.escalation_frequency}. ${
+    p.employee_dashboard_visible
+      ? `Employees can see their own attendance ${p.employee_dashboard_detail === 'detailed' ? 'in full day-by-day detail' : 'as a summary only'}.`
+      : "Employees can't see their own attendance summary."
+  }`);
 
   return lines.join(' ');
 }

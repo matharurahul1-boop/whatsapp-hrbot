@@ -276,7 +276,10 @@ export function AttendancePolicySteps({ policy, set, step }: {
               </div>
             </Q>
           )}
-          <ToggleRow label="Do field employees exist (separate remote/field attendance policy)?" value={policy.has_field_employees} onChange={v => set('has_field_employees', v)} />
+          <ToggleRow label="Do field employees exist (e.g. sales reps, delivery staff, on-site visits)?" value={policy.has_field_employees} onChange={v => set('has_field_employees', v)} />
+          {policy.has_field_employees && (
+            <ToggleRow label="Should field/remote employees follow a separate attendance policy?" value={policy.field_employees_separate_policy} onChange={v => set('field_employees_separate_policy', v)} />
+          )}
           <ToggleRow label="Need Work-From-Home as a separate attendance category?" value={policy.wfh_enabled} onChange={v => set('wfh_enabled', v)} />
           {policy.wfh_enabled && (
             <>
@@ -355,6 +358,14 @@ export function AttendancePolicySteps({ policy, set, step }: {
             ]} />
           </Q>
           <ToggleRow label="Should employees see their own attendance summary/dashboard?" value={policy.employee_dashboard_visible} onChange={v => set('employee_dashboard_visible', v)} />
+          {policy.employee_dashboard_visible && (
+            <Q label="What level of detail should they see?">
+              <Select value={policy.employee_dashboard_detail} onChange={v => set('employee_dashboard_detail', v)} options={[
+                { value: 'summary', label: 'Summary only (% present, current streak)' },
+                { value: 'detailed', label: 'Detailed (day-by-day log, late/half-day markers)' },
+              ]} />
+            </Q>
+          )}
         </StepShell>
       )}
     </>

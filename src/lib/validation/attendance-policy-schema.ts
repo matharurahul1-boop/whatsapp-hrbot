@@ -46,6 +46,7 @@ export const AttendancePolicySchema = z.object({
   capture_methods:                z.array(z.enum(['biometric', 'mobile_gps', 'selfie', 'web', 'ip_restricted'])).optional(),
   geo_fence_locations:            z.array(GeoFenceSchema).optional(),
   has_field_employees:            z.boolean().optional(),
+  field_employees_separate_policy: z.boolean().optional(),
   wfh_enabled:                    z.boolean().optional(),
   wfh_requires_approval:          z.boolean().optional(),
   wfh_counts_as_attendance:       z.boolean().optional(),
@@ -64,6 +65,7 @@ export const AttendancePolicySchema = z.object({
   escalation_notify:              z.enum(['manager', 'hr', 'both']).optional(),
   escalation_frequency:           z.enum(['realtime', 'weekly', 'monthly']).optional(),
   employee_dashboard_visible:     z.boolean().optional(),
+  employee_dashboard_detail:      z.enum(['summary', 'detailed']).optional(),
 
   summary_text:                   z.string().max(4000).optional(),
   is_configured:                  z.boolean().optional(),

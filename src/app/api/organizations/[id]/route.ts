@@ -21,6 +21,11 @@ const PatchSchema = z.object({
   companySize:  z.enum(['1-10', '11-50', '51-200', '201-500', '501+']).optional(),
   workdayStart: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
   workdayEnd:   z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
+  // Matches the org_plan Postgres enum. Purely a label today — nothing in
+  // the app reads plan to gate features or enforce limits — but the
+  // platform operator still needs somewhere to record which tier a
+  // customer is actually on.
+  plan:         z.enum(['free', 'pro', 'enterprise']).optional(),
 });
 
 async function requirePlatformOperator() {
@@ -41,7 +46,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   const { id } = await params;
 
   const { data, error } = await ctx.db
-    .from('organizations').select('id, name, settings').eq('id', id).single();
+    .from('organizations').select('id, name, plan, settings').eq('id', id).single();
   if (error || !data) return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
 
   const settings = (data.settings as Record<string, unknown>) ?? {};
@@ -51,6 +56,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     data: {
       id: data.id,
       name: data.name,
+      plan: data.plan,
       companySize: (settings.company_size as string | undefined) ?? '1-10',
       workdayStart: workHours.start ?? '09:00',
       workdayEnd: workHours.end ?? '18:00',
@@ -69,7 +75,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: firstError ? `${firstError.path.join('.') || 'field'}: ${firstError.message}` : 'Invalid request data' }, { status: 422 });
   }
 
-  const { name, companySize, workdayStart, workdayEnd } = parsed.data;
+  const { name, plan, companySize, workdayStart, workdayEnd } = parsed.data;
 
   const { data: existing, error: fetchError } = await ctx.db
     .from('organizations').select('settings').eq('id', id).single();
@@ -82,6 +88,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     .from('organizations')
     .update({
       ...(name !== undefined && { name }),
+      ...(plan !== undefined && { plan }),
       settings: {
         ...currentSettings,
         ...(companySize !== undefined && { company_size: companySize }),

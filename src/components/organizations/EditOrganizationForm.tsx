@@ -13,6 +13,7 @@ export function EditOrganizationForm({ orgId, orgName }: { orgId: string; orgNam
   const [saved,  setSaved]    = useState(false);
 
   const [name,         setName]         = useState(orgName);
+  const [plan,         setPlan]         = useState('free');
   const [companySize,  setCompanySize]  = useState('1-10');
   const [workdayStart, setWorkdayStart] = useState('09:00');
   const [workdayEnd,   setWorkdayEnd]   = useState('18:00');
@@ -23,6 +24,7 @@ export function EditOrganizationForm({ orgId, orgName }: { orgId: string; orgNam
       .then(d => {
         if (d.error) throw new Error(d.error);
         setName(d.data.name);
+        setPlan(d.data.plan);
         setCompanySize(d.data.companySize);
         setWorkdayStart(d.data.workdayStart);
         setWorkdayEnd(d.data.workdayEnd);
@@ -37,7 +39,7 @@ export function EditOrganizationForm({ orgId, orgName }: { orgId: string; orgNam
       const res = await fetch(`/api/organizations/${orgId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, companySize, workdayStart, workdayEnd }),
+        body: JSON.stringify({ name, plan, companySize, workdayStart, workdayEnd }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? 'Failed to save');
@@ -86,6 +88,14 @@ export function EditOrganizationForm({ orgId, orgName }: { orgId: string; orgNam
                 <option value="51-200">51–200 employees</option>
                 <option value="201-500">201–500 employees</option>
                 <option value="501+">501+ employees</option>
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <label className="label">Plan</label>
+              <select value={plan} onChange={e => setPlan(e.target.value)} className={inputCls}>
+                <option value="free">Free</option>
+                <option value="pro">Pro</option>
+                <option value="enterprise">Enterprise</option>
               </select>
             </div>
             <div className="space-y-1.5">

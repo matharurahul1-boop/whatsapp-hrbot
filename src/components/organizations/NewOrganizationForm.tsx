@@ -10,6 +10,8 @@ import { cn } from '@/lib/utils/cn';
 import type { AttendancePolicy } from '@/lib/utils/attendance-policy-shared';
 import { ATTENDANCE_POLICY_DEFAULTS, composeAttendancePolicySummary } from '@/lib/utils/attendance-policy-shared';
 import { AttendancePolicySteps, ATTENDANCE_STAGE_TITLES, StepShell } from '@/components/settings/AttendancePolicySteps';
+import { SelectOrCustom } from '@/components/ui/SelectOrCustom';
+import { JOB_TITLE_OPTIONS } from '@/lib/constants/org-fields';
 
 type FormStage = 'org' | 'attendance' | 'review';
 
@@ -135,8 +137,12 @@ export function NewOrganizationForm() {
             <div className="space-y-1.5">
               <label className="label">Job title</label>
               <div className="relative">
-                <BriefcaseBusiness className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-surface-500 pointer-events-none" />
-                <input type="text" value={designation} onChange={e => setDesignation(e.target.value)} required className="input pl-9" />
+                <BriefcaseBusiness className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-surface-500 pointer-events-none z-10" />
+                <SelectOrCustom
+                  value={designation} onChange={setDesignation}
+                  options={JOB_TITLE_OPTIONS} placeholder="Select job title" required
+                  className="input pl-9"
+                />
               </div>
             </div>
           </div>

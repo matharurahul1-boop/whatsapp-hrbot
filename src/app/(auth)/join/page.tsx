@@ -7,8 +7,6 @@ import { createClient } from '@/lib/supabase/client';
 import { SelectOrCustom } from '@/components/ui/SelectOrCustom';
 import { DEPARTMENT_OPTIONS, JOB_TITLE_OPTIONS } from '@/lib/constants/org-fields';
 
-interface OrgOption { id: string; name: string }
-
 function JoinForm() {
   const router   = useRouter();
   const params   = useSearchParams();
@@ -16,19 +14,19 @@ function JoinForm() {
 
   const inviteToken = params.get('token') ?? '';
 
-  // Two entry points into this page:
-  //  - a signed invite link (?token=...) minted by an admin/HR user via the
-  //    Team page's Invite panel — org + role are baked into the token and
-  //    re-verified server-side on submit, never trusted from the URL alone
-  //  - a bare /join visit (e.g. the login page's "Join your team" link) —
-  //    the user picks their organization from a list and always joins as
-  //    a regular Team Member (elevated roles require a real invite link)
+  // This page only works via a signed invite link (?token=...) minted by an
+  // admin/HR user through the Team page's Invite panel — org + role are
+  // baked into the token and re-verified server-side on submit, never
+  // trusted from the URL alone. There used to be a bare-visit path that let
+  // anyone pick from a public list of every organization on the platform
+  // and self-join as an employee with no invite at all — closed, since
+  // publicly enumerating every customer's org name is a real leak for a
+  // product sold to multiple companies (and self-joining a stranger's
+  // workspace was never intentional).
   const hasInviteLink = !!inviteToken;
 
-  const [orgId,      setOrgId]      = useState('');
   const [orgName,    setOrgName]    = useState('');
   const [role,       setRole]       = useState<'employee' | 'manager' | 'hr'>('employee');
-  const [orgOptions, setOrgOptions] = useState<OrgOption[]>([]);
   const [checking,   setChecking]   = useState(true);
   const [loading,    setLoading]    = useState(false);
   const [error,      setError]      = useState('');
@@ -44,34 +42,24 @@ function JoinForm() {
   const ROLE_LABEL: Record<string, string> = { employee: 'Team Member', manager: 'Manager', hr: 'HR Staff' };
 
   useEffect(() => {
-    if (hasInviteLink) {
-      fetch(`/api/auth/verify-invite?token=${encodeURIComponent(inviteToken)}`)
-        .then(r => r.json())
-        .then(d => {
-          if (d.orgName) { setOrgName(d.orgName); setRole(d.role); }
-          else setError(d.error ?? 'Invite link is invalid or has expired.');
-        })
-        .catch(() => setError('Could not verify invite link.'))
-        .finally(() => setChecking(false));
+    if (!hasInviteLink) {
+      setError('This link is invalid. Ask your admin or HR team for a fresh invite link.');
+      setChecking(false);
       return;
     }
-
-    fetch('/api/organizations/list')
+    fetch(`/api/auth/verify-invite?token=${encodeURIComponent(inviteToken)}`)
       .then(r => r.json())
       .then(d => {
-        const orgs: OrgOption[] = d.organizations ?? [];
-        setOrgOptions(orgs);
-        if (orgs.length) setOrgId(orgs[0].id);
-        else setError('No organizations are set up yet. Ask your admin for an invite link.');
+        if (d.orgName) { setOrgName(d.orgName); setRole(d.role); }
+        else setError(d.error ?? 'Invite link is invalid or has expired.');
       })
-      .catch(() => setError('Could not load organizations.'))
+      .catch(() => setError('Could not verify invite link.'))
       .finally(() => setChecking(false));
   }, [hasInviteLink, inviteToken]);
 
   async function handleJoin(e: React.FormEvent) {
     e.preventDefault();
     if (password.length < 6) { setError('Password must be at least 6 characters'); return; }
-    if (!hasInviteLink && !orgId) { setError('Please select an organization'); return; }
     setLoading(true); setError('');
 
     // Belt-and-suspenders: Supabase's own signUp() is supposed to reject an
@@ -97,9 +85,7 @@ function JoinForm() {
 
     const res  = await fetch('/api/auth/join', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(hasInviteLink
-        ? { inviteToken, fullName: name, waNumber, department, designation }
-        : { orgId, fullName: name, waNumber, department, designation }),
+      body: JSON.stringify({ inviteToken, fullName: name, waNumber, department, designation }),
     });
     const json = await res.json();
     if (!res.ok) { setError(json.error ?? 'Failed to join'); setLoading(false); return; }
@@ -137,13 +123,11 @@ function JoinForm() {
             <Zap className="h-7 w-7 text-white" />
           </div>
           <h1 className="text-2xl font-bold text-surface-950">Join HRBot</h1>
-          <p className="text-sm text-surface-600 mt-1">
-            {hasInviteLink ? "You've been invited to join a workspace" : 'Select your organization to get started'}
-          </p>
+          <p className="text-sm text-surface-600 mt-1">You&apos;ve been invited to join a workspace</p>
         </div>
 
         {/* Org banner */}
-        {hasInviteLink && orgName && !error && (
+        {orgName && !error && (
           <div className="flex items-center gap-3 rounded-xl bg-brand-500/[0.08] border border-brand-500/20 px-4 py-3 mb-4">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-500/15 shrink-0">
               <Building2 className="h-4 w-4 text-brand-400" />
@@ -171,17 +155,6 @@ function JoinForm() {
             <p className="text-sm font-semibold text-surface-950 mb-5">Create your account</p>
 
             <form onSubmit={handleJoin} className="space-y-4">
-              {!hasInviteLink && (
-                <div className="space-y-1.5">
-                  <label className="label">Organization</label>
-                  <div className="relative">
-                    <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-surface-500 pointer-events-none" />
-                    <select value={orgId} onChange={e => setOrgId(e.target.value)} required className="input pl-9">
-                      {orgOptions.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
-                    </select>
-                  </div>
-                </div>
-              )}
               <div className="space-y-1.5">
                 <label className="label">Full name</label>
                 <div className="relative">

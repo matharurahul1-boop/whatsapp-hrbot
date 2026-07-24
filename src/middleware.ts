@@ -35,8 +35,6 @@ export async function middleware(request: NextRequest) {
     '/reset-password',
     '/api/webhooks',
     '/api/auth',
-    '/api/organizations/info',
-    '/api/organizations/list',
     '/api/health',
     '/api/policy/ask',       // called server-to-server from WA webhook (no session)
     '/api/agent',            // called by n8n / services with Bearer APP_SECRET

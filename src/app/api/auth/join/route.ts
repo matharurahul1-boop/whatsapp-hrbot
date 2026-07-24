@@ -6,13 +6,12 @@ import { normalizeWaNumber } from '@/lib/utils/phone';
 import { z } from 'zod';
 
 const JoinSchema = z.object({
-  orgId:       z.string().uuid().optional(),   // used only for the org-picker (no-invite) path
-  inviteToken: z.string().optional(),           // signed token from /api/organizations/invite
+  inviteToken: z.string().min(1),               // signed token from /api/organizations/invite — always required
   fullName:    z.string().min(2).max(100),
   waNumber:    z.string().min(6).max(20),
   department:  z.string().min(1).max(100),
   designation: z.string().min(1).max(100),
-}).refine(d => d.orgId || d.inviteToken, { message: 'orgId or inviteToken required' });
+});
 
 // POST /api/auth/join — join an existing org (called after signUp)
 export async function POST(req: NextRequest) {
@@ -27,21 +26,16 @@ export async function POST(req: NextRequest) {
 
     const { fullName, waNumber, department, designation } = parsed.data;
 
-    // The role — and, when an invite token is present, the org itself — is
-    // never trusted from the client. A bare org-picker join (no token) always
-    // lands as 'employee'; only a signed token minted by an existing
-    // HR/admin user (via /api/organizations/invite) can grant more.
-    let orgId: string;
-    let role: InviteRole = 'employee';
-
-    if (parsed.data.inviteToken) {
-      const payload = verifyInvite(parsed.data.inviteToken);
-      if (!payload) return NextResponse.json({ error: 'Invite link is invalid or has expired' }, { status: 400 });
-      orgId = payload.orgId;
-      role  = payload.role;
-    } else {
-      orgId = parsed.data.orgId!;
-    }
+    // Org and role are never trusted from the client — both come from a
+    // signed token minted by an existing HR/admin user via
+    // /api/organizations/invite. There used to be a bare org-picker path
+    // (any authenticated new user could self-join any org UUID they knew,
+    // no invite required) — removed, since it depended on a public
+    // organizations/list endpoint that leaked every customer's org name.
+    const payload = verifyInvite(parsed.data.inviteToken);
+    if (!payload) return NextResponse.json({ error: 'Invite link is invalid or has expired' }, { status: 400 });
+    const orgId: string = payload.orgId;
+    const role: InviteRole = payload.role;
 
     const db = createAdminClient();
 

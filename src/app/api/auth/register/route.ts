@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
     }
     userId = data.user.id;
 
-    const result = await provisionAdminWorkspace({ id: userId, email }, workspace);
+    const result = await provisionAdminWorkspace({ id: userId, email }, workspace, { forcePasswordChange: true });
     await admin.auth.admin.updateUserById(userId, { app_metadata: { role: 'admin' } });
     return NextResponse.json(
       { ok: true, orgId: result.orgId, emailConfirmationRequired: !data.session },

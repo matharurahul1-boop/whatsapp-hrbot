@@ -47,6 +47,15 @@ export type AdminWorkspaceInput = z.infer<typeof AdminWorkspaceSchema>;
 export async function provisionAdminWorkspace(
   user: { id: string; email: string },
   input: AdminWorkspaceInput,
+  options?: {
+    // True when a DIFFERENT person (an existing admin, via New Organization)
+    // typed this password on the new admin's behalf — that admin now knows
+    // the plaintext, so the new org's founding admin is forced to set their
+    // own password on first login. False (default) for self-service
+    // bootstrap via /api/auth/setup, where the person setting the password
+    // is the one who'll use it.
+    forcePasswordChange?: boolean;
+  },
 ) {
   const db = createAdminClient();
 
@@ -106,7 +115,10 @@ export async function provisionAdminWorkspace(
       onboarding_status: 'completed',
       is_active: true,
       joined_at: new Date().toISOString(),
-      metadata: { registration_source: 'public_signup' },
+      metadata: {
+        registration_source: options?.forcePasswordChange ? 'admin_created' : 'self_setup',
+        ...(options?.forcePasswordChange && { must_change_password: true }),
+      },
     });
     if (profileError) throw new Error(`Failed to create admin profile: ${profileError.message}`);
 

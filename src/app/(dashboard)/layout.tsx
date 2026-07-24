@@ -19,11 +19,18 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const db = createAdminClient();
   const { data: profile } = await db
     .from('users')
-    .select('id, full_name, role, avatar_url, organization_id, organizations(name)')
+    .select('id, full_name, role, avatar_url, organization_id, metadata, organizations(name)')
     .eq('id', user.id)
     .single();
 
   if (!profile) redirect('/setup');
+
+  // Founding admin of an org created via New Organization by a DIFFERENT
+  // admin never chose their own password (that admin typed it on their
+  // behalf) — force a change before letting them into the app at all.
+  if ((profile.metadata as { must_change_password?: boolean } | null)?.must_change_password) {
+    redirect('/change-password-required');
+  }
 
   const orgName = (profile as { organizations?: { name?: string } }).organizations?.name;
 

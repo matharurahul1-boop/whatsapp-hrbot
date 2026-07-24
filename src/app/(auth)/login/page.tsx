@@ -177,6 +177,23 @@ export default function LoginPage() {
             </form>
           )}
 
+          {/* Tab toggle */}
+          <p className="text-xs text-surface-500 text-center mt-4 mb-1">
+            {tab === 'login' ? (
+              <>Don&apos;t have a workspace yet?{' '}
+                <button type="button" onClick={() => setTab('signup')} className="text-brand-400 hover:text-brand-300 font-medium">
+                  Create one
+                </button>
+              </>
+            ) : (
+              <>Already have a workspace?{' '}
+                <button type="button" onClick={() => setTab('login')} className="text-brand-400 hover:text-brand-300 font-medium">
+                  Sign in
+                </button>
+              </>
+            )}
+          </p>
+
           {/* Sign Up */}
           {tab === 'signup' && (
             <form onSubmit={handleSignup} className="space-y-5">

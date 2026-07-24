@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { isSuperAdmin, isAdminOrAbove } from '@/lib/rbac';
+import { isAdminOrAbove } from '@/lib/rbac';
 import { OrganizationsTable } from '@/components/organizations/OrganizationsTable';
 
 export default async function OrganizationsPage() {
@@ -13,11 +13,9 @@ export default async function OrganizationsPage() {
 
   const db = createAdminClient();
   const { data: profile } = await db.from('users').select('role').eq('id', user.id).single();
+  // Admin gets the same access as super_admin here, matching org creation
+  // and attendance-policy management, which were already admin-accessible.
   if (!profile || !isAdminOrAbove(profile.role)) redirect('/dashboard');
-  // The org list is cross-org visibility — super_admin only, same as every
-  // other "see across orgs" surface in this app. A plain admin can still
-  // create a new org, just without seeing the platform-wide list.
-  if (!isSuperAdmin(profile.role)) redirect('/organizations/new');
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">

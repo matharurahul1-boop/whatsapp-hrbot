@@ -1,15 +1,14 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { isSuperAdmin } from '@/lib/rbac';
+import { isAdminOrAbove } from '@/lib/rbac';
 
 // GET /api/organizations — lists every organization on the platform, for the
-// platform-operator console (Settings-adjacent /organizations page). Every
-// other cross-org view in this app (e.g. WA Logs "see every conversation")
-// is already super_admin-only, not admin — this follows the same line:
-// a plain admin stays scoped to their own org everywhere else, so seeing
-// every OTHER customer's org here would be a new cross-tenant leak, not a
-// continuation of an existing pattern.
+// platform-operator console (Settings-adjacent /organizations page).
+// Deliberately admin-or-above, not super_admin-only: org creation and
+// attendance-policy management are both already admin-accessible, and this
+// list is the natural companion view for that — an admin can see every org
+// they (or another admin) has created, not just their own.
 export async function GET() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -17,8 +16,8 @@ export async function GET() {
 
   const db = createAdminClient();
   const { data: profile } = await db.from('users').select('role').eq('id', user.id).single();
-  if (!profile || !isSuperAdmin(profile.role)) {
-    return NextResponse.json({ error: 'Only super admins can view all organizations' }, { status: 403 });
+  if (!profile || !isAdminOrAbove(profile.role)) {
+    return NextResponse.json({ error: 'Only admins can view all organizations' }, { status: 403 });
   }
 
   const { data: orgs, error } = await db

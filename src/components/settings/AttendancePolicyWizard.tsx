@@ -12,7 +12,12 @@ import { AttendancePolicySteps, ATTENDANCE_STAGE_TITLES, StepShell } from './Att
 // API. The New Organization flow (src/components/organizations) uses the
 // same AttendancePolicySteps but collects state locally instead, submitting
 // it together with org creation — see NewOrganizationForm.tsx.
-export function AttendancePolicyWizard() {
+//
+// targetOrgId lets a platform-operator admin edit a DIFFERENT org's policy
+// (see /organizations/[id]/edit) — omitted, it defaults to the caller's own
+// org exactly as before. The API enforces who's actually allowed to pass
+// one; this is just wiring the value through.
+export function AttendancePolicyWizard({ targetOrgId }: { targetOrgId?: string } = {}) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving]   = useState(false);
@@ -20,12 +25,13 @@ export function AttendancePolicyWizard() {
   const [editing, setEditing] = useState(false);
   const [step, setStep]       = useState(0); // 0..8 stages, 9 = summary/confirm
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [targetOrgId]);
 
   async function load() {
     setLoading(true);
     try {
-      const res = await fetch('/api/organizations/attendance-policy');
+      const url = targetOrgId ? `/api/organizations/attendance-policy?orgId=${targetOrgId}` : '/api/organizations/attendance-policy';
+      const res = await fetch(url);
       const json = await res.json();
       if (json.data) {
         setPolicy({ ...ATTENDANCE_POLICY_DEFAULTS, ...json.data });
@@ -53,7 +59,7 @@ export function AttendancePolicyWizard() {
       const res = await fetch('/api/organizations/attendance-policy', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...sanitized, summary_text, is_configured: true }),
+        body: JSON.stringify({ ...sanitized, summary_text, is_configured: true, ...(targetOrgId && { orgId: targetOrgId }) }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? 'Failed to save');

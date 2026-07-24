@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Loader2, AlertCircle, Building2 } from 'lucide-react';
+import Link from 'next/link';
+import { Loader2, AlertCircle, Building2, Pencil } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 
 interface OrgRow {
@@ -61,6 +62,7 @@ export function OrganizationsTable() {
               <th className="px-4 py-3">Plan</th>
               <th className="px-4 py-3">Users</th>
               <th className="px-4 py-3">Created</th>
+              <th className="px-4 py-3" />
             </tr>
           </thead>
           <tbody>
@@ -74,6 +76,14 @@ export function OrganizationsTable() {
                 </td>
                 <td className="px-4 py-3 text-surface-700">{org.active_users} active / {org.total_users} total</td>
                 <td className="px-4 py-3 text-surface-500">{new Date(org.created_at).toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
+                <td className="px-4 py-3 text-right">
+                  <Link
+                    href={`/organizations/${org.id}/edit`}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-500 hover:text-brand-600"
+                  >
+                    <Pencil className="h-3.5 w-3.5" /> Edit
+                  </Link>
+                </td>
               </tr>
             ))}
           </tbody>

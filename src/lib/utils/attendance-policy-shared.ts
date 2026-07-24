@@ -67,8 +67,14 @@ export const ATTENDANCE_POLICY_DEFAULTS: AttendancePolicy = {
   shifts: [{ name: 'General', start: '09:00', end: '18:00' }],
   shift_assignment_method: null,
   is_flexible_hours: false,
-  flexible_window_start: null,
-  flexible_window_end: null,
+  // Non-null even though flexible hours defaults off — the wizard's time
+  // inputs are controlled and DISPLAY these values via a `?? '08:00'`
+  // fallback the moment flexible hours is turned on, but a controlled
+  // input's displayed fallback never gets committed to state unless the
+  // user actually touches the field. Defaulting here instead of at render
+  // time means what's shown always matches what actually gets saved.
+  flexible_window_start: '08:00',
+  flexible_window_end: '11:00',
   full_day_hours: 9,
   grace_period_enabled: true,
   grace_minutes: 15,
@@ -76,7 +82,8 @@ export const ATTENDANCE_POLICY_DEFAULTS: AttendancePolicy = {
   late_violation_action: 'flag',
   half_day_threshold_hours: 4.5,
   early_leave_tracked_separately: false,
-  early_leave_threshold_minutes: null,
+  // Same "displayed default must equal saved default" reasoning as above.
+  early_leave_threshold_minutes: 30,
   capture_methods: ['web'],
   geo_fence_locations: [],
   has_field_employees: false,
@@ -156,7 +163,7 @@ export function composeAttendancePolicySummary(p: AttendancePolicy): string {
   }
 
   if (p.overtime_enabled) {
-    lines.push(`Overtime is tracked after ${ordinal(p.overtime_threshold_hours ?? 0)}${p.overtime_requires_preapproval ? ', pre-approval required' : ''}.`);
+    lines.push(`Overtime is tracked after ${ordinal(p.overtime_threshold_hours ?? p.full_day_hours)}${p.overtime_requires_preapproval ? ', pre-approval required' : ''}.`);
   }
 
   lines.push(p.regularization_enabled

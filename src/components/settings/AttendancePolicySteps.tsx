@@ -292,7 +292,14 @@ export function AttendancePolicySteps({ policy, set, step }: {
 
       {step === 5 && (
         <StepShell title="Stage 6 · Overtime">
-          <ToggleRow label="Track and compensate overtime?" value={policy.overtime_enabled} onChange={v => set('overtime_enabled', v)} />
+          <ToggleRow label="Track and compensate overtime?" value={policy.overtime_enabled} onChange={v => {
+            set('overtime_enabled', v);
+            // The threshold input displays full_day_hours as its fallback the
+            // moment this turns on, but a controlled input's displayed
+            // fallback never gets saved unless the user touches the field —
+            // commit it to state here so what's shown matches what's saved.
+            if (v && policy.overtime_threshold_hours === null) set('overtime_threshold_hours', policy.full_day_hours);
+          }} />
           {policy.overtime_enabled && (
             <>
               <Q label="Overtime starts after this many hours">

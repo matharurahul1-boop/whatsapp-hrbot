@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import type { AttendancePolicy } from '@/lib/utils/attendance-policy-shared';
-import { ATTENDANCE_POLICY_DEFAULTS, composeAttendancePolicySummary } from '@/lib/utils/attendance-policy-shared';
+import { ATTENDANCE_POLICY_DEFAULTS, composeAttendancePolicySummary, sanitizeAttendancePolicyForSubmit } from '@/lib/utils/attendance-policy-shared';
 import { AttendancePolicySteps, ATTENDANCE_STAGE_TITLES, StepShell } from '@/components/settings/AttendancePolicySteps';
 import { SelectOrCustom } from '@/components/ui/SelectOrCustom';
 import { JOB_TITLE_OPTIONS } from '@/lib/constants/org-fields';
@@ -55,9 +55,10 @@ export function NewOrganizationForm() {
   async function handleCreate() {
     setLoading(true); setError(''); setInfo('');
     try {
+      const sanitizedPolicy = sanitizeAttendancePolicyForSubmit(policy);
       const attendancePolicy = skipAttendance ? undefined : {
-        ...policy,
-        summary_text: composeAttendancePolicySummary(policy),
+        ...sanitizedPolicy,
+        summary_text: composeAttendancePolicySummary(sanitizedPolicy),
         is_configured: true,
       };
       const response = await fetch('/api/auth/register', {
@@ -277,7 +278,7 @@ export function NewOrganizationForm() {
               </div>
             ) : (
               <div className="rounded-lg border border-surface-300 bg-surface-200/50 px-4 py-3 text-sm text-surface-800 leading-relaxed">
-                {composeAttendancePolicySummary(policy)}
+                {composeAttendancePolicySummary(sanitizeAttendancePolicyForSubmit(policy))}
               </div>
             )}
           </StepShell>

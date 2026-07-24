@@ -5,21 +5,21 @@ import { z } from 'zod';
 // during org creation) — one schema, so the two flows can never drift.
 
 const ShiftSchema = z.object({
-  name:  z.string().min(1).max(60),
-  start: z.string().regex(/^\d{2}:\d{2}$/),
-  end:   z.string().regex(/^\d{2}:\d{2}$/),
+  name:  z.string().min(1, 'Every shift needs a name').max(60),
+  start: z.string().regex(/^\d{2}:\d{2}$/, 'Shift start time is missing or invalid'),
+  end:   z.string().regex(/^\d{2}:\d{2}$/, 'Shift end time is missing or invalid'),
 });
 
 const GeoFenceSchema = z.object({
-  name:      z.string().min(1).max(100),
+  name:      z.string().min(1, 'Every geo-fenced location needs a name').max(100),
   lat:       z.number(),
   lng:       z.number(),
   radius_m:  z.number().int().min(10).max(5000),
 });
 
 const HolidaySchema = z.object({
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  name: z.string().min(1).max(120),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Every holiday needs a date'),
+  name: z.string().min(1, 'Every holiday needs a name').max(120),
 });
 
 export const AttendancePolicySchema = z.object({

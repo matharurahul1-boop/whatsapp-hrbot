@@ -5,7 +5,7 @@ import { Loader2, Save, ChevronLeft, ChevronRight, Pencil, CheckCircle2 } from '
 import { cn } from '@/lib/utils/cn';
 import { useToast } from '@/components/ui/Toast';
 import type { AttendancePolicy } from '@/lib/utils/attendance-policy-shared';
-import { ATTENDANCE_POLICY_DEFAULTS, composeAttendancePolicySummary } from '@/lib/utils/attendance-policy-shared';
+import { ATTENDANCE_POLICY_DEFAULTS, composeAttendancePolicySummary, sanitizeAttendancePolicyForSubmit } from '@/lib/utils/attendance-policy-shared';
 import { AttendancePolicySteps, ATTENDANCE_STAGE_TITLES, StepShell } from './AttendancePolicySteps';
 
 // Settings-page wrapper: fetches/saves the org's attendance policy via the
@@ -48,11 +48,12 @@ export function AttendancePolicyWizard() {
   async function handleSave() {
     setSaving(true);
     try {
-      const summary_text = composeAttendancePolicySummary(policy);
+      const sanitized = sanitizeAttendancePolicyForSubmit(policy);
+      const summary_text = composeAttendancePolicySummary(sanitized);
       const res = await fetch('/api/organizations/attendance-policy', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...policy, summary_text, is_configured: true }),
+        body: JSON.stringify({ ...sanitized, summary_text, is_configured: true }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? 'Failed to save');
@@ -109,7 +110,7 @@ export function AttendancePolicyWizard() {
       {step === ATTENDANCE_STAGE_TITLES.length && (
         <StepShell title="Review & confirm" sub="Catch any misunderstandings before this goes live — nothing is saved until you confirm.">
           <div className="rounded-lg border border-surface-300 bg-surface-200/50 px-4 py-3 text-sm text-surface-800 leading-relaxed">
-            {composeAttendancePolicySummary(policy)}
+            {composeAttendancePolicySummary(sanitizeAttendancePolicyForSubmit(policy))}
           </div>
         </StepShell>
       )}

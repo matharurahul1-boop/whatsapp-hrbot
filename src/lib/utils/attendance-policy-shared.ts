@@ -107,6 +107,25 @@ export const ATTENDANCE_POLICY_DEFAULTS: AttendancePolicy = {
   is_configured: false,
 };
 
+// Drops holiday/geo-fence rows the user started (e.g. typed a name) but
+// never finished (e.g. left the date picker empty) — the wizard lets you
+// add a row and fill it in over several clicks, so an in-progress row is a
+// completely normal state to submit from, not user error. Without this,
+// the API's schema validation rejects the whole save with an opaque
+// "Invalid" (Zod's default regex-mismatch message) and no indication of
+// which field or row caused it.
+export function sanitizeAttendancePolicyForSubmit(policy: AttendancePolicy): AttendancePolicy {
+  const completeShifts = policy.shifts.filter(s => s.name.trim() && s.start.trim() && s.end.trim());
+  return {
+    ...policy,
+    holidays: policy.holidays.filter(h => h.date.trim() && h.name.trim()),
+    geo_fence_locations: policy.geo_fence_locations.filter(g => g.name.trim()),
+    // At least one shift is required — an empty result here (every row left
+    // incomplete) falls back to the single default rather than failing.
+    shifts: completeShifts.length > 0 ? completeShifts : ATTENDANCE_POLICY_DEFAULTS.shifts,
+  };
+}
+
 export const ATTENDANCE_DAY_LABEL: Record<string, string> = {
   mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun',
 };

@@ -29,8 +29,14 @@ const NAV: NavItem[] = [
   { href: '/employees',  label: 'Team',        icon: <Users           className="h-[18px] w-[18px]" />, roles: ['super_admin','admin','hr','hr_assistant','manager'],           color: 'text-pink-400'   },
   { href: '/whatsapp',   label: 'WA Logs',     icon: <MessageSquare   className="h-[18px] w-[18px]" />, roles: ['super_admin','admin','hr','hr_assistant','manager','employee'], color: 'text-green-400'  },
   { href: '/policy',     label: 'Policy Bot',  icon: <FileText        className="h-[18px] w-[18px]" />, roles: ['super_admin','admin','hr'],                                     color: 'text-blue-400'   },
-  { href: '/organizations', label: 'Organizations', icon: <Building2 className="h-[18px] w-[18px]" />, roles: ['super_admin','admin'],                                 color: 'text-orange-400' },
 ];
+
+// Not role-gated like the rest of NAV — visible only to admin/super_admin
+// members of the platform-operator org (see isPlatformOperator below), a
+// narrower condition than any role list can express on its own.
+const ORGANIZATIONS_NAV: NavItem = {
+  href: '/organizations', label: 'Organizations', icon: <Building2 className="h-[18px] w-[18px]" />, roles: ['super_admin','admin'], color: 'text-orange-400',
+};
 
 const MODE_OPTIONS: { key: SidebarMode; label: string }[] = [
   { key: 'expanded',  label: 'Expanded' },
@@ -54,13 +60,13 @@ function Tooltip({ label }: { label: string }) {
   );
 }
 
-export default function Sidebar({ role, orgName }: { role: UserRole; orgName?: string }) {
+export default function Sidebar({ role, orgName, isPlatformOperator }: { role: UserRole; orgName?: string; isPlatformOperator?: boolean }) {
   const pathname = usePathname();
   const { mode, setMode, closeMobile, pendingPath, startNavigation } = useSidebar();
   const [hovered,     setHovered]     = useState(false);
   const [showModeMenu, setShowModeMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
-  const visible = NAV.filter(n => n.roles.includes(role));
+  const visible = [...NAV.filter(n => n.roles.includes(role)), ...(isPlatformOperator ? [ORGANIZATIONS_NAV] : [])];
 
   const [isDesktop, setIsDesktop] = useState(
     typeof window !== 'undefined' ? window.innerWidth >= 1024 : true,

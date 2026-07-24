@@ -1,23 +1,22 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { isAdminOrAbove } from '@/lib/rbac';
+import { checkPlatformOperatorAdmin } from '@/lib/auth/platform-operator';
 
 // GET /api/organizations — lists every organization on the platform, for the
 // platform-operator console (Settings-adjacent /organizations page).
-// Deliberately admin-or-above, not super_admin-only: org creation and
-// attendance-policy management are both already admin-accessible, and this
-// list is the natural companion view for that — an admin can see every org
-// they (or another admin) has created, not just their own.
+// Restricted to admin/super_admin members of the platform-operator org
+// specifically — any other org's admin has no reason to see every other
+// customer on the platform.
 export async function GET() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const db = createAdminClient();
-  const { data: profile } = await db.from('users').select('role').eq('id', user.id).single();
-  if (!profile || !isAdminOrAbove(profile.role)) {
-    return NextResponse.json({ error: 'Only admins can view all organizations' }, { status: 403 });
+  const { allowed } = await checkPlatformOperatorAdmin(db, user.id);
+  if (!allowed) {
+    return NextResponse.json({ error: 'Only the platform operator org can view all organizations' }, { status: 403 });
   }
 
   const { data: orgs, error } = await db

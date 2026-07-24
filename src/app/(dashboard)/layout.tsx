@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { isAdminOrAbove } from '@/lib/rbac';
 import Sidebar from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
 import ThemeProvider from '@/components/layout/ThemeProvider';
@@ -19,7 +20,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const db = createAdminClient();
   const { data: profile } = await db
     .from('users')
-    .select('id, full_name, role, avatar_url, organization_id, metadata, organizations(name)')
+    .select('id, full_name, role, avatar_url, organization_id, metadata, organizations(name, is_platform_operator)')
     .eq('id', user.id)
     .single();
 
@@ -32,7 +33,12 @@ export default async function DashboardLayout({ children }: { children: React.Re
     redirect('/change-password-required');
   }
 
-  const orgName = (profile as { organizations?: { name?: string } }).organizations?.name;
+  const org = (profile as { organizations?: { name?: string; is_platform_operator?: boolean } }).organizations;
+  const orgName = org?.name;
+  // Org creation and cross-org editing are restricted to admin/super_admin
+  // members of the one org flagged is_platform_operator — see
+  // src/lib/auth/platform-operator.ts for the matching API/page gate.
+  const isPlatformOperator = isAdminOrAbove(profile.role) && !!org?.is_platform_operator;
 
   return (
     <ThemeProvider>
@@ -40,7 +46,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <SidebarProvider>
         <div className="flex h-screen overflow-hidden bg-surface-50">
           {/* Sidebar — fixed, collapses on desktop / slides as overlay on mobile */}
-          <Sidebar role={profile.role} orgName={orgName} />
+          <Sidebar role={profile.role} orgName={orgName} isPlatformOperator={isPlatformOperator} />
 
           {/* Mobile/tablet overlay backdrop — hidden on desktop (lg+) where sidebar is inline */}
           <div id="sidebar-overlay" className="fixed inset-0 z-30 bg-black/50 hidden lg:hidden" />
@@ -72,7 +78,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         </div>
 
         {/* Mobile bottom navigation — hidden on desktop (lg+) */}
-        <BottomNav role={profile.role} />
+        <BottomNav role={profile.role} isPlatformOperator={isPlatformOperator} />
 
         <PushNotificationManager />
       </SidebarProvider>

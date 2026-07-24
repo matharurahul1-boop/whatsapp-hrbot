@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { isAdminOrAbove } from '@/lib/rbac';
+import { checkPlatformOperatorAdmin } from '@/lib/auth/platform-operator';
 import { OrganizationsTable } from '@/components/organizations/OrganizationsTable';
 
 export default async function OrganizationsPage() {
@@ -12,10 +12,8 @@ export default async function OrganizationsPage() {
   if (!user) redirect('/login');
 
   const db = createAdminClient();
-  const { data: profile } = await db.from('users').select('role').eq('id', user.id).single();
-  // Admin gets the same access as super_admin here, matching org creation
-  // and attendance-policy management, which were already admin-accessible.
-  if (!profile || !isAdminOrAbove(profile.role)) redirect('/dashboard');
+  const { allowed } = await checkPlatformOperatorAdmin(db, user.id);
+  if (!allowed) redirect('/dashboard');
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">

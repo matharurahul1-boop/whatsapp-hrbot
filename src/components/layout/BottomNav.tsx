@@ -27,17 +27,20 @@ const MORE_ITEMS = [
   { href: '/employees',  label: 'Team',       Icon: Users,         color: 'text-pink-400',    roles: MGR },
   { href: '/whatsapp',   label: 'WA Logs',    Icon: MessageSquare, color: 'text-green-400',   roles: ALL },
   { href: '/policy',     label: 'Policy',     Icon: FileText,      color: 'text-blue-400',    roles: HR  },
-  { href: '/organizations', label: 'Orgs', Icon: Building2, color: 'text-orange-400',  roles: ADMIN },
   { href: '/settings',   label: 'Settings',   Icon: Settings,      color: 'text-surface-400', roles: ALL },
 ];
 
-export default function BottomNav({ role }: { role: UserRole }) {
+// Not role-gated like MORE_ITEMS — visible only to admin/super_admin
+// members of the platform-operator org, passed in separately below.
+const ORGANIZATIONS_ITEM = { href: '/organizations', label: 'Orgs', Icon: Building2, color: 'text-orange-400', roles: ADMIN };
+
+export default function BottomNav({ role, isPlatformOperator }: { role: UserRole; isPlatformOperator?: boolean }) {
   const pathname  = usePathname();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   const primary    = PRIMARY.filter(n => n.roles.includes(role));
-  const more       = MORE_ITEMS.filter(n => n.roles.includes(role));
+  const more       = [...MORE_ITEMS.filter(n => n.roles.includes(role)), ...(isPlatformOperator ? [ORGANIZATIONS_ITEM] : [])];
   const moreActive = more.some(n => pathname === n.href || pathname.startsWith(n.href + '/'));
 
   // Close popup on outside tap

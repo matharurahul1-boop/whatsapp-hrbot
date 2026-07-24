@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { isAdminOrAbove } from '@/lib/rbac';
+import { checkPlatformOperatorAdmin } from '@/lib/auth/platform-operator';
 import { NewOrganizationForm } from '@/components/organizations/NewOrganizationForm';
 
 export default async function NewOrganizationPage() {
@@ -10,11 +10,11 @@ export default async function NewOrganizationPage() {
   if (!user) redirect('/login');
 
   const db = createAdminClient();
-  const { data: profile } = await db.from('users').select('role').eq('id', user.id).single();
-  // Server-side gate — the sidebar/bottom-nav links are also role-filtered,
-  // but hiding a link isn't access control on its own; this redirect (and
-  // the matching check in /api/auth/register) is what actually enforces it.
-  if (!profile || !isAdminOrAbove(profile.role)) redirect('/dashboard');
+  // Server-side gate — the sidebar/bottom-nav links are also filtered, but
+  // hiding a link isn't access control on its own; this redirect (and the
+  // matching check in /api/auth/register) is what actually enforces it.
+  const { allowed } = await checkPlatformOperatorAdmin(db, user.id);
+  if (!allowed) redirect('/dashboard');
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">

@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { writeAuditLog }   from '@/lib/utils/audit';
 import { todayISO, istNow } from '@/lib/utils/date';
 import { isHrOrAbove, isEmployee } from '@/lib/rbac';
+import { computeCheckInStatus, computeHalfDayStatus } from '@/lib/utils/attendance-policy';
 import { z } from 'zod';
 
 // ── Self check-in (employees, managers, everyone) ─────────────────────────────
@@ -142,12 +143,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Already checked in today', data: existing }, { status: 409 });
   }
 
+  const { status } = await computeCheckInStatus(db, profile.organization_id, new Date());
+
   const { data: record, error } = await db.from('attendance_records').insert({
     organization_id: profile.organization_id,
     employee_id:     user.id,
     date:            today,
     check_in_time:   new Date().toISOString(),
-    status:          'present',
+    status,
     notes:           parsed.data.notes ?? null,
     location:        parsed.data.location ?? null,
   }).select().single();
@@ -218,9 +221,15 @@ export async function PATCH(req: NextRequest) {
   if (!existing) return NextResponse.json({ error: 'No check-in found for today' }, { status: 404 });
   if (existing.check_out_time) return NextResponse.json({ error: 'Already checked out', data: existing }, { status: 409 });
 
+  const checkOutTime = new Date();
+  const hoursWorked = existing.check_in_time
+    ? (checkOutTime.getTime() - new Date(existing.check_in_time).getTime()) / 3600000
+    : null;
+  const halfDayStatus = await computeHalfDayStatus(db, profile.organization_id, hoursWorked, existing.status);
+
   const { data: updated, error } = await db
     .from('attendance_records')
-    .update({ check_out_time: new Date().toISOString() })
+    .update({ check_out_time: checkOutTime.toISOString(), ...(halfDayStatus && { status: halfDayStatus }) })
     .eq('id', existing.id)
     .select().single();
 

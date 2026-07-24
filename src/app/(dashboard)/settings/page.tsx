@@ -7,13 +7,14 @@ import {
   Building2, Bell, Shield, Phone,
   Save, Loader2, CheckCircle2, AlertCircle,
   Eye, EyeOff, Copy, Check, Bot, KeyRound, Plus, X,
-  CalendarDays, RefreshCw, MessageSquare, ChevronDown, ChevronUp,
+  CalendarDays, RefreshCw, MessageSquare, ChevronDown, ChevronUp, CalendarClock,
 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 import { normalizeWaNumber } from '@/lib/utils/phone';
 import { useToast } from '@/components/ui/Toast';
 import { REALTIME_PAGES, type RealtimePage } from '@/lib/utils/realtime-settings';
 import { NOTIFICATION_TYPES, NOTIFICATION_GROUPS, NOTIFICATION_GROUP_LABEL, type NotificationGroup } from '@/lib/utils/notification-settings';
+import { AttendancePolicyWizard } from '@/components/settings/AttendancePolicyWizard';
 
 const REALTIME_PAGE_LABEL: Record<RealtimePage, string> = {
   leave: 'Leave', tasks: 'Tasks', attendance: 'Attendance',
@@ -48,6 +49,7 @@ const SETTINGS_SECTIONS = [
   { id: 'permissions',   label: 'Permissions',            requires: 'all'   },
   { id: 'password',      label: 'Change Password',        requires: 'all'   },
   { id: 'leave-policy',  label: 'Leave Policy',           requires: 'hr'    },
+  { id: 'attendance-policy', label: 'Attendance Policy',  requires: 'admin' },
   { id: 'ai-assistant',  label: 'AI Assistant',           requires: 'admin' },
   { id: 'groq-keys',     label: 'Groq API Keys',          requires: 'admin' },
   { id: 'live-updates',  label: 'Live Updates',           requires: 'admin' },
@@ -989,6 +991,17 @@ export default function SettingsPage() {
                 )}
               </>
             )}
+          </Section>
+        )}
+
+        {/* ── Attendance Policy (admin only) ── */}
+        {isAdmin && activeSection === 'attendance-policy' && (
+          <Section
+            title="Attendance Policy"
+            description="Working days, shift timing, grace period, and how attendance is captured & enforced org-wide"
+            icon={<CalendarClock className="h-4 w-4" />}
+          >
+            <AttendancePolicyWizard />
           </Section>
         )}
 

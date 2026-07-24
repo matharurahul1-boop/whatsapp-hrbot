@@ -17,6 +17,7 @@ import {
 } from '@/lib/whatsapp/notify';
 import type { ToolInput, ToolResult, AgentIntent, SlotValues } from './types';
 import { looksLikeRealPersonName } from './routing';
+import { computeCheckInStatus, computeHalfDayStatus } from '@/lib/utils/attendance-policy';
 
 // ─── Tool Executor Registry ───────────────────────────────────────────────────
 
@@ -2044,10 +2045,18 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       return { success: true, reply: REPLIES.checkInSuccess(firstName, t, lang) };
     }
 
+    // Orgs that haven't run the Attendance Policy wizard (Settings → Attendance
+    // Policy) get no row here — fall straight through to today's unconditional
+    // "present" behavior so nothing changes for them.
+    const { status, shiftStart } = await computeCheckInStatus(db, org_id, new Date(now));
+    const lateNote = status === 'late'
+      ? (lang === 'hi' ? ` (देर से मार्क — shift *${shiftStart}* बजे शुरू होती है)` : ` (marked late — shift starts *${shiftStart}*)`)
+      : '';
+
     const { data: record, error } = await db
       .from('attendance_records')
       .upsert(
-        { organization_id: org_id, employee_id: user_id, date: today, check_in_time: now, status: 'present', source: 'whatsapp' },
+        { organization_id: org_id, employee_id: user_id, date: today, check_in_time: now, status, source: 'whatsapp' },
         { onConflict: 'employee_id,date' }
       )
       .select().single();
@@ -2060,7 +2069,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
       record_id: record.id, new_data: record, source: 'whatsapp',
     });
 
-    return { success: true, reply: REPLIES.checkInSuccess(firstName, timeStr, lang) };
+    return { success: true, reply: REPLIES.checkInSuccess(firstName, timeStr, lang) + lateNote };
   },
 
   async CHECK_OUT({ org_id, user_id, slots, user_name }): Promise<ToolResult> {
@@ -2073,7 +2082,7 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
 
     const { data: record } = await db
       .from('attendance_records')
-      .select('id, check_in_time, check_out_time')
+      .select('id, check_in_time, check_out_time, status')
       .eq('employee_id', user_id).eq('date', today)
       .not('check_in_time', 'is', null)
       .maybeSingle();
@@ -2086,21 +2095,34 @@ const TOOL_MAP: Partial<Record<AgentIntent, (input: ToolInput) => Promise<ToolRe
         : `You already checked out at *${cout}* today. See you tomorrow! 👋` };
     }
 
+    // Calculate hours worked (before the update, so half-day detection below
+    // has a number to compare against — the DB trigger recomputes total_hours
+    // independently on the row itself).
+    const hoursWorked = record.check_in_time
+      ? (new Date(now).getTime() - new Date(record.check_in_time).getTime()) / 3600000
+      : null;
+
+    // Half-day overrides whatever CHECK_IN set (present/late) when the org has
+    // a configured policy and the shift fell short of the half-day threshold.
+    // Orgs without a configured policy (or when hours can't be computed) keep
+    // today's behavior — status only ever set at check-in, untouched here.
+    const halfDayStatus = await computeHalfDayStatus(db, org_id, hoursWorked, record.status);
+
     const { data: updated, error: checkoutError } = await db
       .from('attendance_records')
-      .update({ check_out_time: now })
+      .update({ check_out_time: now, ...(halfDayStatus && { status: halfDayStatus }) })
       .eq('id', record.id)
       .is('check_out_time', null)
       .select().maybeSingle();
     if (checkoutError) throw checkoutError;
     if (!updated) return { success: false, reply: '⚠️ Attendance was already updated. Please check your attendance status.' };
 
-    // Calculate hours worked
-    const hoursWorked = record.check_in_time
-      ? ((new Date(now).getTime() - new Date(record.check_in_time).getTime()) / 3600000).toFixed(2)
-      : (updated as any)?.total_hours?.toFixed(2) ?? '?';
+    const hoursWorkedStr = hoursWorked !== null ? hoursWorked.toFixed(2) : (updated as any)?.total_hours?.toFixed(2) ?? '?';
+    const halfDayNote = halfDayStatus === 'half_day'
+      ? (lang === 'hi' ? ' (आज half-day के रूप में दर्ज)' : ' (marked as a half-day today)')
+      : '';
 
-    return { success: true, reply: REPLIES.checkOutSuccess(firstName, timeStr, hoursWorked, lang) };
+    return { success: true, reply: REPLIES.checkOutSuccess(firstName, timeStr, hoursWorkedStr, lang) + halfDayNote };
   },
 
   async MY_ATTENDANCE({ org_id, user_id, slots, user_name }): Promise<ToolResult> {

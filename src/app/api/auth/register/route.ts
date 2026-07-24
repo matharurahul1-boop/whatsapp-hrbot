@@ -1,10 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { distributedRateLimit } from '@/lib/rate-limit';
+import { isAdminOrAbove } from '@/lib/rbac';
 import { PublicRegistrationSchema, provisionAdminWorkspace } from '@/lib/auth/provision-admin';
 
+// Creating a new organization is an admin/super_admin-only action performed
+// from inside the app (Settings → New Organization), not public self-signup —
+// this endpoint used to be reachable from a Sign Up tab on the login page
+// with no auth at all; that tab is gone and this check is what actually
+// closes the gap, not just hiding the button.
 export async function POST(req: NextRequest) {
+  const supabase = await createClient();
+  const { data: { user: caller } } = await supabase.auth.getUser();
+  if (!caller) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const admin = createAdminClient();
+  const { data: callerProfile } = await admin
+    .from('users').select('role').eq('id', caller.id).single();
+  if (!callerProfile || !isAdminOrAbove(callerProfile.role)) {
+    return NextResponse.json({ error: 'Only admins can create a new organization' }, { status: 403 });
+  }
+
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
   if (!await distributedRateLimit(`register:${ip}`, 5, 60 * 60 * 1000)) {
     return NextResponse.json({ error: 'Too many registration attempts. Try again later.' }, { status: 429 });
@@ -16,7 +34,6 @@ export async function POST(req: NextRequest) {
   }
 
   const { email, password, ...workspace } = parsed.data;
-  const admin = createAdminClient();
   const publicAuth = createSupabaseClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,

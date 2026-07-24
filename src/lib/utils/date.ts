@@ -71,6 +71,36 @@ export function istNow(): string {
   return new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
 }
 
+/**
+ * Today's date in YYYY-MM-DD format in an arbitrary IANA timezone — the
+ * per-org equivalent of todayISO()/todayIST() above, for attendance
+ * check-in/check-out reminders so an org's "today" matches its own local
+ * calendar day rather than always assuming India. Falls back to Asia/Kolkata
+ * (matching the previous global behavior) when no timezone is given.
+ */
+export function todayInTimezone(timezone?: string | null): string {
+  try {
+    return new Date().toLocaleDateString('en-CA', { timeZone: timezone || 'Asia/Kolkata' });
+  } catch {
+    return todayISO();
+  }
+}
+
+const WEEKDAY_KEY: Record<string, string> = {
+  Sun: 'sun', Mon: 'mon', Tue: 'tue', Wed: 'wed', Thu: 'thu', Fri: 'fri', Sat: 'sat',
+};
+
+/** Lowercase 3-letter weekday key ('sun'..'sat') for "today" in the given
+ *  IANA timezone — used to check an org's configured weekly offs. */
+export function weekdayInTimezone(timezone?: string | null): string {
+  try {
+    const short = new Date().toLocaleDateString('en-US', { timeZone: timezone || 'Asia/Kolkata', weekday: 'short' });
+    return WEEKDAY_KEY[short] ?? 'sun';
+  } catch {
+    return WEEKDAY_KEY[new Date().toLocaleDateString('en-US', { timeZone: 'Asia/Kolkata', weekday: 'short' })] ?? 'sun';
+  }
+}
+
 const MONTH_MAP: Record<string, string> = {
   jan:'01', feb:'02', mar:'03', apr:'04', may:'05', jun:'06',
   jul:'07', aug:'08', sep:'09', oct:'10', nov:'11', dec:'12',

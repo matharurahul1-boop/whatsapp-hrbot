@@ -28,6 +28,7 @@ import {
   notifyTaskDeadlineReminder,
 } from '@/lib/whatsapp/notify';
 import { isNotificationTypeEnabled } from '@/lib/utils/notification-settings';
+import { todayInTimezone, weekdayInTimezone } from '@/lib/utils/date';
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
 
@@ -45,14 +46,6 @@ function dayAfterTomorrowIST(): string {
   const d = new Date();
   d.setDate(d.getDate() + 2);
   return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-}
-
-// Sunday in IST — check-in/check-out reminders don't make sense on the
-// weekly off day. Uses en-US weekday formatting rather than getDay() so
-// this is correct regardless of which timezone the cron runner itself is
-// in (Vercel's cron dynos run in UTC).
-function isSundayIST(): boolean {
-  return new Date().toLocaleDateString('en-US', { timeZone: 'Asia/Kolkata', weekday: 'short' }) === 'Sun';
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
@@ -110,21 +103,34 @@ async function dispatch(type: string): Promise<NextResponse> {
 // ── 1. Check-in reminders ─────────────────────────────────────────────────────
 
 async function runCheckinReminders(): Promise<number> {
-  if (isSundayIST()) {
-    console.log('[Reminders:checkin] skipped — Sunday');
-    return 0;
-  }
-
   const db    = createAdminClient();
-  const today = todayIST();
   let   sent  = 0;
 
   const { data: orgs } = await db
     .from('organizations')
-    .select('id')
+    .select('id, settings')
     .not('wa_phone_number_id', 'is', null);
+  if (!orgs?.length) return 0;
 
-  for (const org of orgs ?? []) {
+  // Batch-fetch each org's configured weekly offs (falls back to Sunday-only,
+  // matching the previous global-IST-Sunday default, for orgs that haven't
+  // run the Attendance Policy wizard) rather than one global "is it Sunday
+  // in IST" check that skipped every org's reminders on the same day
+  // regardless of their own timezone or actual weekly off.
+  const { data: policies } = await db
+    .from('attendance_policies')
+    .select('organization_id, weekly_offs, is_configured')
+    .in('organization_id', orgs.map(o => o.id));
+  const policyByOrg = new Map((policies ?? []).map(p => [p.organization_id, p]));
+
+  for (const org of orgs) {
+    const timezone = (org.settings as { timezone?: string } | null)?.timezone;
+    const policy = policyByOrg.get(org.id);
+    const weeklyOffs = policy?.is_configured ? (policy.weekly_offs as string[]) : ['sun'];
+    if (weeklyOffs.includes(weekdayInTimezone(timezone))) continue;
+
+    const today = todayInTimezone(timezone);
+
     if (!(await isNotificationTypeEnabled(db, org.id, 'attendance_checkin_reminder'))) continue;
 
     const { data: employees } = await db
@@ -160,21 +166,29 @@ async function runCheckinReminders(): Promise<number> {
 // ── 2. Check-out reminders ────────────────────────────────────────────────────
 
 async function runCheckoutReminders(): Promise<number> {
-  if (isSundayIST()) {
-    console.log('[Reminders:checkout] skipped — Sunday');
-    return 0;
-  }
-
   const db    = createAdminClient();
-  const today = todayIST();
   let   sent  = 0;
 
   const { data: orgs } = await db
     .from('organizations')
-    .select('id')
+    .select('id, settings')
     .not('wa_phone_number_id', 'is', null);
+  if (!orgs?.length) return 0;
 
-  for (const org of orgs ?? []) {
+  const { data: policies } = await db
+    .from('attendance_policies')
+    .select('organization_id, weekly_offs, is_configured')
+    .in('organization_id', orgs.map(o => o.id));
+  const policyByOrg = new Map((policies ?? []).map(p => [p.organization_id, p]));
+
+  for (const org of orgs) {
+    const timezone = (org.settings as { timezone?: string } | null)?.timezone;
+    const policy = policyByOrg.get(org.id);
+    const weeklyOffs = policy?.is_configured ? (policy.weekly_offs as string[]) : ['sun'];
+    if (weeklyOffs.includes(weekdayInTimezone(timezone))) continue;
+
+    const today = todayInTimezone(timezone);
+
     if (!(await isNotificationTypeEnabled(db, org.id, 'attendance_checkout_reminder'))) continue;
 
     const { data: pendingCheckouts } = await db

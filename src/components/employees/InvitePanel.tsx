@@ -4,16 +4,25 @@ import { useState, useEffect } from 'react';
 import { UserPlus, Copy, Check, X, Link2, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 
-type InviteRole = 'employee' | 'manager' | 'hr_assistant' | 'hr';
+type InviteRole = 'employee' | 'manager' | 'hr_assistant' | 'hr' | 'super_admin';
 
 const ROLE_OPTIONS: { value: InviteRole; label: string; desc: string; color: string }[] = [
   { value: 'employee',     label: 'Team Member',  desc: 'Tasks, leave, attendance',           color: 'text-cyan-400   border-cyan-500/30   bg-cyan-500/[0.06]'   },
   { value: 'manager',      label: 'Manager',      desc: 'Manage tasks, view team attendance',  color: 'text-amber-400  border-amber-500/30  bg-amber-500/[0.06]'  },
   { value: 'hr_assistant', label: 'HR Assistant', desc: 'Approve leave for employees/managers', color: 'text-teal-400   border-teal-500/30   bg-teal-500/[0.06]'   },
   { value: 'hr',           label: 'HR Staff',     desc: 'Full HR + onboarding access',          color: 'text-violet-400 border-violet-500/30 bg-violet-500/[0.06]' },
+  { value: 'super_admin',  label: 'Super Admin',  desc: 'Unrestricted, cross-org access',       color: 'text-red-400    border-red-500/30    bg-red-500/[0.06]'    },
 ];
 
-export default function InvitePanel() {
+interface InvitePanelProps {
+  // Gates the Super Admin option client-side for a cleaner UI — the real
+  // enforcement is server-side in /api/organizations/invite, which rejects
+  // a super_admin invite request from anyone who isn't already one.
+  actorRole?: string;
+}
+
+export default function InvitePanel({ actorRole }: InvitePanelProps) {
+  const roleOptions = actorRole === 'super_admin' ? ROLE_OPTIONS : ROLE_OPTIONS.filter(o => o.value !== 'super_admin');
   const [open,    setOpen]    = useState(false);
   const [role,    setRole]    = useState<InviteRole>('employee');
   const [copied,  setCopied]  = useState(false);
@@ -84,7 +93,7 @@ export default function InvitePanel() {
               <div>
                 <p className="label">Select role</p>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  {ROLE_OPTIONS.map(opt => {
+                  {roleOptions.map(opt => {
                     const active = role === opt.value;
                     return (
                       <button

@@ -10,7 +10,7 @@ import crypto from 'crypto';
  * enough to make the token self-verifying and impossible to forge or edit.
  */
 
-export type InviteRole = 'employee' | 'manager' | 'hr_assistant' | 'hr';
+export type InviteRole = 'employee' | 'manager' | 'hr_assistant' | 'hr' | 'super_admin';
 
 export interface InvitePayload {
   orgId: string;
@@ -18,7 +18,7 @@ export interface InvitePayload {
   exp:   number; // unix ms
 }
 
-const ROLES: InviteRole[] = ['employee', 'manager', 'hr_assistant', 'hr'];
+const ROLES: InviteRole[] = ['employee', 'manager', 'hr_assistant', 'hr', 'super_admin'];
 
 function secret(): string {
   const s = process.env.APP_SECRET;

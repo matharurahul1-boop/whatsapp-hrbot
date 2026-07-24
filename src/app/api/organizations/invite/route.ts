@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { isHrOrAbove } from '@/lib/rbac';
+import { isHrOrAbove, isSuperAdmin } from '@/lib/rbac';
 import { signInvite, type InviteRole } from '@/lib/utils/invite-token';
 import { z } from 'zod';
 
 const InviteSchema = z.object({
-  role: z.enum(['employee', 'manager', 'hr_assistant', 'hr']),
+  role: z.enum(['employee', 'manager', 'hr_assistant', 'hr', 'super_admin']),
 });
 
 // POST /api/organizations/invite — mint a signed invite link for the
@@ -33,6 +33,15 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
   const role: InviteRole = parsed.data.role;
+
+  // Minting a super_admin invite is the one privilege an HR/admin caller
+  // must never be able to grant to someone else — every other role here is
+  // at or below what isHrOrAbove already allows, but super_admin is
+  // strictly higher. Without this check, any HR user could mint a link
+  // that hands out unrestricted, cross-org access.
+  if (role === 'super_admin' && !isSuperAdmin(profile.role)) {
+    return NextResponse.json({ error: 'Only a super admin can invite another super admin' }, { status: 403 });
+  }
 
   const token = signInvite(profile.organization_id, role);
   return NextResponse.json({ token });
